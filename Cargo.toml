@@ -33,6 +33,7 @@ toml = "0.8"
 semver = { version = "1", features = ["serde"] }
 # Error handling + logging
 anyhow = "1"
+regex = "1"
 tempfile = "3"
 thiserror = "1"
 tracing = "0.1"

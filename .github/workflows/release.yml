@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            artifact: iris-dev-linux-x86_64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact: iris-dev-macos-arm64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact: iris-dev-macos-x86_64
+          - target: x86_64-pc-windows-gnu
+            os: ubuntu-latest
+            artifact: iris-dev-windows-x86_64.exe
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-zigbuild
+        run: pip install ziglang && cargo install cargo-zigbuild
+      - name: Build
+        run: cargo zigbuild --release --target ${{ matrix.target }} -p iris-dev
+      - name: Rename artifact
+        run: |
+          cp target/${{ matrix.target }}/release/iris-dev ${{ matrix.artifact }} 2>/dev/null || \
+          cp target/${{ matrix.target }}/release/iris-dev.exe ${{ matrix.artifact }} 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+  
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            iris-dev-linux-x86_64/iris-dev-linux-x86_64
+            iris-dev-macos-arm64/iris-dev-macos-arm64
+            iris-dev-macos-x86_64/iris-dev-macos-x86_64
+            iris-dev-windows-x86_64.exe/iris-dev-windows-x86_64.exe

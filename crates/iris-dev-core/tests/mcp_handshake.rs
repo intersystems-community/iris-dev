@@ -58,6 +58,11 @@ fn mcp_server_starts_and_responds_to_initialize() {
 
     let response = read_jsonrpc(&mut reader);
     let elapsed = start.elapsed();
+    // Send required initialized notification
+    let init_notif = concat!(r#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#, "
+");
+    stdin.write_all(init_notif.as_bytes()).unwrap();
+    stdin.flush().unwrap();
 
     assert!(elapsed < Duration::from_millis(500),
         "initialize took {}ms, expected <500ms", elapsed.as_millis());
@@ -90,6 +95,11 @@ fn mcp_server_tools_list_returns_23_tools() {
 
     send_jsonrpc(&mut stdin, 1, "initialize", r#"{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}"#);
     let _init = read_jsonrpc(&mut reader);
+    let init_notif = concat!(r#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#, "
+");
+    stdin.write_all(init_notif.as_bytes()).unwrap();
+    stdin.flush().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(50));
 
     send_jsonrpc(&mut stdin, 2, "tools/list", "{}");
     let response = read_jsonrpc(&mut reader);

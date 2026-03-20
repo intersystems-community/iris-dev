@@ -1,5 +1,23 @@
+# Rust build artifacts
 /target/
-Cargo.lock
+# Note: Cargo.lock IS committed for binary crates (reproducible builds)
+
+# Editor
 *.swp
+*.swo
+*~
 .DS_Store
+Thumbs.db
+
+# Environment / secrets
 .env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Profiling / logs
+*.prof*
+*.log
