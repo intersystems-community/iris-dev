@@ -71,7 +71,7 @@ impl McpCommand {
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
         let iris = iris_rx.borrow().clone();
 
-        let service = IrisTools::new(iris).serve(stdio()).await
+        let service = IrisTools::with_registry(iris, registry).serve(stdio()).await
             .inspect_err(|e| tracing::error!("MCP server error: {:?}", e))?;
         service.waiting().await?;
         Ok(())

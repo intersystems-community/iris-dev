@@ -126,13 +126,17 @@ fn is_network_error(msg: &str) -> bool {
 #[derive(Clone)]
 pub struct IrisTools {
     pub iris: Option<Arc<IrisConnection>>,
+    pub registry: Arc<crate::skills::SkillRegistry>,
     tool_router: ToolRouter<IrisTools>,
 }
 
 #[tool_router]
 impl IrisTools {
     pub fn new(iris: Option<IrisConnection>) -> Self {
-        Self { iris: iris.map(Arc::new), tool_router: Self::tool_router() }
+        Self { iris: iris.map(Arc::new), registry: Arc::new(crate::skills::SkillRegistry::new()), tool_router: Self::tool_router() }
+    }
+    pub fn with_registry(iris: Option<IrisConnection>, registry: crate::skills::SkillRegistry) -> Self {
+        Self { iris: iris.map(Arc::new), registry: Arc::new(registry), tool_router: Self::tool_router() }
     }
     fn get_iris(&self) -> Result<&IrisConnection, McpError> {
         self.iris.as_deref().ok_or_else(iris_unreachable)
@@ -231,20 +235,71 @@ impl IrisTools {
         }
     }
 
-    #[tool(description = "Generate an ObjectScript class from a natural language description. Requires IRIS_GENERATE_CLASS_MODEL env var.")]
+    #[tool(description = "Generate an ObjectScript class from a natural language description. Requires IRIS_GENERATE_CLASS_MODEL + OPENAI_API_KEY env vars.")]
     async fn iris_generate_class(&self, Parameters(p): Parameters<GenerateClassParams>) -> Result<CallToolResult, McpError> {
-        if std::env::var("IRIS_GENERATE_CLASS_MODEL").is_err() {
-            return err_json("LLM_UNAVAILABLE", "Set IRIS_GENERATE_CLASS_MODEL env var");
+        use crate::generate::{LlmClient, GENERATE_CLASS_SYSTEM, RETRY_TEMPLATE, validate_cls_syntax, extract_class_name};
+        let llm = LlmClient::from_env().ok_or_else(|| McpError::invalid_request("LLM_UNAVAILABLE: Set IRIS_GENERATE_CLASS_MODEL and OPENAI_API_KEY", None))?;
+
+        let class_text = llm.complete(GENERATE_CLASS_SYSTEM, &p.description).await
+            .map_err(|e| McpError { code: rmcp::model::ErrorCode::INTERNAL_ERROR, message: format!("LLM_TIMEOUT: {}", e).into(), data: None })?;
+
+        if !validate_cls_syntax(&class_text) {
+            return ok_json(serde_json::json!({"success": false, "error_code": "INVALID_OUTPUT", "raw_llm_output": class_text}));
         }
-        err_json("NOT_IMPLEMENTED", "LLM class generation pending")
+        let class_name = extract_class_name(&class_text).unwrap_or_else(|| "Generated.Class".to_string());
+
+        if let Some(iris) = self.iris.as_deref() {
+            let client = self.http_client();
+            let code = format!("Set sc=$SYSTEM.OBJ.Compile(\"{}\",\"ck-d\") Write $System.Status.IsOK(sc)", class_name);
+            let compile_ok = iris.xecute(&code, &client).await
+                .map(|r| r["result"]["content"][0].as_str().unwrap_or("0").trim() == "1")
+                .unwrap_or(false);
+
+            if !compile_ok {
+                let retry_prompt = RETRY_TEMPLATE.replace("{errors}", "compilation failed");
+                if let Ok(fixed) = llm.complete(GENERATE_CLASS_SYSTEM, &format!("{}
+
+Original: {}", retry_prompt, class_text)).await {
+                    let fixed_name = extract_class_name(&fixed).unwrap_or(class_name.clone());
+                    let code2 = format!("Set sc=$SYSTEM.OBJ.Compile(\"{}\",\"ck-d\") Write $System.Status.IsOK(sc)", fixed_name);
+                    let ok2 = iris.xecute(&code2, &client).await.map(|r| r["result"]["content"][0].as_str().unwrap_or("0").trim() == "1").unwrap_or(false);
+                    return ok_json(serde_json::json!({"success": true, "class_name": fixed_name, "class_text": fixed, "compiled": ok2, "retried": true}));
+                }
+            }
+            return ok_json(serde_json::json!({"success": true, "class_name": class_name, "class_text": class_text, "compiled": compile_ok, "retried": false}));
+        }
+        ok_json(serde_json::json!({"success": true, "class_name": class_name, "class_text": class_text, "compiled": false, "retried": false, "note": "No IRIS connection — could not compile"}))
     }
 
-    #[tool(description = "Generate a %UnitTest.TestCase for an existing class. Requires IRIS_GENERATE_CLASS_MODEL.")]
+    #[tool(description = "Generate a %UnitTest.TestCase for an existing ObjectScript class. Introspects the class first. Requires IRIS_GENERATE_CLASS_MODEL + OPENAI_API_KEY.")]
     async fn iris_generate_test(&self, Parameters(p): Parameters<GenerateTestParams>) -> Result<CallToolResult, McpError> {
-        if std::env::var("IRIS_GENERATE_CLASS_MODEL").is_err() {
-            return err_json("LLM_UNAVAILABLE", "Set IRIS_GENERATE_CLASS_MODEL env var");
+        use crate::generate::{LlmClient, GENERATE_TEST_SYSTEM, validate_cls_syntax, extract_class_name};
+        let llm = LlmClient::from_env().ok_or_else(|| McpError::invalid_request("LLM_UNAVAILABLE: Set IRIS_GENERATE_CLASS_MODEL and OPENAI_API_KEY", None))?;
+
+        let introspection_context = if let Some(iris) = self.iris.as_deref() {
+            let client = self.http_client();
+            let cls = p.class_name.replace("'", "''");
+            let sql = format!("SELECT Name,FormalSpec,ReturnType FROM %Dictionary.CompiledMethod WHERE parent='{}' ORDER BY Name", cls);
+            iris.query(&sql, vec![], &client).await
+                .map(|r| format!("Class: {}
+Methods:
+{}", p.class_name, serde_json::to_string_pretty(&r["result"]["content"]).unwrap_or_default()))
+                .unwrap_or_else(|_| format!("Class: {} (introspection unavailable)", p.class_name))
+        } else {
+            format!("Class: {} (no IRIS connection — generating scaffold)", p.class_name)
+        };
+
+        let prompt = format!("Generate tests for the following ObjectScript class:
+
+{}", introspection_context);
+        let test_text = llm.complete(GENERATE_TEST_SYSTEM, &prompt).await
+            .map_err(|e| McpError { code: rmcp::model::ErrorCode::INTERNAL_ERROR, message: format!("LLM_TIMEOUT: {}", e).into(), data: None })?;
+
+        if !validate_cls_syntax(&test_text) {
+            return ok_json(serde_json::json!({"success": false, "error_code": "INVALID_OUTPUT", "raw_llm_output": test_text}));
         }
-        err_json("NOT_IMPLEMENTED", "LLM test generation pending")
+        let test_class_name = extract_class_name(&test_text).unwrap_or_else(|| format!("Test.{}", p.class_name));
+        ok_json(serde_json::json!({"success": true, "class_name": p.class_name, "test_class_name": test_class_name, "test_text": test_text, "introspected": !introspection_context.contains("unavailable")}))
     }
 
     #[tool(description = "List all synthesized skills in the registry.")]
@@ -334,9 +389,24 @@ impl IrisTools {
         err_json("NOT_IMPLEMENTED", "Skill sharing pending GitHub integration")
     }
 
-    #[tool(description = "List community-contributed skills from the GitHub community repo.")]
+    #[tool(description = "List all skills loaded from --subscribe packages. Use --subscribe owner/repo when starting iris-dev mcp to load community skills.")]
     async fn skill_community_list(&self, _: Parameters<serde_json::Value>) -> Result<CallToolResult, McpError> {
-        ok_json(serde_json::json!({"skills": [], "note": "community listing pending — use --subscribe owner/repo"}))
+        let skills: Vec<_> = self.registry.list_skills().iter().map(|s| serde_json::json!({
+            "name": s.name,
+            "description": s.description,
+            "source": s.source_repo,
+        })).collect();
+        let kb_items: Vec<_> = self.registry.list_kb_items().iter().map(|k| serde_json::json!({
+            "title": k.title,
+            "source": k.source_repo,
+        })).collect();
+        ok_json(serde_json::json!({
+            "skills": skills,
+            "kb_items": kb_items,
+            "skill_count": skills.len(),
+            "kb_count": kb_items.len(),
+            "hint": "Start iris-dev mcp with --subscribe owner/repo to load community packages"
+        }))
     }
 
     #[tool(description = "Install a community skill from the GitHub community repo.")]
