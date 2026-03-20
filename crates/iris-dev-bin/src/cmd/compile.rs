@@ -1,9 +1,9 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Args;
+use iris_dev_core::iris::{connection::{IrisConnection, DiscoverySource}, discovery::discover_iris};
 
 #[derive(Args)]
 pub struct CompileCommand {
-    /// Class name or path to .cls file (omit to compile all .cls in workspace)
     pub target: Option<String>,
     #[arg(long, env = "IRIS_HOST")]
     pub host: Option<String>,
@@ -25,7 +25,83 @@ pub struct CompileCommand {
 
 impl CompileCommand {
     pub async fn run(self) -> Result<()> {
-        // TODO: call iris_dev_core compile logic directly (not via MCP)
-        anyhow::bail!("iris-dev compile: not yet implemented");
+        let explicit = self.host.as_ref().map(|host| {
+            let base_url = format!("http://{}:{}", host, self.web_port);
+            let username = self.username.as_deref().unwrap_or("_SYSTEM");
+            let password = self.password.as_deref().unwrap_or("SYS");
+            IrisConnection::new(base_url, &self.namespace, username, password, DiscoverySource::ExplicitFlag)
+        });
+
+        let iris = discover_iris(explicit).await?
+            .context("No IRIS connection found — set IRIS_HOST or run iris-dev mcp for auto-discovery")?;
+
+        let client = IrisConnection::http_client()?;
+        let target = self.target.as_deref().unwrap_or(".");
+
+        let code = if target == "." {
+            format!(
+                "Set sc=$SYSTEM.OBJ.CompileAll(\"{}\") If $System.Status.IsOK(sc) {{Write \"OK\"}} Else {{Write $System.Status.GetErrorText(sc)}}",
+                self.namespace
+            )
+        } else if target.ends_with(".cls") {
+            let cls_name = std::path::Path::new(target)
+                .file_stem().and_then(|s| s.to_str()).unwrap_or(target);
+            let cls_text = std::fs::read_to_string(target)
+                .with_context(|| format!("reading {}", target))?;
+            let cls_text_crlf = cls_text.replace("\r\n", "\n").replace('\r', "\n").replace('\n', "\r\n");
+            let set_result = iris.query(
+                &format!("SELECT $SYSTEM.Status.IsOK(##class(%Compiler.UDL.TextServices).SetTextFromString(NULL,'{}',?))", cls_name),
+                vec![serde_json::Value::String(cls_text_crlf)],
+                &client
+            ).await;
+            match set_result {
+                Ok(_) => format!(
+                    "Set sc=$SYSTEM.OBJ.Compile(\"{}\",\"{}\") If $System.Status.IsOK(sc) {{Write \"OK\"}} Else {{Write $System.Status.GetErrorText(sc)}}",
+                    cls_name, self.flags
+                ),
+                Err(e) => {
+                    let result = serde_json::json!({"success": false, "error_code": "IRIS_COMPILE_FAILED", "error": e.to_string(), "target": target});
+                    output_result(&result, &self.format);
+                    std::process::exit(1);
+                }
+            }
+        } else {
+            format!(
+                "Set sc=$SYSTEM.OBJ.Compile(\"{}\",\"{}\") If $System.Status.IsOK(sc) {{Write \"OK\"}} Else {{Write $System.Status.GetErrorText(sc)}}",
+                target, self.flags
+            )
+        };
+
+        match iris.xecute(&code, &client).await {
+            Ok(resp) => {
+                let out = resp["result"]["content"][0].as_str().unwrap_or("").trim().to_string();
+                if out == "OK" || resp["result"]["content"][0]["status"] == "OK" {
+                    let result = serde_json::json!({"success": true, "target": target, "namespace": self.namespace, "stdout": "Compiled successfully"});
+                    output_result(&result, &self.format);
+                    Ok(())
+                } else {
+                    let result = serde_json::json!({"success": false, "error_code": "IRIS_COMPILE_FAILED", "error": out, "target": target});
+                    output_result(&result, &self.format);
+                    std::process::exit(1);
+                }
+            }
+            Err(e) => {
+                let result = serde_json::json!({"success": false, "error_code": "IRIS_UNREACHABLE", "error": e.to_string()});
+                output_result(&result, &self.format);
+                std::process::exit(2);
+            }
+        }
+    }
+}
+
+fn output_result(result: &serde_json::Value, format: &str) {
+    if format == "json" {
+        println!("{}", result);
+    } else {
+        if result["success"] == true {
+            println!("✓ Compiled: {}", result["target"].as_str().unwrap_or(""));
+        } else {
+            eprintln!("✗ Error [{}]: {}", result["error_code"].as_str().unwrap_or(""), result["error"].as_str().unwrap_or(""));
+        }
     }
 }

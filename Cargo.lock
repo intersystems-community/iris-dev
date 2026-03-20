@@ -823,6 +823,7 @@ dependencies = [
  "clap",
  "iris-dev-core",
  "rmcp",
+ "serde_json",
  "tempfile",
  "tokio",
  "tracing",
