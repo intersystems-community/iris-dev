@@ -1,29 +1,29 @@
 # iris-dev
 
-Rust CLI and package manager for InterSystems IRIS developer ecosystem.
+Rust CLI for AI-assisted InterSystems IRIS development.
 
-**Status**: Early development — spec at `022-iris-dev-cli` in objectscript-coder.
+Connects AI coding assistants (VS Code Copilot, Cursor, Claude, etc.) to a live IRIS instance via the Model Context Protocol (MCP). Auto-discovers your running IRIS from VS Code settings, Docker, or environment variables.
 
 ## Quick start
 
 ```bash
 cargo build
-# Start MCP server (auto-discovers IRIS)
-./target/debug/iris-dev mcp
+iris-dev mcp
 ```
+
+Then in VS Code, add to your MCP servers configuration and start using Copilot agent mode with IRIS-aware tools.
 
 ## Commands
 
-- `iris-dev mcp` — Start MCP server for AI coding assistants
+- `iris-dev mcp` — Start MCP server (23 IRIS-aware tools)
 - `iris-dev compile [target]` — Compile ObjectScript on IRIS
-- `iris-dev install` — Install packages from iris-dev.toml
 - `iris-dev --list-plugins` — List iris-dev-* plugins on PATH
 
 ## Configuration
 
-Connection discovery cascade:
+IRIS connection is auto-discovered in this order:
 1. Explicit flags (`--host`, `--web-port`)
 2. Env vars (`IRIS_HOST`, `IRIS_WEB_PORT`, `IRIS_USERNAME`, `IRIS_PASSWORD`)
-3. VS Code settings.json (`objectscript.conn`)
-4. Docker containers (bollard)
-5. Localhost scan (ports 52773, 41773, 51773)
+3. VS Code `settings.json` (`objectscript.conn` / `intersystems.servers`)
+4. Docker containers (scans for IRIS images)
+5. Localhost port scan (52773, 41773, 51773)
