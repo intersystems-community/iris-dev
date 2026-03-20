@@ -21,3 +21,4 @@ Thumbs.db
 # Profiling / logs
 *.prof*
 *.log
+.vscode/

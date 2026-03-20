@@ -35,6 +35,8 @@ fn read_jsonrpc(reader: &mut impl BufRead) -> serde_json::Value {
 /// iris-dev mcp starts and responds to initialize within 500ms.
 #[test]
 fn mcp_server_starts_and_responds_to_initialize() {
+    // Give any previous test's spawned processes time to fully exit
+    std::thread::sleep(std::time::Duration::from_millis(500));
     let bin = iris_dev_bin();
     if !bin.exists() {
         eprintln!("Skipping: iris-dev binary not found at {}", bin.display());
@@ -43,6 +45,8 @@ fn mcp_server_starts_and_responds_to_initialize() {
 
     let mut child = Command::new(&bin)
         .arg("mcp")
+        // Disable IRIS discovery for handshake tests — we only test MCP protocol, not tools
+        .env("IRIS_WEB_PORT", "9") // Port 9 (discard) — instant ECONNREFUSED, no DNS lookup
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -83,6 +87,8 @@ fn mcp_server_tools_list_returns_23_tools() {
 
     let mut child = Command::new(&bin)
         .arg("mcp")
+        // Disable IRIS discovery for handshake tests — we only test MCP protocol, not tools
+        .env("IRIS_WEB_PORT", "9") // Port 9 (discard) — instant ECONNREFUSED, no DNS lookup
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
