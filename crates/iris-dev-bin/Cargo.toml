@@ -1,0 +1,20 @@
+[package]
+name = "iris-dev"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "iris-dev"
+path = "src/main.rs"
+
+[dependencies]
+iris-dev-core = { path = "../iris-dev-core" }
+rmcp = { workspace = true }
+clap.workspace = true
+which.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
