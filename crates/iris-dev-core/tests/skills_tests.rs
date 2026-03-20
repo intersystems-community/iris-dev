@@ -7,7 +7,7 @@ use iris_dev_core::skills::SkillRegistry;
 #[test]
 fn registry_starts_empty() {
     let registry = SkillRegistry::new();
-    assert_eq!(registry.list().len(), 0);
+    assert_eq!(registry.list_skills().len(), 0);
 }
 
 /// load_from_github with invalid repo gracefully fails.
@@ -28,5 +28,5 @@ async fn multiple_subscriptions_accumulate() {
     let _ = registry.load_from_github("owner1/repo1").await;
     let _ = registry.load_from_github("owner2/repo2").await;
     // Registry should not have grown (both failed) — just verify no panic
-    let _ = registry.list().len();
+    let _ = registry.list_skills().len();
 }

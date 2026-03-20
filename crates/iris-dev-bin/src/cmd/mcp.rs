@@ -1,8 +1,7 @@
 use anyhow::Result;
 use clap::Args;
 use rmcp::{ServiceExt, transport::stdio};
-use iris_dev_core::{iris::discovery::discover_iris, tools::IrisTools};
-use std::sync::Arc;
+use iris_dev_core::{iris::discovery::discover_iris, tools::IrisTools, skills::SkillRegistry};
 use tokio::sync::watch;
 
 #[derive(Args)]
@@ -38,18 +37,16 @@ impl McpCommand {
         let explicit = if let Some(host) = self.host.clone() {
             use iris_dev_core::iris::connection::{IrisConnection, DiscoverySource};
             let port = self.web_port.unwrap_or(52773);
+            let base_url = format!("http://{}:{}", host, port);
             let username = self.username.as_deref().unwrap_or("_SYSTEM");
             let password = self.password.as_deref().unwrap_or("SYS");
-            let base_url = format!("http://{}:{}", host, port);
             Some(IrisConnection::new(base_url, &self.namespace, username, password, DiscoverySource::ExplicitFlag))
         } else {
             None
         };
 
-        // Start IRIS discovery in background; start MCP server immediately
-        // so rmcp can begin buffering stdin (initialize message) right away.
         let (iris_tx, iris_rx) = watch::channel::<Option<iris_dev_core::iris::connection::IrisConnection>>(None);
-        
+
         tokio::spawn(async move {
             let conn = match discover_iris(explicit).await {
                 Ok(c) => c,
@@ -63,8 +60,14 @@ impl McpCommand {
             let _ = iris_tx.send(conn);
         });
 
-        // Wait briefly for fast discoveries (env var, already-running localhost)
-        // before starting the MCP server, so tools are connected on first call.
+        let mut registry = SkillRegistry::new();
+        for owner_repo in &self.subscribe {
+            match registry.load_from_github(owner_repo).await {
+                Ok(()) => tracing::info!("Subscribed to {}", owner_repo),
+                Err(e) => tracing::warn!("Failed to subscribe to {}: {}", owner_repo, e),
+            }
+        }
+
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
         let iris = iris_rx.borrow().clone();
 
