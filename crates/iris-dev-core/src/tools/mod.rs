@@ -278,9 +278,33 @@ impl IrisTools {
         err_json("NOT_FOUND", &format!("Skill '{}' not found", p.name))
     }
 
-    #[tool(description = "Search synthesized skills by query.")]
+    #[tool(description = "Search synthesized skills by name and description. Returns skills whose name or description contains the query terms.")]
     async fn skill_search(&self, Parameters(p): Parameters<SkillSearchParams>) -> Result<CallToolResult, McpError> {
-        ok_json(serde_json::json!({"query": p.query, "results": [], "count": 0, "note": "semantic search requires fastembed — pending"}))
+        if let Some(iris) = self.iris.as_deref() {
+            let client = self.http_client();
+            let query_lower = p.query.to_lowercase();
+            let q = query_lower.replace('"', "");
+            let code = format!(
+                concat!(
+                    r#"Set key="",results="[",sep="" "#,
+                    r#"For {{ Set key=$Order(^SKILLS(key)) Quit:key="" "#,
+                    r#"Set skill=$Get(^SKILLS(key)) "#,
+                    r#"If ($ZConvert(skill,"L")["{0}")||($ZConvert(key,"L")["{0}") "#,
+                    r#"{{ Set results=results_sep_skill Set sep="," }} }} "#,
+                    r#"Set results=results_"]" Write results"#
+                ),
+                q
+            );
+            if let Ok(resp) = iris.xecute(&code, &client).await {
+                let raw = resp["result"]["content"][0].as_str().unwrap_or("[]");
+                if let Ok(skills) = serde_json::from_str::<Vec<serde_json::Value>>(raw) {
+                    let limited: Vec<_> = skills.into_iter().take(p.top_k).collect();
+                    let count = limited.len();
+                    return ok_json(serde_json::json!({"query": p.query, "results": limited, "count": count}));
+                }
+            }
+        }
+        ok_json(serde_json::json!({"query": p.query, "results": [], "count": 0}))
     }
 
     #[tool(description = "Remove a skill from the registry by name.")]

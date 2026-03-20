@@ -2,12 +2,12 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
 
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-musl
@@ -22,7 +22,6 @@ jobs:
           - target: x86_64-pc-windows-gnu
             os: ubuntu-latest
             artifact: iris-dev-windows-x86_64.exe
-
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -30,28 +29,36 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - name: Install cargo-zigbuild
-        run: pip install ziglang && cargo install cargo-zigbuild
-      - name: Build
-        run: cargo zigbuild --release --target ${{ matrix.target }} -p iris-dev
-      - name: Rename artifact
+        with:
+          key: ${{ matrix.target }}
+      - uses: cargo-bins/cargo-binstall@main
+      - run: cargo binstall cargo-zigbuild --no-confirm
+      - run: cargo zigbuild --release --target ${{ matrix.target }} -p iris-dev
+      - name: Stage artifact
+        shell: bash
         run: |
-          cp target/${{ matrix.target }}/release/iris-dev ${{ matrix.artifact }} 2>/dev/null || \
-          cp target/${{ matrix.target }}/release/iris-dev.exe ${{ matrix.artifact }} 2>/dev/null || true
+          src="target/${{ matrix.target }}/release/iris-dev"
+          [[ -f "${src}.exe" ]] && src="${src}.exe"
+          cp "$src" "${{ matrix.artifact }}"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
-  
+
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            iris-dev-linux-x86_64/iris-dev-linux-x86_64
-            iris-dev-macos-arm64/iris-dev-macos-arm64
-            iris-dev-macos-x86_64/iris-dev-macos-x86_64
-            iris-dev-windows-x86_64.exe/iris-dev-windows-x86_64.exe
+            iris-dev-linux-x86_64
+            iris-dev-macos-arm64
+            iris-dev-macos-x86_64
+            iris-dev-windows-x86_64.exe
+          generate_release_notes: true

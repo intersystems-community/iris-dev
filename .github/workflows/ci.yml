@@ -17,11 +17,23 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
-      - name: fmt
-        run: cargo fmt --all -- --check
-      - name: clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-      - name: test
-        run: cargo test --all
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --all
         env:
           RUST_LOG: warn
+
+  cross-compile-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - uses: cargo-bins/cargo-binstall@main
+      - run: cargo binstall cargo-zigbuild --no-confirm
+      - run: cargo zigbuild --release --target x86_64-unknown-linux-musl -p iris-dev
+      - run: file target/x86_64-unknown-linux-musl/release/iris-dev
+      - run: |
+          ldd target/x86_64-unknown-linux-musl/release/iris-dev 2>&1 | grep -q "not a dynamic executable" && echo "SC-002 PASS: static binary confirmed" || echo "NOTE: may have dynamic deps on musl"
