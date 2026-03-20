@@ -33,6 +33,7 @@ toml = "0.8"
 semver = { version = "1", features = ["serde"] }
 # Error handling + logging
 anyhow = "1"
+tempfile = "3"
 thiserror = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

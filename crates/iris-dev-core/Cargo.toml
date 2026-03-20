@@ -18,3 +18,38 @@ semver.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+
+# Test dependencies
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }
+tempfile = "3"
+serde_json.workspace = true
+reqwest.workspace = true
+
+[[test]]
+name = "discovery_tests"
+path = "tests/discovery_tests.rs"
+
+[[test]]
+name = "manifest_tests"
+path = "tests/manifest_tests.rs"
+
+[[test]]
+name = "mcp_handshake"
+path = "tests/mcp_handshake.rs"
+
+[[test]]
+name = "vscode_config_tests"
+path = "tests/vscode_config_tests.rs"
+
+[[test]]
+name = "skills_tests"
+path = "tests/skills_tests.rs"
+
+[[test]]
+name = "test_mcp_iris"
+path = "tests/integration/test_mcp_iris.rs"
+
+[[test]]
+name = "test_compile_cmd"
+path = "tests/integration/test_compile_cmd.rs"
