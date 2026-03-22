@@ -419,9 +419,41 @@ Methods:
         ok_json(serde_json::json!({"indexed": 0, "workspace": p.workspace_path.unwrap_or_else(|| ".".to_string()), "note": "KB indexing pending IRIS vector store integration"}))
     }
 
-    #[tool(description = "Hybrid BM25 + semantic search over the indexed knowledge base.")]
+    #[tool(description = "Search the knowledge base for relevant guidance. Searches subscribed KB packages and any indexed content.")]
     async fn kb_recall(&self, Parameters(p): Parameters<KbRecallParams>) -> Result<CallToolResult, McpError> {
-        ok_json(serde_json::json!({"query": p.query, "results": [], "count": 0, "note": "KB search pending IRIS vector store integration"}))
+        let q = p.query.to_lowercase();
+        let mut results: Vec<serde_json::Value> = vec![];
+
+        // Search subscribed KB items (BM25 substring match)
+        for item in self.registry.list_kb_items() {
+            let content_lower = item.content.to_lowercase();
+            if content_lower.contains(&q) || item.title.to_lowercase().contains(&q) {
+                // Extract a relevant snippet around the match
+                let snippet = content_lower.find(&q)
+                    .and_then(|pos| {
+                        let start = pos.saturating_sub(150);
+                        let end = (pos + q.len() + 300).min(item.content.len());
+                        item.content.get(start..end)
+                    })
+                    .map(|s| format!("...{}...", s.trim()))
+                    .unwrap_or_else(|| item.content.chars().take(300).collect());
+                results.push(serde_json::json!({
+                    "title": item.title,
+                    "snippet": snippet,
+                    "source": item.source_repo,
+                    "score": if item.title.to_lowercase().contains(&q) { 0.9 } else { 0.7 }
+                }));
+            }
+        }
+
+        // Sort by score descending, limit to top_k
+        results.sort_by(|a, b| b["score"].as_f64().unwrap_or(0.0)
+            .partial_cmp(&a["score"].as_f64().unwrap_or(0.0))
+            .unwrap_or(std::cmp::Ordering::Equal));
+        results.truncate(p.top_k);
+
+        let count = results.len();
+        ok_json(serde_json::json!({"query": p.query, "results": results, "count": count}))
     }
 
     #[tool(description = "Return recent tool call history for this session.")]
