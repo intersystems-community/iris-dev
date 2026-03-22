@@ -257,53 +257,106 @@ alongside it.
 
 ---
 
-## kg-ticket-resolver Revival Checklist
+## Demo Substrate: New Production, Not kg-ticket-resolver
 
-Before AIML75, get kg-ticket-resolver working end-to-end as the demo substrate:
+**Research finding**: kg-ticket-resolver-recovered has no ObjectScript production. It is
+pure Python — `IServiceClient` → Solr → RAG → resolution agent. The IRIS production in
+your memory was the **Plaza/chatbot integration** (Business Process routing natural language
+to the resolution pipeline), which lives in `support-tools` / Plaza, not here.
 
-- [ ] Verify IRIS production is defined and can start/stop (`start_production.py` currently starts FastHTML, not an IRIS production — this needs fixing or a new `start_iris_production.py`)
-- [ ] Confirm iService/Solr connection is live (support-tools MCP server is running)
-- [ ] Wire `interop_*` tools into the agent loop — replace ad-hoc IRIS calls
-- [ ] Add agent bus `post_finding` call to the monitoring agent when queues back up
-- [ ] Run full loop end-to-end on `dpgenai1` or `los-iris`
+**Revised approach**: Build a new ObjectScript production live as part of the demo.
+This is actually the better demo beat — it shows **modality C (external agent building a
+production via natural language)** rather than just monitoring one that already exists.
+
+**Revised demo beat 3 (replaces old beat 3):**
+> Agent: "Create an interop production that ingests iService tickets and routes them to the
+> kg-ticket-resolver pipeline."
+> 1. `interop_create_production("Demo.TicketIngestion")` 
+> 2. `interop_add_component("Demo.TicketIngestion", "EnsLib.File.PassthroughService", "TicketIngest")`
+> 3. `interop_set_setting("Demo.TicketIngestion", "TicketIngest", "FilePath", "/isc/tickets/")`
+> 4. `interop_production_start("Demo.TicketIngestion")`
+> 5. Deliberately stop `TicketIngest` → agent bus gets a finding
+> 6. Second agent sees it on startup (spec 016), fixes it with `interop_production_start`
+
+**The one-liner for the slide stays**: *"Two agents. One production. One knowledge graph. Zero coordination code."*
+
+### Demo Checklist
+
+- [ ] Build `Demo.TicketIngestion` ObjectScript production definition (simple File passthrough → Python BO)
+- [ ] Confirm `dpgenai1` IRIS instance is running, accessible via Atelier REST
+- [ ] Confirm iService/Solr connection is live (support-tools MCP server running)
+- [ ] Add `post_finding` call to agent bus when queue backs up (Python monitoring loop)
+- [ ] Full rehearsal end-to-end on `dpgenai1`
+
+---
+
+## Research Findings — Resolved Questions
+
+### 1. Atelier REST supports class method invocation ✅
+
+`iris-dev` already implements two endpoints in `src/iris/connection.rs`:
+
+```rust
+// Execute arbitrary ObjectScript — translates all team-23 classMethodString() calls
+POST /api/atelier/v1/{ns}/action/xecute
+Body: {"expression": "Do ##class(Ens.Director).StartProduction(\"MyProd\")"}
+
+// SQL queries — translates all team-23 cursor.execute() calls  
+POST /api/atelier/v1/{ns}/action/query
+Body: {"query": "SELECT ...", "parameters": [...]}
+```
+
+Every team-23 `iris.classMethodString(...)` → `/action/xecute`.
+Every team-23 SQL cursor → `/action/query`.
+**No new connection infrastructure needed. Path 1 is a direct port.**
+
+### 2. Namespace: auto-discover with per-tool override ✅
+
+Use existing `IrisConnection` namespace from discovery. Add an optional `namespace`
+parameter to each tool (defaulting to the discovered namespace), identical to the
+pattern already used by `objectscript_iris_compile`, `objectscript_iris_test`, etc.
+No separate flag needed.
+
+### 3. %AI.Policy for destructive ops ✅
+
+On Path 2, `interop_production_stop` and `interop_production_start` require an explicit
+`%AI.Policy` grant. Default policy: **deny**. Operator must explicitly grant
+`AI.Interop.ToolSet:interop_production_start` and `AI.Interop.ToolSet:interop_production_stop`
+to allow agents to mutate production state. Read-only tools (`interop_production_status`,
+`interop_logs`, `interop_queues`) are allow by default.
+
+### 4. kg-ticket-resolver has no ObjectScript production ✅
+
+Pure Python system. Demo uses a new purpose-built `Demo.TicketIngestion` production
+(see above). The Plaza/iService chatbot production (Business Process routing NL to the
+resolution pipeline) is a separate system in `support-tools` / Plaza and can be
+referenced as a real-world example in the talk without needing to demo it live.
 
 ---
 
 ## Implementation Sequencing
 
-### Phase 1 — Path 1 (Atelier REST) in Rust (~3-4 days)
-1. Create `src/tools/interop.rs` with all 15 tool structs + stubs
-2. Port 6 lifecycle tools from team-23 Python → Atelier REST calls
-3. Port 4 component management tools
+### Phase 1 — Path 1 (Atelier REST) in Rust (~3 days)
+1. Create `src/tools/interop.rs` with all 15 tool structs
+2. Port 6 lifecycle tools: `classMethodString` → `/action/xecute`, SQL → `/action/query`
+3. Port 4 component management tools (same pattern)
 4. Port 2 configuration tools
-5. Port 3 observability tools
+5. Port 3 observability tools (all SQL → `/action/query`)
 6. Register in `tool_router!`, update tool count in README (23 → 38)
-7. Integration test against local IRIS
+7. Integration test against `IRIS-2026.2.0AI.124.0` local build
 
 ### Phase 2 — Path 2 (%AI.ToolSet) in ObjectScript (~2 days)
-1. Write `AI.Interop.ToolSet` with XData Definition block
-2. Implement all 15 methods (can reuse SQL from Phase 1 testing)
-3. Compile + test against new IRIS build (IRIS-2026.2.0AI.124.0)
-4. Verify `iris-mcp-server` discovers the toolset via RAG
+1. Write `AI.Interop.ToolSet` extending `%AI.ToolSet` with XData Definition block
+2. Implement all 15 methods — reuse SQL patterns validated in Phase 1
+3. Add `%AI.Policy` deny-by-default annotations on destructive tools
+4. Compile + test against `IRIS-2026.2.0AI.124.0`
+5. Verify `iris-mcp-server` discovers toolset via RAG
 
-### Phase 3 — Demo wiring (~1 day)
-1. Update kg-ticket-resolver to use `interop_*` tools
-2. Add `post_finding` calls to agent bus
-3. Full rehearsal on `dpgenai1`
+### Phase 3 — Demo production + wiring (~1 day)
+1. Write `Demo.TicketIngestion` ObjectScript production class
+2. Full demo script rehearsal on `dpgenai1`
+3. Wire `post_finding` to agent bus on queue backup
 
 ### Phase 4 — pyprod Modality B (~1 day, stretch)
-1. Write `InteropMonitorBO` pyprod class
-2. Wire to `%AI.Agent` with `AI.Interop.ToolSet`
-3. Add to demo as "the production monitors itself" beat
-
----
-
-## Open Questions
-
-1. **Atelier REST method calls**: Does `%api.atelier` support direct class method invocation, or do we need to use SQL + stored procedures for everything? Team-23 uses Native API `classMethodString` — we need to find the Atelier REST equivalent or write thin ObjectScript wrapper methods.
-
-2. **Namespace handling**: The existing iris-dev tools default to `USER`. Interop productions typically live in `IRISHEALTH`, `HEALTHSHARE`, or a custom namespace. Should `interop_*` tools use a separate `--interop-namespace` flag, or follow the same discovery as other tools?
-
-3. **`%AI.Policy` for interop tools**: `interop_production_stop` and `interop_production_start` are destructive operations. On Path 2, should these require an explicit policy grant? What's the default?
-
-4. **kg-ticket-resolver production class**: Does a formal IRIS production class exist in kg-ticket-resolver, or is the "production" purely conceptual (Python processes)? If it's Python-only, the demo scenario needs a real ObjectScript production to demonstrate the lifecycle tools.
+1. Write `InteropMonitorBO` pyprod class delegating to `%AI.Agent` with `AI.Interop.ToolSet`
+2. Add to demo as "the production monitors itself" beat — strongest close
