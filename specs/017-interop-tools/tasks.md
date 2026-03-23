@@ -18,10 +18,12 @@
   - `interop_production_update`: success response shape
   - `interop_production_needs_update`: returns boolean
   - `interop_production_recover`: success response shape
-  - `interop_logs`: filters by log_type, respects limit
+  - `interop_logs`: filters by log_type (comma-separated string e.g. "error,warning"), respects limit
   - `interop_queues`: returns array of {name, count}
   - `interop_message_search`: filters by source/target/class
   - All 9: IRIS_UNREACHABLE when no connection
+  - All 9: INTEROP_ERROR when IRIS returns error status (mock xecute returning $System.Status error text)
+  - All 9: NO_PRODUCTION when no production is running (mock empty/null production name)
   - All 9: structured error on IRIS error response
 
 - [ ] T002 Create `crates/iris-dev-core/tests/interop_e2e_tests.rs` with e2e tests: spawn `iris-dev mcp`, send MCP tool calls. Include tests for:

@@ -370,3 +370,9 @@ referenced as a real-world example in the talk without needing to demo it live.
 - Q: Include interop_message_search in MVP? → A: Yes — same SQL pattern as interop_logs.
 - Q: Development IRIS instance? → A: Develop against iris-dev-iris (localhost:52780). Final rehearsal on dpgenai1.
 - Q: Definition of done for Phase 1? → A: Working demo in narrow, recordable format with high performance and structured output suitable for programmatic capture and visual demos. 9 interop tools in tools/list, all returning structured JSON, total tool count 32 (23+9).
+
+## Success Criteria
+
+- **SC-001**: `tools/list` returns 32 tools (23 existing + 9 interop) with no dots in names
+- **SC-002**: All 9 interop tools return structured JSON `{success: bool, error_code?: string}` — including `IRIS_UNREACHABLE`, `INTEROP_ERROR`, and `NO_PRODUCTION` error paths
+- **SC-003**: All 9 interop tool responses complete in <2s against iris-dev-iris
