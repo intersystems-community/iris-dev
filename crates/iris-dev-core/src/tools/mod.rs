@@ -184,6 +184,9 @@ impl IrisTools {
 
     #[tool(description = "Search for ObjectScript symbols in local .cls files without IRIS connection.")]
     async fn iris_symbols_local(&self, Parameters(p): Parameters<SymbolsLocalParams>) -> Result<CallToolResult, McpError> {
+        if std::env::var("IRIS_ISFS").as_deref() == Ok("true") {
+            return ok_json(serde_json::json!({"error": "ISFS workspace detected — no local .cls files to parse. Use iris_symbols instead.", "isfs": true}));
+        }
         ok_json(serde_json::json!({"source": "local_scan", "workspace": p.workspace_path.unwrap_or_else(|| ".".to_string()), "symbols": [], "note": "tree-sitter integration pending"}))
     }
 
