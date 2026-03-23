@@ -61,3 +61,32 @@ Prefix: `interop_` (consistent with spec). Names:
 - `interop_message_search`
 
 All underscore-only (Bedrock/VS Code compatible).
+
+## Decision 5: team-17 integration (Riyadh hackathon — TrakCare Root Cause Analysis)
+
+### Findings
+
+Team-17 (`~/ws/team-17/`) has a working diagnostic assistant with real indexed data:
+- **271 TrakCare .cls XML files** → 445 sourcecode embeddings (BGE 1024-dim, NumPy)
+- **1,450 Jira issue embeddings** (NumPy)
+- **14,749 ticket embeddings** (NumPy)
+- FastAPI server with `DiagnosticAgent` orchestrating 4 search services
+- `run_demo_scenarios.py` for scripted demos
+
+### What this means for 017
+
+The demo strategy shifts from "build a production from scratch" to "two agents coordinate through IRIS":
+
+**Agent 1**: team-17 diagnostic assistant (searches tickets + Jira + docs + ObjectScript source)
+**Agent 2**: kg-ticket-resolver (IRIS KG + GraphRAG) 
+**Coordination**: agent bus findings in IRIS
+
+The `interop_*` tools let Agent 2 monitor the production that feeds Agent 1.
+
+### Data migration opportunity
+
+Team-17's NumPy embeddings (BGE 1024-dim) → IRIS VECTOR(FLOAT, 1024) via `langchain-intersystems IRISVectorStore`. This ports their search index into IRIS natively, eliminating the NumPy dependency.
+
+### Not in scope for 017
+
+The actual team-17 FastAPI migration is separate work. Spec 017 delivers the interop tools. The demo wiring (agent bus, two-agent coordination) is Phase 3 rehearsal work.
