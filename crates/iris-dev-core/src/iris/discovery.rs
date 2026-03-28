@@ -111,10 +111,42 @@ pub async fn discover_iris(explicit: Option<IrisConnection>) -> Result<Option<Ir
     Ok(None)
 }
 
-/// Scan Docker containers for running IRIS instances.
+/// Score a container name against a workspace basename (spec-025 scoring rules).
+pub fn score_container_name(container_name: &str, workspace_basename: &str) -> u32 {
+    if workspace_basename.is_empty() {
+        return 0;
+    }
+    let cn = container_name.to_lowercase();
+    let wb = workspace_basename.to_lowercase();
+
+    let base = if cn == wb {
+        100
+    } else if cn.starts_with(&wb) {
+        80
+    } else if cn.contains(&wb) {
+        60
+    } else {
+        0
+    };
+
+    if base == 0 {
+        return 0;
+    }
+
+    let suffix_bonus = if cn.ends_with("-iris") || cn.ends_with("_iris") { 10 } else { 0 }
+        + if cn.ends_with("-test") || cn.ends_with("_test") { 5 } else { 0 };
+
+    base + suffix_bonus
+}
+
 async fn discover_via_docker() -> Option<IrisConnection> {
     use bollard::Docker;
     use bollard::container::ListContainersOptions;
+
+    let workspace_basename = std::env::current_dir()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+        .unwrap_or_default();
 
     let docker = Docker::connect_with_defaults().ok()?;
     let containers = docker.list_containers(
@@ -124,33 +156,49 @@ async fn discover_via_docker() -> Option<IrisConnection> {
         })
     ).await.ok()?;
 
+    let mut candidates: Vec<(u32, String, u16, Option<u16>)> = Vec::new();
+
     for container in containers {
         let image = container.image.as_deref().unwrap_or("");
-        // Look for IRIS-related images
         if !image.contains("intersystems") && !image.contains("iris") {
             continue;
         }
 
-        // Find a mapped web port
-        if let Some(ports) = container.ports {
-            for port in ports {
-                if port.private_port == 52773 {
-                    if let Some(host_port) = port.public_port {
-                        let container_name = container.names.clone()
-                            .and_then(|n| n.into_iter().next())
-                            .unwrap_or_default()
-                            .trim_start_matches('/')
-                            .to_string();
+        let container_name = container.names.clone()
+            .and_then(|n| n.into_iter().next())
+            .unwrap_or_default()
+            .trim_start_matches('/')
+            .to_string();
 
-                        if let Some(mut conn) = probe_atelier(
-                            "localhost", host_port as u16, "_SYSTEM", "SYS", "USER", 500
-                        ).await {
-                            conn.source = DiscoverySource::Docker { container_name };
-                            return Some(conn);
-                        }
-                    }
+        let mut port_web: Option<u16> = None;
+        let mut port_superserver: Option<u16> = None;
+
+        if let Some(ports) = container.ports {
+            for port in &ports {
+                if port.private_port == 52773 {
+                    port_web = port.public_port.map(|p| p as u16);
+                }
+                if port.private_port == 1972 {
+                    port_superserver = port.public_port.map(|p| p as u16);
                 }
             }
+        }
+
+        if let Some(web_port) = port_web {
+            let score = score_container_name(&container_name, &workspace_basename);
+            candidates.push((score, container_name, web_port, port_superserver));
+        }
+    }
+
+    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+
+    for (score, container_name, web_port, port_ss) in candidates {
+        if let Some(mut conn) = probe_atelier(
+            "localhost", web_port, "_SYSTEM", "SYS", "USER", 500
+        ).await {
+            conn.source = DiscoverySource::Docker { container_name };
+            conn.port_superserver = port_ss;
+            return Some(conn);
         }
     }
     None
