@@ -12,6 +12,7 @@ pub struct IrisConnection {
     pub password: String,
     pub version: Option<String>,
     pub source: DiscoverySource,
+    pub port_superserver: Option<u16>,
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +39,7 @@ impl IrisConnection {
             password: password.into(),
             version: None,
             source,
+            port_superserver: None,
         }
     }
 

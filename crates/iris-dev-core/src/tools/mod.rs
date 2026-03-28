@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 use std::sync::Arc;
 use crate::iris::connection::IrisConnection;
+pub mod interop;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CompileParams {
@@ -183,6 +184,9 @@ impl IrisTools {
 
     #[tool(description = "Search for ObjectScript symbols in local .cls files without IRIS connection.")]
     async fn iris_symbols_local(&self, Parameters(p): Parameters<SymbolsLocalParams>) -> Result<CallToolResult, McpError> {
+        if std::env::var("IRIS_ISFS").as_deref() == Ok("true") {
+            return ok_json(serde_json::json!({"error": "ISFS workspace detected — no local .cls files to parse. Use iris_symbols instead.", "isfs": true}));
+        }
         ok_json(serde_json::json!({"source": "local_scan", "workspace": p.workspace_path.unwrap_or_else(|| ".".to_string()), "symbols": [], "note": "tree-sitter integration pending"}))
     }
 
@@ -475,7 +479,55 @@ Methods:
         }
         ok_json(serde_json::json!({"status": "ok", "skill_count": skill_count, "pattern_count": null, "learning_enabled": false}))
     }
+
+    #[tool(description = "Returns the current state of the running IRIS Interoperability production. With full_status=true, includes per-component breakdown.")]
+    async fn interop_production_status(&self, Parameters(p): Parameters<interop::ProductionStatusParams>) -> Result<CallToolResult, McpError> {
+        interop::interop_production_status_impl(self.iris.as_deref(), p).await
+    }
+
+    #[tool(description = "Start a named IRIS Interoperability production.")]
+    async fn interop_production_start(&self, Parameters(p): Parameters<interop::ProductionNameParams>) -> Result<CallToolResult, McpError> {
+        interop::interop_production_start_impl(self.iris.as_deref(), p).await
+    }
+
+    #[tool(description = "Stop the running IRIS Interoperability production with optional timeout and force.")]
+    async fn interop_production_stop(&self, Parameters(p): Parameters<interop::ProductionStopParams>) -> Result<CallToolResult, McpError> {
+        interop::interop_production_stop_impl(self.iris.as_deref(), p).await
+    }
+
+    #[tool(description = "Hot-apply configuration changes to the running production.")]
+    async fn interop_production_update(&self, Parameters(p): Parameters<interop::ProductionUpdateParams>) -> Result<CallToolResult, McpError> {
+        interop::interop_production_update_impl(self.iris.as_deref(), p).await
+    }
+
+    #[tool(description = "Check if the production configuration has changed and needs to be updated.")]
+    async fn interop_production_needs_update(&self, _: Parameters<serde_json::Value>) -> Result<CallToolResult, McpError> {
+        interop::interop_production_needs_update_impl(self.iris.as_deref()).await
+    }
+
+    #[tool(description = "Recover a troubled IRIS Interoperability production.")]
+    async fn interop_production_recover(&self, _: Parameters<serde_json::Value>) -> Result<CallToolResult, McpError> {
+        interop::interop_production_recover_impl(self.iris.as_deref()).await
+    }
+
+    #[tool(description = "Get recent Interoperability production log entries. Filter by log_type (comma-separated: error,warning,info,alert) and component name.")]
+    async fn interop_logs(&self, Parameters(p): Parameters<interop::LogsParams>) -> Result<CallToolResult, McpError> {
+        interop::interop_logs_impl(self.iris.as_deref(), p).await
+    }
+
+    #[tool(description = "Get all current Interoperability message queues and their depths.")]
+    async fn interop_queues(&self, _: Parameters<serde_json::Value>) -> Result<CallToolResult, McpError> {
+        interop::interop_queues_impl(self.iris.as_deref()).await
+    }
+
+    #[tool(description = "Search the Interoperability message archive by source, target, or message class.")]
+    async fn interop_message_search(&self, Parameters(p): Parameters<interop::MessageSearchParams>) -> Result<CallToolResult, McpError> {
+        interop::interop_message_search_impl(self.iris.as_deref(), p).await
+    }
 }
+
+
+
 
 #[tool_handler]
 impl ServerHandler for IrisTools {

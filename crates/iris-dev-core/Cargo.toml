@@ -54,3 +54,11 @@ path = "tests/integration/test_mcp_iris.rs"
 [[test]]
 name = "test_compile_cmd"
 path = "tests/integration/test_compile_cmd.rs"
+
+[[test]]
+name = "interop_unit_tests"
+path = "tests/interop_unit_tests.rs"
+
+[[test]]
+name = "interop_e2e_tests"
+path = "tests/interop_e2e_tests.rs"

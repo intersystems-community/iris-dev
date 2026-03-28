@@ -360,3 +360,19 @@ referenced as a real-world example in the talk without needing to demo it live.
 ### Phase 4 — pyprod Modality B (~1 day, stretch)
 1. Write `InteropMonitorBO` pyprod class delegating to `%AI.Agent` with `AI.Interop.ToolSet`
 2. Add to demo as "the production monitors itself" beat — strongest close
+
+## Clarifications
+
+### Session 2026-03-22
+
+- Q: Should Path 1 (Atelier REST) have an auth gate for destructive ops? → A: No — IRIS credentials are sufficient. Atelier REST enforces IRIS RBAC. Path 2 retains %AI.Policy for enterprise environments.
+- Q: Minimum viable tool count for AIML75 demo (April 27)? → A: 9 tools MVP — 6 lifecycle (status, start, stop, update, needs_update, recover) + 3 observability (logs, queues, message_search). Component management (4 tools) and configuration (2 tools) deferred to Phase 2.
+- Q: Include interop_message_search in MVP? → A: Yes — same SQL pattern as interop_logs.
+- Q: Development IRIS instance? → A: Develop against iris-dev-iris (localhost:52780). Final rehearsal on dpgenai1.
+- Q: Definition of done for Phase 1? → A: Working demo in narrow, recordable format with high performance and structured output suitable for programmatic capture and visual demos. 9 interop tools in tools/list, all returning structured JSON, total tool count 32 (23+9).
+
+## Success Criteria
+
+- **SC-001**: `tools/list` returns 32 tools (23 existing + 9 interop) with no dots in names
+- **SC-002**: All 9 interop tools return structured JSON `{success: bool, error_code?: string}` — including `IRIS_UNREACHABLE`, `INTEROP_ERROR`, and `NO_PRODUCTION` error paths
+- **SC-003**: All 9 interop tool responses complete in <2s against iris-dev-iris

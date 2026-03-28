@@ -1,0 +1,24 @@
+[package]
+name = "objectscript-skills"
+version = "1.3.0"
+description = "ObjectScript skills and knowledge base for AI coding assistants — review, TDD, debugging, unit test generation, Docker eval, IPM packaging, Interoperability production management"
+authors = ["InterSystems Developer Community"]
+license = "MIT"
+repository = "https://github.com/intersystems-community/vscode-objectscript-mcp"
+
+[provides]
+skills = [
+    "skills/objectscript-debugging",
+    "skills/objectscript-unit-test",
+    "skills/objectscript-review",
+    "skills/objectscript-tdd",
+    "skills/iris-objectscript-eval",
+    "skills/ensemble-production",
+]
+kb_items = [
+    "kb/iris-error-codes.md",
+    "kb/objectscript-idioms.md",
+    "kb/ipm-module-authoring.md",
+    "AGENTS.md",
+]
+plugins = []
