@@ -116,10 +116,10 @@ before they happen.
 
 ## Want more?
 
-The full `iris-dev mcp` server adds:
-- `docs_introspect` — same as `/introspect` but invoked automatically by the AI, no manual `/invoke` needed
-- `iris_symbols_local` — parses `.cls` files on disk without a running IRIS (tree-sitter based)
-- `kb_index` / `kb_recall` — vector+BM25 knowledge base over your own codebase
+The full `objectscript-mcp` MCP server adds:
+- `docs.introspect` — same as `/introspect` but invoked automatically by the AI, no manual `/invoke` needed
+- `iris.symbols.local` — parses `.cls` files on disk without a running IRIS (tree-sitter based)
+- `kb.index` / `kb.recall` — vector+BM25 knowledge base over your own codebase
 - Learning agent — synthesizes skills from your session history
 
-See the repo README for setup: `iris-dev mcp`
+See [objectscript-mcp setup](../docs/MCP_SETUP_GUIDE.md) if you want the full stack.

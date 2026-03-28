@@ -20,6 +20,22 @@ Ground AI debugging in real IRIS signals — compiler errors, `messages.log` ent
 
 ## Workflow
 
+### Step 0 — Read the actual class source before guessing
+```
+# Preferred: structured method signatures + inheritance chain
+docs_introspect(class_name="MyPackage.MyClass")
+docs_introspect(class_name="%ASQ.Engine")   # works on system classes too
+
+# When you need full raw source with macros (e.g. $$$DISPATCH, #define):
+# Export from IRIS, then read the file:
+docker exec <container> iris session IRIS -U USER \
+  "set sc = \$system.OBJ.ExportUDL(\"MyClass.cls\",\"/tmp/out.cls\") halt"
+docker cp <container>:/tmp/out.cls /tmp/out.cls
+# Then use the Read tool on /tmp/out.cls — NEVER cat it
+```
+
+**The .INT source is not readable via $TEXT on system classes** (stored as object code). Use ExportUDL to get the .cls source instead.
+
 ### Step 1 — Capture Diagnostic Packet
 Call `debug_capture_packet` to snapshot the current IRIS error state:
 ```
@@ -47,6 +63,18 @@ Returns: unified log with timestamps, error codes, namespaces
 ```
 
 ### Step 4 — Correlate and Fix
+
+### If IRIS tools return errors — fix the connection first
+```
+# Check which containers are available:
+iris_list_containers()
+
+# Connect to the right one (no restart needed):
+iris_select_container(name="arno_iris_test")
+iris_select_container(name="arno_iris_test", password="SYS2")  # if password changed
+
+# Then retry the failing tool
+```
 Cross-reference the packet, source mapping, and logs to identify root cause. Apply fix. Recompile. Verify no new errors appear in logs.
 
 ## Common Error Patterns
