@@ -49,27 +49,53 @@ ObjectScript semantics before writing a single line of code.
 
 ## 2. Compile & Test Loop
 
-**Critical**: Always compile after writing ObjectScript. Feed compiler errors back and ask for fixes. Never assume code is correct without compilation.
+**If the objectscript MCP server is connected (check `/mcp`), always use MCP tools first. Fall back to bash only if the MCP is unavailable.**
 
-### Via IRIS terminal session
+### Via MCP tools (preferred)
+```
+# Find classes by name pattern — live IRIS namespace
+iris_symbols(query="MyPackage.*")
+iris_symbols(query="%ASQ*")          # system classes
+iris_symbols_local()                 # parse .cls files on disk, no IRIS needed
+
+# Read a full class definition from IRIS (methods, parameters, inheritance)
+docs_introspect(class_name="MyPackage.MyClass")
+docs_introspect(class_name="%ASQ.Engine")   # works on system classes too
+
+# Compile a .cls file
+iris_compile(target="MyPackage/MyClass.cls", namespace="USER")
+
+# Run %UnitTest tests
+iris_test(pattern="MyPackage.Tests.*")
+
+# If IRIS is unreachable — list containers and pick the right one
+iris_list_containers()
+iris_select_container(name="arno_iris_test")   # reconnects without restart
+```
+
+**Do NOT use `docker exec` / `docker cp` / `iris session` bash commands when the MCP is connected.** The MCP handles container targeting automatically after `iris_select_container`.
+
+### Reading class source from IRIS (INT / system classes)
+To read the source of any class — including system classes like `%ASQ.Engine` that have no `.cls` on disk:
+```
+# Option 1 (preferred): docs_introspect — returns parsed method signatures
+docs_introspect(class_name="%ASQ.Engine")
+
+# Option 2: export via OBJ then read — use when you need full source with macros
+# Run in bash:
+docker exec <container> iris session IRIS -U USER \
+  "set sc = \$system.OBJ.ExportUDL(\"%ASQ.Engine.cls\",\"/tmp/ASQEngine.cls\") halt"
+docker cp <container>:/tmp/ASQEngine.cls /tmp/ASQEngine.cls
+# Then use Read tool on /tmp/ASQEngine.cls
+```
+
+### Via bash (fallback only — when MCP is unavailable)
 ```bash
-# Compile a single class (file must be visible from IRIS working dir)
+# Compile a single class
 iris session IRIS -U USER "Do \$System.OBJ.Load(\"MyPackage/MyClass.cls\",\"ck\")"
-
-# Compile by class name (already exists in IRIS)
-iris session IRIS -U USER "Do \$System.OBJ.Compile(\"MyPackage.MyClass\",\"ck\")"
 
 # Run %UnitTest tests
 iris session IRIS -U USER "Do ##class(%UnitTest.Manager).RunTest(\"MyPackage.Tests\",,\"/nodelete\")"
-```
-
-### Via Atelier REST API (see introspect.md and compile.md skills)
-```bash
-# Upload and compile in one shot
-curl -s -X PUT "http://localhost:52773/api/atelier/v1/USER/doc/MyPackage.MyClass.cls" \
-  -u _SYSTEM:SYS \
-  -H "Content-Type: application/json" \
-  -d '{"enc": false, "content": ["Class MyPackage.MyClass ..."]}'
 ```
 
 ### Reading compile errors
