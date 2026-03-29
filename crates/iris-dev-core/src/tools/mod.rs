@@ -216,7 +216,7 @@ async fn list_iris_containers(workspace_basename: &str) -> Vec<serde_json::Value
             for line in String::from_utf8_lossy(&out.stdout).lines() {
                 let parts: Vec<&str> = line.splitn(5, '\t').collect();
                 if parts.len() < 5 { continue; }
-                let (name, image, ports_raw, _status, age) = (parts[0], parts[1], parts[2], parts[3], parts[4]);
+                let (name, image, ports_raw, age) = (parts[0], parts[1], parts[2], parts[4]);
                 if !image.to_lowercase().contains("intersystems") && !image.to_lowercase().contains("iris") { continue; }
                 let sp = extract_port(ports_raw, "1972").map(|p| serde_json::json!(p)).unwrap_or(serde_json::Value::Null);
                 let wp = extract_port(ports_raw, "52773").map(|p| serde_json::json!(p)).unwrap_or(serde_json::Value::Null);
@@ -410,13 +410,7 @@ impl IrisTools {
 
     #[tool(description = "Switch the active IRIS container. Reconnects the MCP server to the specified container. Returns new connection info including version.")]
     async fn iris_select_container(&self, Parameters(p): Parameters<SelectContainerParams>) -> Result<CallToolResult, McpError> {
-        let workspace_basename = self.iris.as_ref()
-            .and_then(|c| {
-                let url = &c.base_url;
-                let _port: u16 = url.split(':').last().and_then(|s| s.parse().ok()).unwrap_or(52773);
-                None::<String>
-            })
-            .unwrap_or_default();
+        let workspace_basename = String::new();
 
         let containers = list_iris_containers(&workspace_basename).await;
         let found = containers.iter().find(|c| c["name"].as_str() == Some(&p.name));
@@ -437,11 +431,10 @@ impl IrisTools {
         let port_web = container["port_web"].as_u64().unwrap_or(52773) as u16;
         let base_url = format!("http://localhost:{}", port_web);
 
-        let new_conn = crate::iris::connection::IrisConnection::new(
+        let mut new_conn = crate::iris::connection::IrisConnection::new(
             &base_url, &p.namespace, &p.username, &p.password,
             crate::iris::connection::DiscoverySource::Docker { container_name: p.name.clone() },
         );
-        let mut new_conn = new_conn;
         new_conn.port_superserver = Some(port_superserver);
 
         let client = IrisConnection::http_client().unwrap_or_default();
