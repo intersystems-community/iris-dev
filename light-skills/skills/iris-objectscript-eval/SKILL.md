@@ -1,223 +1,140 @@
 ---
 name: iris-objectscript-eval
-description: Load, compile, run, and test ObjectScript code in an IRIS Docker container. Use when needing to execute ObjectScript non-interactively, load .cls/.mac/.inc files, or run %UnitTest tests via docker exec.
+description: Execute, compile, and test ObjectScript code via the objectscript MCP tools. Use when needing to run arbitrary ObjectScript, compile .cls files, or run %UnitTest tests. Prefers MCP tools over docker exec. Falls back to docker exec only when MCP is unavailable.
 license: MIT
 metadata:
-  version: "1.0.0"
+  version: "2.0.0"
   author: Tim Leavitt (InterSystems)
   source: https://gitlab.iscinternal.com/tleavitt/isc-skills
-  compatibility: objectscript, iris, docker
+  compatibility: objectscript, iris, mcp
 ---
 
-# Evaluating ObjectScript in an IRIS Container
+# Evaluating ObjectScript via MCP Tools
 
-## Overview
+## Preferred: MCP Tools (when objectscript MCP is connected)
 
-Run ObjectScript code in a Docker IRIS container: start the container, load files, compile, run tests, get results. The key challenge is **non-interactive ObjectScript execution** — piping commands into `iris session`.
+Check with `/mcp` — if `objectscript` is listed, use these tools exclusively.
 
-## Container Setup
+### Run arbitrary ObjectScript
 
-### Community Edition (no license key)
-
-```bash
-docker run -d --name iris-eval \
-  --publish 1972 --publish 52773 \
-  -v "$(pwd):/home/irisowner/dev" \
-  intersystemsdc/iris-community:latest \
-  --check-caps false
+```
+iris_execute(code="write $ZVERSION,!", namespace="USER")
+iris_execute(code="set x=42\nwrite x,!")          # multiline: separate with \n
+iris_execute(code="write ##class(My.Pkg).Run()")  # call class methods
 ```
 
-### Licensed Image (requires irepo auth + iris.key)
+Returns `{success, output, namespace}`. Runtime errors are returned as structured errors, not exceptions.
 
-```bash
-docker run -d --name iris-eval \
-  --publish 1972 --publish 52773 \
-  -v "$(pwd):/home/irisowner/dev" \
-  -v "$(pwd)/iris.key:/usr/irissys/mgr/iris.key" \
-  irepo.intersystems.com/intersystems/iris:2025.1 \
-  --check-caps false
+### Compile a .cls file
+
+```
+iris_compile(target="MyPackage/MyClass.cls", namespace="USER")
+iris_compile(target="*.cls")   # compile all .cls files in workspace
 ```
 
-### Wait for IRIS to be ready
+### Run %UnitTest tests
 
-```bash
-# Poll until healthy (IRIS takes 10-30s to start)
-until docker exec iris-eval iris session IRIS -U USER '##class(%SYSTEM.Process).%ClassIsLatestVersion()' 2>/dev/null; do
-  sleep 2
-done
+```
+iris_test(pattern="MyPackage.Tests.*")
+iris_test(pattern="MyPackage.Tests.MyClassTest")   # single class
 ```
 
-Or simply:
+### Discover classes
 
-```bash
-docker exec iris-eval /bin/bash -c 'for i in $(seq 1 30); do iris session IRIS -U USER "halt" 2>/dev/null && exit 0; sleep 2; done; exit 1'
+```
+iris_symbols(query="MyPackage.*")       # live namespace search
+iris_symbols_local()                    # parse .cls files on disk, no IRIS needed
+docs_introspect(class_name="My.Class") # full method signatures
 ```
 
-## Executing ObjectScript Non-Interactively
+### Switch containers mid-session
 
-**This is the critical pattern.** Do NOT try to use `docker exec -it` interactively.
-
-### Single command
-
-```bash
-docker exec iris-eval iris session IRIS -U USER '##class(Sample.Calculator).Add(2, 3)'
+```
+iris_list_containers()                          # see all running IRIS containers
+iris_select_container(name="my-iris-container") # reconnect without restart
 ```
 
-Note: single quotes around the ObjectScript expression. The expression is evaluated and its result is printed.
+---
 
-### Multi-line script via heredoc
+## Fallback: docker exec (when MCP is unavailable)
+
+Only use this path when the MCP is not connected.
+
+### Execute ObjectScript non-interactively
 
 ```bash
-docker exec -i iris-eval iris session IRIS -U USER <<'EOF'
+# Single expression
+docker exec <container> iris session IRIS -U USER \
+  '##class(Sample.Calculator).Add(2, 3)'
+
+# Multi-line via heredoc (always end with halt)
+docker exec -i <container> iris session IRIS -U USER <<'EOF'
  do $System.OBJ.LoadDir("/home/irisowner/dev/cls/","ck",,1)
  halt
 EOF
 ```
 
-**Critical rules:**
-- Always end multi-line scripts with `halt` — otherwise the session hangs
-- Use `-i` (not `-it`) for heredoc piping
-- Use `-U USER` (or `-U NAMESPACE`) to set the namespace
-- Indent ObjectScript lines with a space (required by the IRIS terminal)
+**Critical rules for heredoc:**
+- End every script with `halt` or the session hangs
+- Use `-i` not `-it`
+- Indent each ObjectScript line with a leading space
 
-### Script file approach
-
-Write a `.script` file and execute it:
+### Compile via docker exec
 
 ```bash
-docker exec iris-eval iris session IRIS -U USER /home/irisowner/dev/load.script
-```
+docker exec <container> iris session IRIS -U USER \
+  'do $System.OBJ.Load("/home/irisowner/dev/cls/MyPackage/MyClass.cls","ck")'
 
-Where `load.script` contains ObjectScript commands (one per line, each indented with a space, ending with `halt`).
-
-## Loading ObjectScript Code
-
-### Load a single file
-
-```bash
-docker exec iris-eval iris session IRIS -U USER \
-  'do $System.OBJ.Load("/home/irisowner/dev/cls/Sample/Calculator.cls","ck")'
-```
-
-Flags: `c` = compile, `k` = keep source.
-
-### Load a directory recursively
-
-```bash
-docker exec -i iris-eval iris session IRIS -U USER <<'EOF'
+# Load directory recursively
+docker exec -i <container> iris session IRIS -U USER <<'EOF'
  do $System.OBJ.LoadDir("/home/irisowner/dev/cls/","ck",,1)
  halt
 EOF
 ```
 
-The 4th argument `1` means recursive. This loads all `.cls`, `.mac`, `.inc`, `.int` files.
-
-### Load specific file types from directory
+### Run tests via docker exec
 
 ```bash
-docker exec iris-eval iris session IRIS -U USER \
-  'do $System.OBJ.LoadDir("/home/irisowner/dev/cls/","ck","*.cls",1)'
-```
-
-## Running Unit Tests
-
-### Quick approach — load and run inline
-
-```bash
-docker exec -i iris-eval iris session IRIS -U USER <<'EOF'
- ; Load all source and test classes
- do $System.OBJ.LoadDir("/home/irisowner/dev/cls/","ck",,1)
- ; Set up UnitTest root and run
+docker exec -i <container> iris session IRIS -U USER <<'EOF'
  set ^UnitTestRoot = "/home/irisowner/dev/cls/"
  do ##class(%UnitTest.Manager).RunTest("Test","/loadudl")
  halt
 EOF
 ```
 
-**Key details:**
-- `^UnitTestRoot` points to the **parent directory** containing test packages
-- The first argument to `RunTest` is the subdirectory/package under `^UnitTestRoot`
-- `/loadudl` qualifier tells the test manager to load UDL-format files (the `.cls` files on disk)
-- Tests matching `*.cls` under the specified subdirectory are discovered and run
+`^UnitTestRoot` must point to the **parent** of the test package directory.
 
-### Alternative — classes already loaded, just run
+---
 
-If classes are already compiled in IRIS (loaded earlier), skip `/loadudl`:
+## Start a container (when none is running)
 
-```bash
-docker exec -i iris-eval iris session IRIS -U USER <<'EOF'
- do ##class(%UnitTest.Manager).RunTest("Test")
- halt
-EOF
+```python
+# Via iris-devtester (preferred — handles password auto-remediation)
+from iris_devtester import IRISContainer
+with IRISContainer.community(version="2025.1").with_name("my-iris") as iris:
+    conn = iris.get_connection()
 ```
 
-But note: without `/loadudl`, `^UnitTestRoot` must point to a directory with the test `.cls` files and they'll be loaded from there. If already loaded, use `/noload`:
-
 ```bash
- do ##class(%UnitTest.Manager).RunTest("","/noload/run")
+# Via idt CLI
+idt container up --name my-iris --image intersystemsdc/iris-community:2025.1
 ```
 
-### Reading test results programmatically
-
 ```bash
-docker exec -i iris-eval iris session IRIS -U USER <<'EOF'
- set rs = ##class(%ResultSet).%New("%UnitTest.Result.TestAssert:Assertions")
- do rs.Execute("")
- while rs.Next() { write rs.Get("Name")," | ",rs.Get("Status"),! }
- halt
-EOF
+# Via docker run (manual — requires password fix afterward)
+docker run -d --name my-iris -p 0:1972 \
+  intersystemsdc/iris-community:2025.1 --check-caps false
 ```
 
-## Persistent Dev Container
-
-For iterative development, keep the container running and reload as needed:
-
-```bash
-# Start once
-docker run -d --name iris-dev \
-  -p 1972:1972 -p 52773:52773 \
-  -v "$(pwd):/home/irisowner/dev" \
-  intersystemsdc/iris-community:latest \
-  --check-caps false
-
-# Reload after editing files
-docker exec -i iris-dev iris session IRIS -U USER <<'EOF'
- do $System.OBJ.LoadDir("/home/irisowner/dev/cls/","ck",,1)
- halt
-EOF
-
-# Run tests
-docker exec -i iris-dev iris session IRIS -U USER <<'EOF'
- set ^UnitTestRoot = "/home/irisowner/dev/cls/"
- do ##class(%UnitTest.Manager).RunTest("Test","/loadudl")
- halt
-EOF
-
-# Stop when done
-docker stop iris-dev && docker rm iris-dev
-```
-
-## Cleanup
-
-```bash
-docker stop iris-eval && docker rm iris-eval
-```
+---
 
 ## Common Mistakes
 
 | Mistake | Fix |
 |---------|-----|
-| Session hangs after heredoc | Add `halt` as the last line |
-| Using `-it` with heredoc | Use `-i` only (no `-t`) |
-| Missing leading space on ObjectScript lines | Indent each line with at least one space in heredoc/script |
-| Wrong namespace | Add `-U USER` or `-U NAMESPACENAME` |
-| `^UnitTestRoot` points to wrong dir | Must be the **parent** of the test package directory |
-| Tests not found | Check that RunTest argument matches subdirectory under `^UnitTestRoot` |
-| Container not ready | Wait for health check before executing commands |
-| Windows path issues in volume mount | Use forward slashes or `$(pwd)` in Git Bash |
-
-## Windows-Specific Notes
-
-- Docker Desktop must be running with Linux containers mode
-- Volume paths: use `//c/Users/...` or `$(pwd)` in Git Bash, or `C:\Users\...` in PowerShell
-- Line endings: ObjectScript `.cls` files must use Unix line endings (LF) — configure Git accordingly
+| Using `docker exec` when MCP is connected | Use `iris_execute`, `iris_compile`, `iris_test` instead |
+| Session hangs after heredoc | Add `halt` as last line |
+| Using `-it` with heredoc | Use `-i` only |
+| Missing leading space in heredoc lines | Indent each ObjectScript line with at least one space |
+| `^UnitTestRoot` wrong dir | Must be the **parent** of the test package directory |
+| Password change required on new container | Use `iris-devtester` — auto-remediates in 1.15.0+ |
