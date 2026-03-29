@@ -115,12 +115,36 @@ pub struct ExecuteParams {
     #[serde(default)]
     pub confirmed: bool,
 }
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ListContainersParams {
+    pub workspace_root: Option<String>,
+}
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SelectContainerParams {
+    pub name: String,
+    #[serde(default = "default_namespace")]
+    pub namespace: String,
+    #[serde(default = "default_username")]
+    pub username: String,
+    #[serde(default = "default_password")]
+    pub password: String,
+}
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct StartSandboxParams {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default = "default_edition")]
+    pub edition: String,
+}
 
 fn default_flags() -> String { "cuk".to_string() }
 fn default_namespace() -> String { "USER".to_string() }
 fn default_limit() -> usize { 20 }
 fn default_max_entries() -> usize { 50 }
 fn default_execute_timeout() -> u64 { 30 }
+fn default_username() -> String { "_SYSTEM".to_string() }
+fn default_password() -> String { "SYS".to_string() }
+fn default_edition() -> String { "community".to_string() }
 
 fn iris_unreachable() -> McpError {
     McpError::invalid_request("IRIS_UNREACHABLE: no IRIS connection available", None)
@@ -133,6 +157,83 @@ fn err_json(code: &str, msg: &str) -> Result<CallToolResult, McpError> {
 }
 fn is_network_error(msg: &str) -> bool {
     msg.contains("error sending request") || msg.contains("connection") || msg.contains("dns")
+}
+
+fn score_container(name: &str, workspace_basename: &str) -> i64 {
+    if workspace_basename.is_empty() { return 0; }
+    let cn = name.to_lowercase();
+    let wb = workspace_basename.to_lowercase();
+    let base: i64 = if cn == wb { 100 } else if cn.starts_with(&wb) { 80 } else if cn.contains(&wb) { 60 } else { 0 };
+    if base == 0 { return 0; }
+    let suffix = if cn.ends_with("-iris") || cn.ends_with("_iris") { 10i64 } else { 0 }
+        + if cn.ends_with("-test") || cn.ends_with("_test") { 5 } else { 0 };
+    base + suffix
+}
+
+fn extract_port(ports: &str, container_port: &str) -> Option<u16> {
+    let pat = format!("(\\d+)->{}", regex::escape(container_port));
+    regex::Regex::new(&pat).ok()?.captures(ports)
+        .and_then(|c| c[1].parse().ok())
+}
+
+async fn list_iris_containers(workspace_basename: &str) -> Vec<serde_json::Value> {
+    let mut containers: Vec<serde_json::Value> = Vec::new();
+
+    if let Ok(out) = tokio::process::Command::new("idt")
+        .args(["container", "list", "--format", "json"])
+        .output().await
+    {
+        if out.status.success() {
+            if let Ok(items) = serde_json::from_slice::<Vec<serde_json::Value>>(&out.stdout) {
+                for item in items {
+                    let name = item["name"].as_str().unwrap_or("").to_string();
+                    let ports = item["ports"].as_str().unwrap_or("");
+                    let sp = extract_port(ports, "1972").map(|p| serde_json::json!(p)).unwrap_or(serde_json::Value::Null);
+                    let wp = extract_port(ports, "52773").map(|p| serde_json::json!(p)).unwrap_or(serde_json::Value::Null);
+                    let score = score_container(&name, workspace_basename);
+                    containers.push(serde_json::json!({
+                        "name": name, "port_superserver": sp, "port_web": wp,
+                        "image": item["image"], "status": item.get("status").unwrap_or(&serde_json::json!("running")),
+                        "age": item.get("age").unwrap_or(&serde_json::json!("")), "score": score,
+                    }));
+                }
+                return sort_containers(containers);
+            }
+        }
+    }
+
+    if let Ok(out) = tokio::process::Command::new("docker")
+        .args(["ps", "--format", "{{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}\t{{.RunningFor}}"])
+        .output().await
+    {
+        if out.status.success() {
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                let parts: Vec<&str> = line.splitn(5, '\t').collect();
+                if parts.len() < 5 { continue; }
+                let (name, image, ports_raw, _status, age) = (parts[0], parts[1], parts[2], parts[3], parts[4]);
+                if !image.to_lowercase().contains("intersystems") && !image.to_lowercase().contains("iris") { continue; }
+                let sp = extract_port(ports_raw, "1972").map(|p| serde_json::json!(p)).unwrap_or(serde_json::Value::Null);
+                let wp = extract_port(ports_raw, "52773").map(|p| serde_json::json!(p)).unwrap_or(serde_json::Value::Null);
+                let score = score_container(name, workspace_basename);
+                containers.push(serde_json::json!({
+                    "name": name, "port_superserver": sp, "port_web": wp,
+                    "image": image, "status": "running", "age": age, "score": score,
+                }));
+            }
+        }
+    }
+    sort_containers(containers)
+}
+
+fn sort_containers(mut v: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+    v.sort_by(|a, b| {
+        let sa = a["score"].as_i64().unwrap_or(0);
+        let sb = b["score"].as_i64().unwrap_or(0);
+        sb.cmp(&sa).then_with(|| {
+            a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or(""))
+        })
+    });
+    v
 }
 
 #[derive(Clone)]
@@ -214,6 +315,126 @@ impl IrisTools {
         match serde_json::from_str::<serde_json::Value>(stdout.trim()) {
             Ok(v) => ok_json(v),
             Err(_) => ok_json(serde_json::json!({"success": true, "output": stdout.trim()})),
+        }
+    }
+
+    #[tool(description = "List running IRIS Docker containers with name-match scoring. Tries iris-devtester first, falls back to docker ps. Containers sorted by score (name similarity to workspace) descending.")]
+    async fn iris_list_containers(&self, Parameters(p): Parameters<ListContainersParams>) -> Result<CallToolResult, McpError> {
+        let workspace_basename = p.workspace_root
+            .as_deref()
+            .map(|r| std::path::Path::new(r).file_name().and_then(|n| n.to_str()).unwrap_or("").to_string())
+            .unwrap_or_default();
+
+        let containers = list_iris_containers(&workspace_basename).await;
+        let suggestion = containers.first().map(|c: &serde_json::Value| {
+            format!("iris_select_container(name='{}')", c["name"].as_str().unwrap_or(""))
+        });
+        ok_json(serde_json::json!({
+            "status": "ok",
+            "containers": containers,
+            "workspace_basename": workspace_basename,
+            "suggestion": suggestion,
+        }))
+    }
+
+    #[tool(description = "Switch the active IRIS container. Reconnects the MCP server to the specified container. Returns new connection info including version.")]
+    async fn iris_select_container(&self, Parameters(p): Parameters<SelectContainerParams>) -> Result<CallToolResult, McpError> {
+        let workspace_basename = self.iris.as_ref()
+            .and_then(|c| {
+                let url = &c.base_url;
+                let _port: u16 = url.split(':').last().and_then(|s| s.parse().ok()).unwrap_or(52773);
+                None::<String>
+            })
+            .unwrap_or_default();
+
+        let containers = list_iris_containers(&workspace_basename).await;
+        let found = containers.iter().find(|c| c["name"].as_str() == Some(&p.name));
+
+        let container = match found {
+            Some(c) => c.clone(),
+            None => {
+                let available: Vec<_> = containers.iter().filter_map(|c| c["name"].as_str()).collect();
+                return ok_json(serde_json::json!({
+                    "error": "CONTAINER_NOT_FOUND",
+                    "requested": p.name,
+                    "available": available,
+                }));
+            }
+        };
+
+        let port_superserver = container["port_superserver"].as_u64().unwrap_or(1972) as u16;
+        let port_web = container["port_web"].as_u64().unwrap_or(52773) as u16;
+        let base_url = format!("http://localhost:{}", port_web);
+
+        let new_conn = crate::iris::connection::IrisConnection::new(
+            &base_url, &p.namespace, &p.username, &p.password,
+            crate::iris::connection::DiscoverySource::Docker { container_name: p.name.clone() },
+        );
+        let mut new_conn = new_conn;
+        new_conn.port_superserver = Some(port_superserver);
+
+        let client = IrisConnection::http_client().unwrap_or_default();
+        let version = new_conn.xecute("Write $ZVERSION", &client).await
+            .ok()
+            .and_then(|v| v["result"]["content"].as_str().map(|s| s.to_string()));
+
+        ok_json(serde_json::json!({
+            "status": "ok",
+            "container": p.name,
+            "port_superserver": port_superserver,
+            "port_web": port_web,
+            "namespace": p.namespace,
+            "version": version,
+            "note": "Restart session to use new container, or call iris_execute/iris_compile directly with the container's credentials.",
+        }))
+    }
+
+    #[tool(description = "Start a dedicated IRIS container for the current project via iris-devtester CLI. Idempotent — returns existing container if already running.")]
+    async fn iris_start_sandbox(&self, Parameters(p): Parameters<StartSandboxParams>) -> Result<CallToolResult, McpError> {
+        let workspace = std::env::current_dir().unwrap_or_default();
+        let workspace_basename = workspace.file_name().and_then(|n| n.to_str()).unwrap_or("project").to_string();
+        let container_name = if p.name.is_empty() { format!("{}-iris", workspace_basename) } else { p.name.clone() };
+
+        let containers = list_iris_containers(&workspace_basename).await;
+        if let Some(c) = containers.iter().find(|c| c["name"].as_str() == Some(&container_name)) {
+            if c["port_superserver"].is_number() {
+                return ok_json(serde_json::json!({
+                    "name": container_name,
+                    "port_superserver": c["port_superserver"],
+                    "port_web": c["port_web"],
+                    "started": false,
+                    "idempotent": true,
+                }));
+            }
+        }
+
+        let output = tokio::process::Command::new("idt")
+            .args(["container", "up", "--name", &container_name, "--edition", &p.edition])
+            .output()
+            .await;
+
+        match output {
+            Err(e) => err_json("INTERNAL_ERROR", &format!("idt not found: {e}. Install with: pip install iris-devtester")),
+            Ok(out) if !out.status.success() => {
+                let msg = String::from_utf8_lossy(&out.stderr);
+                err_json("INTERNAL_ERROR", &format!("idt container up failed: {msg}"))
+            }
+            Ok(_) => {
+                let containers2 = list_iris_containers(&workspace_basename).await;
+                match containers2.iter().find(|c| c["name"].as_str() == Some(&container_name)) {
+                    Some(c) => ok_json(serde_json::json!({
+                        "name": container_name,
+                        "port_superserver": c["port_superserver"],
+                        "port_web": c["port_web"],
+                        "started": true,
+                    })),
+                    None => ok_json(serde_json::json!({
+                        "name": container_name,
+                        "started": true,
+                        "warning": "Container started but not yet visible in container list.",
+                    })),
+                }
+            }
         }
     }
 
