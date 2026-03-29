@@ -272,14 +272,59 @@ impl IrisTools {
         }
     }
 
-    #[tool(description = "Run %UnitTest tests matching a pattern on IRIS. Returns pass/fail counts and error details.")]
+    #[tool(description = "Run %UnitTest tests matching a pattern on IRIS. Returns pass/fail counts and full output. Uses OCMCP.Exec helper class via objectscript-mcp Python package.")]
     async fn iris_test(&self, Parameters(p): Parameters<TestParams>) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
-        let client = self.http_client();
-        let code = format!("Do ##class(%UnitTest.Manager).RunTest(\"{}\",\"/noload\")", p.pattern.replace('"', "\\\""));
-        match iris.xecute(&code, &client).await {
-            Ok(resp) => ok_json(serde_json::json!({"success": true, "pattern": p.pattern, "result": resp})),
-            Err(e) => err_json("IRIS_TEST_FAILED", &e.to_string()),
+        let code = format!(
+            "do ##class(%UnitTest.Manager).RunTest(\"{}\",\"/noload/run\")",
+            p.pattern.replace('"', "\\\"")
+        );
+        let python_code = format!(
+            "import json, os; \
+             os.environ.setdefault('IRIS_HOST', 'localhost'); \
+             os.environ.setdefault('IRIS_PORT', '{}'); \
+             os.environ.setdefault('IRIS_USERNAME', '{}'); \
+             os.environ.setdefault('IRIS_PASSWORD', '{}'); \
+             from objectscript_mcp.handlers.iris_execute import handle_iris_execute; \
+             print(json.dumps(handle_iris_execute(code={}, namespace={})))",
+            iris.port_superserver.unwrap_or(1972),
+            iris.username,
+            iris.password,
+            serde_json::to_string(&code).unwrap_or_default(),
+            serde_json::to_string(&p.namespace).unwrap_or_default(),
+        );
+        let output = tokio::process::Command::new("python3")
+            .args(["-c", &python_code])
+            .output()
+            .await
+            .map_err(|e| McpError::internal_error(format!("python3 not available: {e}"), None))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return err_json("INTERNAL_ERROR", &format!("python3 error: {stderr}"));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        match serde_json::from_str::<serde_json::Value>(stdout.trim()) {
+            Ok(v) => {
+                let test_output = v["output"].as_str().unwrap_or("").to_string();
+                let passed = test_output.lines()
+                    .find(|l| l.to_lowercase().contains("passed:"))
+                    .and_then(|l| l.split(':').nth(1)?.trim().split_whitespace().next()?.parse::<u64>().ok())
+                    .unwrap_or(0);
+                let failed = test_output.lines()
+                    .find(|l| l.to_lowercase().contains("failed:"))
+                    .and_then(|l| l.split(':').nth(1)?.trim().split_whitespace().next()?.parse::<u64>().ok())
+                    .unwrap_or(0);
+                ok_json(serde_json::json!({
+                    "success": failed == 0 && v["success"].as_bool().unwrap_or(false),
+                    "pattern": p.pattern,
+                    "namespace": p.namespace,
+                    "passed": passed,
+                    "failed": failed,
+                    "tests_passed": failed == 0 && passed > 0,
+                    "stdout": test_output,
+                }))
+            }
+            Err(_) => ok_json(serde_json::json!({"success": true, "pattern": p.pattern, "stdout": stdout.trim()})),
         }
     }
 
