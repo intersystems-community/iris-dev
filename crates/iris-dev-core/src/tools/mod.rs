@@ -106,6 +106,12 @@ pub struct ErrorLogsParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CommunityPkgParams { pub name: String }
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct SourceMapParams {
+    pub cls_text: String,
+    pub cls_name: String,
+    pub workspace_path: Option<String>,
+}
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ExecuteParams {
     pub code: String,
     #[serde(default = "default_namespace")]
@@ -548,6 +554,45 @@ impl IrisTools {
         match iris.query(&sql, vec![], &client).await {
             Ok(resp) => ok_json(serde_json::json!({"success": true, "logs": resp["result"]["content"]})),
             Err(e) => err_json("IRIS_UNREACHABLE", &e.to_string()),
+        }
+    }
+
+    #[tool(description = "Build a .INT source map for a compiled ObjectScript class, mapping method labels in the compiled routine back to .CLS line numbers. Enables offline stack trace resolution without a live IRIS connection.")]
+    async fn debug_source_map(&self, Parameters(p): Parameters<SourceMapParams>) -> Result<CallToolResult, McpError> {
+        let iris = self.get_iris()?;
+        let python_code = format!(
+            "import json, os; \
+             os.environ.setdefault('IRIS_HOST', 'localhost'); \
+             os.environ.setdefault('IRIS_PORT', '{}'); \
+             os.environ.setdefault('IRIS_USERNAME', '{}'); \
+             os.environ.setdefault('IRIS_PASSWORD', '{}'); \
+             from objectscript_mcp.handlers.debug_source_map import build_source_map; \
+             from objectscript_mcp import connection; \
+             import intersystems_iris as iris; \
+             conn = iris.connect('localhost', int(os.environ['IRIS_PORT']), 'USER', os.environ['IRIS_USERNAME'], os.environ['IRIS_PASSWORD']); \
+             result = build_source_map(cls_text={}, cls_name={}, conn=conn, workspace_path={}); \
+             conn.close(); \
+             print(json.dumps(result or {{'error': 'build_source_map returned None'}}))",
+            iris.port_superserver.unwrap_or(1972),
+            iris.username,
+            iris.password,
+            serde_json::to_string(&p.cls_text).unwrap_or_default(),
+            serde_json::to_string(&p.cls_name).unwrap_or_default(),
+            serde_json::to_string(&p.workspace_path).unwrap_or("null".to_string()),
+        );
+        let output = tokio::process::Command::new("python3")
+            .args(["-c", &python_code])
+            .output()
+            .await
+            .map_err(|e| McpError::internal_error(format!("python3 not available: {e}"), None))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return err_json("INTERNAL_ERROR", &format!("python3 error: {stderr}"));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        match serde_json::from_str::<serde_json::Value>(stdout.trim()) {
+            Ok(v) => ok_json(v),
+            Err(_) => err_json("INTERNAL_ERROR", &format!("unexpected output: {}", stdout.trim())),
         }
     }
 
