@@ -267,14 +267,34 @@ impl IrisTools {
     #[tool(description = "Compile an ObjectScript class or .cls file on IRIS. Pass class name or file path. Returns compiler output with errors.")]
     async fn iris_compile(&self, Parameters(p): Parameters<CompileParams>) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
-        let client = self.http_client();
-        let code = format!(
-            "Set sc=$SYSTEM.OBJ.Compile(\"{}\",\"{}\")\nIf $System.Status.IsOK(sc) {{Write \"OK\"}} Else {{Write $System.Status.GetErrorText(sc)}}",
-            p.target.replace('"', "\\\""), p.flags
+        let python_code = format!(
+            "import json, os; \
+             os.environ.setdefault('IRIS_HOST', 'localhost'); \
+             os.environ.setdefault('IRIS_PORT', '{}'); \
+             os.environ.setdefault('IRIS_USERNAME', '{}'); \
+             os.environ.setdefault('IRIS_PASSWORD', '{}'); \
+             from objectscript_mcp.handlers.iris_compile import handle_iris_compile; \
+             print(json.dumps(handle_iris_compile(target={}, flags={}, namespace={}, confirmed=True)))",
+            iris.port_superserver.unwrap_or(1972),
+            iris.username,
+            iris.password,
+            serde_json::to_string(&p.target).unwrap_or_default(),
+            serde_json::to_string(&p.flags).unwrap_or_default(),
+            serde_json::to_string(&p.namespace).unwrap_or_default(),
         );
-        match iris.xecute(&code, &client).await {
-            Ok(resp) => ok_json(serde_json::json!({"success": true, "target": p.target, "namespace": p.namespace, "result": resp["result"]})),
-            Err(e) => err_json(if is_network_error(&e.to_string()) { "IRIS_UNREACHABLE" } else { "IRIS_COMPILE_FAILED" }, &e.to_string()),
+        let output = tokio::process::Command::new("python3")
+            .args(["-c", &python_code])
+            .output()
+            .await
+            .map_err(|e| McpError::internal_error(format!("python3 not available: {e}"), None))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return err_json("INTERNAL_ERROR", &format!("python3 error: {stderr}"));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        match serde_json::from_str::<serde_json::Value>(stdout.trim()) {
+            Ok(v) => ok_json(v),
+            Err(_) => ok_json(serde_json::json!({"success": true, "target": p.target, "stdout": stdout.trim()})),
         }
     }
 
