@@ -1,7 +1,11 @@
 ---
 name: objectscript-tdd
-description: Compile-test-fix loop for ObjectScript development
-trigger: Use when writing or modifying ObjectScript classes
+description: Compile-test-fix loop for ObjectScript development. Use when writing or modifying ObjectScript classes.
+license: MIT
+metadata:
+  version: "1.0.0"
+  author: InterSystems Developer Community
+  compatibility: objectscript, iris, healthconnect
 ---
 
 ## Purpose
@@ -19,9 +23,14 @@ Close the feedback loop: write → compile → fix errors → run tests → fix 
 
 ## Compile Command
 
-Use the compile command defined in this project's AGENTS.md or README. If not defined:
+Use the objectscript MCP tool when available (check `/mcp`):
 ```
-iris session IRIS -U USER "Do $System.OBJ.Load("<ClassName>.cls","ck")"
+iris_compile(target="MyPackage/MyClass.cls", namespace="USER")
+```
+
+Fallback when MCP is unavailable:
+```
+iris session IRIS -U USER "Do $System.OBJ.Load(\"<ClassName>.cls\",\"ck\")"
 ```
 
 ## Key Principle
