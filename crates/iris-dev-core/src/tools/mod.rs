@@ -105,11 +105,22 @@ pub struct ErrorLogsParams {
 }
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CommunityPkgParams { pub name: String }
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ExecuteParams {
+    pub code: String,
+    #[serde(default = "default_namespace")]
+    pub namespace: String,
+    #[serde(default = "default_execute_timeout")]
+    pub timeout: u64,
+    #[serde(default)]
+    pub confirmed: bool,
+}
 
 fn default_flags() -> String { "cuk".to_string() }
 fn default_namespace() -> String { "USER".to_string() }
 fn default_limit() -> usize { 20 }
 fn default_max_entries() -> usize { 50 }
+fn default_execute_timeout() -> u64 { 30 }
 
 fn iris_unreachable() -> McpError {
     McpError::invalid_request("IRIS_UNREACHABLE: no IRIS connection available", None)
@@ -168,6 +179,41 @@ impl IrisTools {
         match iris.xecute(&code, &client).await {
             Ok(resp) => ok_json(serde_json::json!({"success": true, "pattern": p.pattern, "result": resp})),
             Err(e) => err_json("IRIS_TEST_FAILED", &e.to_string()),
+        }
+    }
+
+    #[tool(description = "Run arbitrary ObjectScript code and return stdout output. Uses irisnative via the superserver port. Delegates to objectscript-mcp Python package (OCMCP.Exec helper class, auto-bootstrapped on first call).")]
+    async fn iris_execute(&self, Parameters(p): Parameters<ExecuteParams>) -> Result<CallToolResult, McpError> {
+        let iris = self.get_iris()?;
+        let python_code = format!(
+            "import json, os; \
+             os.environ.setdefault('IRIS_HOST', 'localhost'); \
+             os.environ.setdefault('IRIS_PORT', '{}'); \
+             os.environ.setdefault('IRIS_USERNAME', '{}'); \
+             os.environ.setdefault('IRIS_PASSWORD', '{}'); \
+             from objectscript_mcp.handlers.iris_execute import handle_iris_execute; \
+             print(json.dumps(handle_iris_execute(code={}, namespace={}, timeout={}, confirmed={})))",
+            iris.port_superserver.unwrap_or(1972),
+            iris.username,
+            iris.password,
+            serde_json::to_string(&p.code).unwrap_or_default(),
+            serde_json::to_string(&p.namespace).unwrap_or_default(),
+            p.timeout,
+            p.confirmed,
+        );
+        let output = tokio::process::Command::new("python3")
+            .args(["-c", &python_code])
+            .output()
+            .await
+            .map_err(|e| McpError::internal_error(format!("python3 not available: {e}"), None))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return err_json("INTERNAL_ERROR", &format!("python3 error: {stderr}"));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        match serde_json::from_str::<serde_json::Value>(stdout.trim()) {
+            Ok(v) => ok_json(v),
+            Err(_) => ok_json(serde_json::json!({"success": true, "output": stdout.trim()})),
         }
     }
 
