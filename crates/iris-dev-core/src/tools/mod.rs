@@ -430,12 +430,12 @@ Methods:
     }
 
     #[tool(description = "Optimize a skill using DSPy. Requires OBJECTSCRIPT_DSPY=true.")]
-    async fn skill_optimize(&self, Parameters(p): Parameters<SkillNameParams>) -> Result<CallToolResult, McpError> {
+    async fn skill_optimize(&self, Parameters(_p): Parameters<SkillNameParams>) -> Result<CallToolResult, McpError> {
         err_json("NOT_AVAILABLE", "DSPy optimization requires OBJECTSCRIPT_DSPY=true")
     }
 
     #[tool(description = "Share a skill to the community via GitHub PR.")]
-    async fn skill_share(&self, Parameters(p): Parameters<SkillNameParams>) -> Result<CallToolResult, McpError> {
+    async fn skill_share(&self, Parameters(_p): Parameters<SkillNameParams>) -> Result<CallToolResult, McpError> {
         err_json("NOT_IMPLEMENTED", "Skill sharing pending GitHub integration")
     }
 
@@ -460,7 +460,7 @@ Methods:
     }
 
     #[tool(description = "Install a community skill from the GitHub community repo.")]
-    async fn skill_community_install(&self, Parameters(p): Parameters<CommunityPkgParams>) -> Result<CallToolResult, McpError> {
+    async fn skill_community_install(&self, Parameters(_p): Parameters<CommunityPkgParams>) -> Result<CallToolResult, McpError> {
         err_json("NOT_IMPLEMENTED", "Community skill installation pending")
     }
 
@@ -571,8 +571,6 @@ Methods:
         interop::interop_message_search_impl(self.iris.as_deref(), p).await
     }
 }
-
-
 
 
 #[tool_handler]
