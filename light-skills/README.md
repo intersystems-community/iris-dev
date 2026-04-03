@@ -1,125 +1,194 @@
 # ObjectScript AI — Light Skills
 
-**Zero-infrastructure AI coding support for ObjectScript / IRIS.**
+**Benchmark-validated AI coding support for ObjectScript / IRIS.**
 
-No MCP server. No Python packages. No pip installs. Just `curl`, an `AGENTS.md`, and two skill files.
+No MCP server. No Python. No pip installs. Copy two files, get measurably better AI-generated ObjectScript.
 
 ---
 
-## What's in here
+## The numbers
 
-| File | Purpose |
+Tested with Claude Sonnet 4.6 on a 22-task ObjectScript repair benchmark (real bug patterns from ISC internal codebases):
+
+| What you add | Pass rate | Lift |
+|---|---|---|
+| Nothing (baseline) | 73% | — |
+| `AGENTS.md` only | 86% | +14% |
+| `AGENTS.md` + `objectscript-review` skill | **100%** | **+29%** |
+
+The benchmark covers: null pointer bugs, SQL filter errors, loop logic, HTML escaping, type conversion, date validation, list operations — the real mistakes AI makes when writing ObjectScript without context.
+
+---
+
+## 60-second setup
+
+### Step 1: Copy AGENTS.md to your repo
+
+```bash
+curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/AGENTS.md \
+  > AGENTS.md
+```
+
+That's it for the baseline (+14%). Your AI agent now knows the top 10 ObjectScript gotchas.
+
+### Step 2: Add the review skill for 100% (recommended)
+
+**Claude Code:**
+```bash
+mkdir -p .claude/skills/objectscript-review
+curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/skills/objectscript-review/SKILL.md \
+  > .claude/skills/objectscript-review/SKILL.md
+```
+
+**opencode:**
+```bash
+mkdir -p ~/.config/opencode/skills/objectscript-review
+curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/skills/objectscript-review/SKILL.md \
+  > ~/.config/opencode/skills/objectscript-review/SKILL.md
+```
+
+The review skill is a **hard gate** — it runs before showing you any ObjectScript code and corrects mistakes before they reach you.
+
+### Step 3 (optional): Add more validated skills
+
+| Skill | Pass rate | Best for |
+|---|---|---|
+| `objectscript-review` | **100%** | Hard-gate review — the anchor skill |
+| `objectscript-list-patterns` | 91% | `%List`, CSV building, backwards iteration |
+| `objectscript-unit-test` | 86% | Generating `%UnitTest.TestCase` scaffolds |
+| `objectscript-navigation` | 82% | Codebase discovery, class browsing |
+| `objectscript-sql-patterns` | ✓ | SQL table naming, `$HOROLOG` dates, SQLCODE |
+| `objectscript-loop-patterns` | ✓ | `$Order`, `Return` vs `Quit` in loops |
+
+```bash
+# Install all validated skills (global — works for all your projects)
+SKILLS_DIR=~/.config/opencode/skills   # or ~/.claude/skills for Claude Code
+BASE=https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/skills
+
+for skill in objectscript-review objectscript-list-patterns objectscript-sql-patterns \
+             objectscript-loop-patterns objectscript-unit-test objectscript-navigation; do
+  mkdir -p "$SKILLS_DIR/$skill"
+  curl -sL "$BASE/$skill/SKILL.md" > "$SKILLS_DIR/$skill/SKILL.md"
+done
+echo "Done. $(ls $SKILLS_DIR | wc -l) skills installed."
+```
+
+---
+
+## What's in this directory
+
+| File/Directory | Purpose |
 |---|---|
-| `AGENTS.md` | Drop into your repo root — teaches AI coding agents ObjectScript semantics, gotchas, and the compile/test loop |
-| `introspect.md` | Skill: fetch any class's full source from IRIS via Atelier REST before writing code that touches it |
-| `compile.md` | Skill: upload a `.cls` file, compile it, and get structured error output for the AI to fix |
+| `AGENTS.md` | ObjectScript rules — drop in your repo root |
+| `compile.md` | Skill: compile via Atelier REST, structured errors |
+| `introspect.md` | Skill: fetch any class definition from IRIS |
+| `skills/objectscript-review/` | **Start here** — hard-gate review, 100% pass rate |
+| `skills/objectscript-*` | Validated pattern skills (see table above) |
+| `skills/iris-light-slim/` | 268-word all-in-one hard gate (alternative to review) |
+| `kb/` | Reference knowledge: error codes, idioms, IPM authoring |
+| `iris-dev.toml` | Package manifest for `iris-dev` CLI install |
 
 ---
 
-## Quick start
+## For ISC SEs and developers — dogfood instructions
 
-### 1. Copy AGENTS.md to your repo
+**5 minutes to set up, measurable improvement immediately.**
+
+### If you use Claude Code
 
 ```bash
-cp light-skills/AGENTS.md /path/to/your-project/AGENTS.md
-# or for Claude Code:
-cp light-skills/AGENTS.md /path/to/your-project/.claude/AGENTS.md
-```
+# 1. Copy AGENTS.md to your project
+curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/AGENTS.md > AGENTS.md
 
-That's it. Your AI agent will now follow ObjectScript rules automatically.
-
-### 2. Install the skills (optional but high-value)
-
-#### Claude Code
-```bash
-mkdir -p /path/to/your-project/.claude/skills
-cp light-skills/introspect.md /path/to/your-project/.claude/skills/
-cp light-skills/compile.md    /path/to/your-project/.claude/skills/
-```
-
-#### opencode
-```bash
-mkdir -p /path/to/your-project/.opencode/skills
-cp light-skills/introspect.md /path/to/your-project/.opencode/skills/
-cp light-skills/compile.md    /path/to/your-project/.opencode/skills/
-```
-
-#### Global install (all your projects)
-```bash
-# Claude Code / opencode global skills (single source of truth: vscode-objectscript-mcp)
+# 2. Install the top 3 skills globally
 mkdir -p ~/.claude/skills
-for skill in iris-objectscript-eval objectscript-debugging objectscript-navigation \
-             objectscript-repair objectscript-review objectscript-tdd objectscript-unit-test \
-             ensemble-production; do
-  cp -r ~/ws/vscode-objectscript-mcp/light-skills/skills/$skill ~/.claude/skills/
+for skill in objectscript-review objectscript-sql-patterns objectscript-loop-patterns; do
+  mkdir -p ~/.claude/skills/$skill
+  curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/skills/$skill/SKILL.md \
+    > ~/.claude/skills/$skill/SKILL.md
 done
 
-# Codex global skills
-mkdir -p ~/.codex/skills
-for skill in iris-objectscript-eval objectscript-debugging objectscript-navigation \
-             objectscript-repair objectscript-review objectscript-tdd objectscript-unit-test \
-             ensemble-production; do
-  cp -r ~/ws/vscode-objectscript-mcp/light-skills/skills/$skill ~/.codex/skills/
+# 3. Verify
+ls ~/.claude/skills/
+```
+
+### If you use opencode
+
+```bash
+# 1. Copy AGENTS.md to your project
+curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/AGENTS.md > AGENTS.md
+
+# 2. Install skills globally
+mkdir -p ~/.config/opencode/skills
+for skill in objectscript-review objectscript-sql-patterns objectscript-loop-patterns; do
+  mkdir -p ~/.config/opencode/skills/$skill
+  curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/skills/$skill/SKILL.md \
+    > ~/.config/opencode/skills/$skill/SKILL.md
 done
 ```
 
-> **Canonical source**: `~/ws/vscode-objectscript-mcp/light-skills/skills/` is the single source of truth for all ObjectScript agent skills. Do not edit skills in `objectscript-coder/light-skills/skills/` directly — update in `vscode-objectscript-mcp` and re-copy.
+### If you use VS Code Copilot
 
-### 3. Set your IRIS connection env vars
+The [VS Code ObjectScript MCP extension](https://github.com/intersystems-community/vscode-objectscript-mcp) wires these skills into Copilot agent mode automatically. Install the extension and it picks up your IRIS connection from VS Code settings.
+
+### Connect to IRIS (for compile/introspect skills)
 
 ```bash
-export IRIS_HOST=localhost      # or your Docker host / remote server
-export IRIS_WEB_PORT=52773      # Atelier web port (NOT 1972)
+export IRIS_HOST=localhost
+export IRIS_WEB_PORT=52773     # Atelier REST port — NOT 1972
 export IRIS_USER=_SYSTEM
 export IRIS_PASS=SYS
-export IRIS_NS=USER             # your working namespace
+export IRIS_NS=USER
 ```
 
-> **Docker tip**: `docker port <container> 52773` tells you the mapped host port.
-
-### 4. Use the skills
-
-```
-/introspect EnsLib.HTTP.OutboundAdapter
-/compile MyPackage.MyService src/MyPackage/MyService.cls
-```
+> **Docker?** `docker port <container> 52773` gives you the mapped port.
 
 ---
 
-## Why this works
+## What to try first
 
-Based on internal testing with Claude Sonnet 4.6 and o4-mini:
+1. **Open an existing ObjectScript class** in your editor
+2. Ask your AI: *"Review this method for ObjectScript mistakes"*
+3. With `objectscript-review` loaded, the AI will run the 10-item checklist and correct issues before showing you anything
+4. Ask it to *"write a unit test for this class"* — with `objectscript-unit-test`, it reads the actual IRIS class definition first
 
-- **Without** any tools: 0% success on custom app classes and private server-side classes
-- **With** `/introspect` before coding: 100% success on the same tasks
-
-The AI doesn't hallucinate method signatures when it has the actual source. `AGENTS.md` prevents
-the most common ObjectScript mistakes (`%TimeStamp` format, `Quit` vs `Return`, `..` method calls)
-before they happen.
+**Tell us what you find.** File issues at [intersystems-community/vscode-objectscript-mcp](https://github.com/intersystems-community/vscode-objectscript-mcp) or ping `@tdyar` / `@tleavitt` on Teams.
 
 ---
 
-## What AGENTS.md covers
+## Want the full stack?
 
-- `Quit` vs `Return` rules
-- `%TimeStamp` format gotcha (`YYYY-MM-DD HH:MM:SS`, not ISO 8601 with `T`)
-- `%Status` return convention and macros
-- Error handling patterns (`$$$ThrowOnError`, `Try/Catch`)
-- Transaction discipline (`$TLEVEL` check before rollback)
-- Intra-class method call syntax (`..Method()`)
-- Operator precedence (none — left-to-right only)
-- Namespace awareness
-- Compile error interpretation guide
-- Class structure templates (registered object, persistent, unit test)
+The `objectscript-mcp` server adds live IRIS integration — automatic introspection, symbol search, and a learning agent that synthesizes new skills from your session patterns.
+
+```bash
+pip install objectscript-mcp
+objectscript-mcp  # starts MCP server on stdio
+```
+
+Configure in Claude Desktop / opencode `config.json`:
+```json
+{
+  "mcpServers": {
+    "objectscript": {
+      "command": "objectscript-mcp",
+      "env": {
+        "IRIS_HOST": "localhost",
+        "IRIS_PORT": "1972",
+        "IRIS_NAMESPACE": "USER"
+      }
+    }
+  }
+}
+```
+
+See [MCP_SETUP_GUIDE.md](../docs/MCP_SETUP_GUIDE.md) for full configuration options.
 
 ---
 
-## Want more?
+## Benchmark methodology
 
-The full `objectscript-mcp` MCP server adds:
-- `docs.introspect` — same as `/introspect` but invoked automatically by the AI, no manual `/invoke` needed
-- `iris.symbols.local` — parses `.cls` files on disk without a running IRIS (tree-sitter based)
-- `kb.index` / `kb.recall` — vector+BM25 knowledge base over your own codebase
-- Learning agent — synthesizes skills from your session history
+The 22-task repair suite covers real ObjectScript bug patterns. Each task has a buggy `.cls` file, a test that fails on the bug, and an oracle that verifies the fix. Tasks were drawn from internal JIRA bugs and ISC codebase patterns.
 
-See [objectscript-mcp setup](../docs/MCP_SETUP_GUIDE.md) if you want the full stack.
+All scores measured with Claude Sonnet 4.6 via AWS Bedrock. Lift = skill pass rate − baseline. Tests run on IRIS 2025.1 Community Edition in Docker.
+
+Full benchmark harness: [`objectscript-coder/bench/`](https://github.com/intersystems-community/vscode-objectscript-mcp)

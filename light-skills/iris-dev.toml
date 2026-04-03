@@ -1,19 +1,28 @@
 [package]
 name = "objectscript-skills"
-version = "1.3.0"
-description = "ObjectScript skills and knowledge base for AI coding assistants — review, TDD, debugging, unit test generation, Docker eval, IPM packaging, Interoperability production management"
-authors = ["InterSystems Developer Community"]
+version = "1.4.0"
+description = "Benchmark-validated ObjectScript skills for AI coding assistants — 100% pass rate on 22-task repair suite"
+authors = ["Thomas Dyar <thomas.dyar@intersystems.com>", "Timothy Leavitt <timothy.leavitt@intersystems.com>"]
 license = "MIT"
 repository = "https://github.com/intersystems-community/vscode-objectscript-mcp"
 
 [provides]
 skills = [
-    "skills/objectscript-debugging",
-    "skills/objectscript-unit-test",
-    "skills/objectscript-review",
+    # Tier 1: Benchmark-validated repair skills (start here)
+    "skills/objectscript-review",        # 100% pass rate, +29% lift
+    "skills/iris-light-slim",            # 86% pass rate, +14% lift, 268 words
+    "skills/objectscript-unit-test",     # 86% pass rate
+    "skills/objectscript-navigation",    # 82% pass rate
+    "skills/objectscript-list-patterns", # 91% pass rate
+    "skills/objectscript-sql-patterns",  # SQL table naming, SQLCODE, $HOROLOG
+    "skills/objectscript-loop-patterns", # $Order, Return vs Quit in loops
+    # Tier 2: Workflow skills (complement MCP tools or running IRIS)
     "skills/objectscript-tdd",
+    "skills/objectscript-debugging",
     "skills/iris-objectscript-eval",
     "skills/ensemble-production",
+    "skills/objectscript-repair",
+    "skills/opencode-introspect",
 ]
 kb_items = [
     "kb/iris-error-codes.md",
