@@ -3,6 +3,25 @@
 Drop this file in your repo root (or `.claude/AGENTS.md`) so AI coding agents understand
 ObjectScript semantics before writing a single line of code.
 
+> **Benchmark result**: Claude Sonnet 4.6 with this file scores **86% on a 22-task ObjectScript repair suite** (+14% lift over no context). The `objectscript-review` skill below raises that to **100%** (+29% lift). Numbers from controlled A/B testing — see [`light-skills/README.md`](README.md).
+
+---
+
+## HARD GATE — Run before showing any ObjectScript code
+
+Load `skills/objectscript-review/SKILL.md` if available. Otherwise apply this checklist mentally:
+
+- [ ] No `Quit <value>` inside For/While loops — use `Return <value>`
+- [ ] Postfix condition has no spaces: `Quit:key=""` not `Quit:key = ""`
+- [ ] `$IsObject(obj)` checked after every `%OpenId` before accessing properties
+- [ ] SQL table name: `MF.Catalog.Product` → `MF_Catalog.Product` (last dot = schema separator)
+- [ ] `SQLCODE = 0` is success (falsy) — check `SQLCODE = 0`, not just `SQLCODE`
+- [ ] HTML escaping: `&` FIRST, then `<`, then `>`
+- [ ] Arithmetic is left-to-right: use `1.8` not `9/5`, parenthesize everything
+- [ ] `$ListBuild()` creates a list of length 1, not 0 — use `""` for empty list
+- [ ] `%Status`: use `$$$ISERR(sc)` — never return `$$$OK` after catching an error
+- [ ] Transactions: `If $TLevel > 0 { TRollback }` — never `Return` inside `TStart` without rollback
+
 ---
 
 ## 1. ObjectScript Language Rules (LLM Gotchas)
