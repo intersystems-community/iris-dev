@@ -201,16 +201,125 @@ Method TestEdgeCase()
 
 ---
 
-## 4. Namespace & Environment Awareness
+## 4. Legacy .MAC Routines
 
-- **Always ask which namespace** before writing code that touches globals or calls existing classes. IRIS can have many namespaces (`USER`, `HSCUSTOM`, `HSLIB`, application-specific) with different class libraries.
+**Most IRIS codebases — especially CHUI apps, integrations, and anything pre-2000 — are `.MAC` routines, not classes.** AI models default to class syntax. If you're working with `.MAC`, tell your agent explicitly and use these rules.
+
+### Structure
+
+`.MAC` routines use label-based structure, not class methods:
+
+```objectscript
+MYROUTINE
+    ; Entry point — no parentheses, no braces
+    Set x = 1
+    Do HELPER
+    Quit
+
+HELPER
+    ; Subroutine — called with DO HELPER or DO HELPER^MYROUTINE
+    Write "hello", !
+    Quit
+
+CALC(a, b)
+    ; Extrinsic function — called with $$CALC(1,2) or $$CALC^MYROUTINE(1,2)
+    Quit a + b
+```
+
+### `#include` vs `Include` — different syntax than classes
+
+```objectscript
+; .MAC uses preprocessor directive — NOT the class keyword
+#include %occStatus
+#include myMacros
+
+; In a class you'd write:
+; Include %occStatus   ← class keyword, no #
+; But in .MAC it MUST be:
+; #include %occStatus  ← preprocessor directive, with #
+```
+
+### Calling conventions
+
+```objectscript
+; Call a subroutine in same routine:
+Do LABEL
+
+; Call a subroutine in another routine:
+Do LABEL^OTHERROUTINE
+
+; Call an extrinsic function (returns a value):
+Set result = $$LABEL
+Set result = $$LABEL^OTHERROUTINE(arg1, arg2)
+
+; WRONG in .MAC — no class method syntax:
+Set result = ..MyMethod()          ; ERROR — no object context in .MAC
+Set result = ##class(X).Method()   ; Valid but uncommon in legacy .MAC
+```
+
+### Error handling — `$ZTRAP` not `Try/Catch`
+
+Legacy `.MAC` uses `$ZTRAP` label-based error handling, not `Try/Catch`:
+
+```objectscript
+MYROUTINE
+    Set $ZTRAP = "ERRHANDLER"
+    ; ... code that might error ...
+    Set $ZTRAP = ""
+    Quit
+
+ERRHANDLER
+    Set $ZTRAP = ""        ; Clear trap to avoid recursion
+    Write "Error: ", $ZE, !
+    Quit
+```
+
+Modern `.MAC` can use `Try/Catch` — prefer it for new code even in `.MAC` files. Do not introduce `$ZTRAP` in new code.
+
+### Variable scope — routines have no automatic isolation
+
+```objectscript
+; WRONG: variable bleeds across DO calls unless you NEW it
+CALLER
+    Set x = "original"
+    Do CALLEE
+    Write x, !    ; Might print "modified" — x was changed in CALLEE!
+
+CALLEE
+    Set x = "modified"
+    Quit
+
+; CORRECT: NEW isolates the variable
+CALLEE
+    New x
+    Set x = "modified"
+    Quit
+```
+
+### Key differences from classes
+
+| .MAC routines | ObjectScript classes |
+|---------------|---------------------|
+| `#include file.inc` | `Include ClassName` |
+| `Do LABEL^ROUTINE` | `Do ##class(X).Method()` |
+| `$$FUNC^ROUTINE(args)` | `##class(X).Method(args)` |
+| `$ZTRAP = "LABEL"` | `Try { } Catch e { }` |
+| `New var` for scope | Method variables auto-scoped |
+| No `..` for self-reference | `..Property`, `..Method()` |
+| Globals for shared state | Properties for instance state |
+
+---
+
+## 5. Namespace & Environment Awareness
+
+- **Always ask which namespace**
 - **`%SYS` is privileged** — system-level operations (user management, license info) require `%SYS`. Don't put application code there.
 - **IRIS web port ≠ superserver port** — The Atelier/REST web server listens on `52773` by default (or a Docker-mapped port). The superserver (JDBC/DBAPI) is on `1972`. These are different.
 - **Check namespace before class search** — `Do $System.Status.DisplayError(##class(%Dictionary.ClassDefinition).%OpenId("My.Class"))` returning an error likely means you're in the wrong namespace, not that the class doesn't exist.
 
 ---
 
-## 5. Using AI Skills (no MCP server required)
+## 6. Using AI Skills (no MCP server required)
 
 The `light-skills/` directory contains two standalone skills you can use with Claude Code,
 opencode, or any agent that supports markdown skill files:

@@ -8,15 +8,36 @@ No MCP server. No Python. No pip installs. Copy two files, get measurably better
 
 ## The numbers
 
-Tested with Claude Sonnet 4.6 on a 22-task ObjectScript repair benchmark (real bug patterns from ISC internal codebases):
+Tested with Claude Sonnet 4.6 on **41 tasks** across three benchmarks (real patterns from ISC codebases):
 
-| What you add | Pass rate | Lift |
-|---|---|---|
-| Nothing (baseline) | 73% | — |
-| `AGENTS.md` only | 86% | +14% |
-| `AGENTS.md` + `objectscript-review` skill | **100%** | **+29%** |
+| Suite | Tasks | Baseline | Best skill | Lift |
+|---|---|---|---|---|
+| ObjectScript repair | 22 | 73% | **100%** | **+27%** |
+| Multi-file repair | 5 | 80% | **100%** | **+20%** |
+| IRIS SQL quirks | 14 | 93% | **100%** | **+7%** |
 
-The benchmark covers: null pointer bugs, SQL filter errors, loop logic, HTML escaping, type conversion, date validation, list operations — the real mistakes AI makes when writing ObjectScript without context.
+The top-scoring skill on the repair benchmark is **`objectscript-review`** by [Timothy Leavitt](https://github.com/tleavitt-isc) — a 205-word hard-gate checklist that catches the 10 most common ObjectScript mistakes before the AI shows you any code.
+
+---
+
+## 🏆 Skill Leaderboard
+
+*Ranked by pass rate on the 22-task ObjectScript repair benchmark. Baseline (no skill) = 73%.*
+
+| Rank | Skill | Author | Words | Score | Lift | Suite |
+|------|-------|--------|-------|-------|------|-------|
+| 🥇 1 | **[objectscript-review](skills/objectscript-review/)** | **Timothy Leavitt** | 205 | **100%** | **+29%** | Repair |
+| 🥈 2 | [objectscript-list-patterns](skills/objectscript-list-patterns/) | Tom Dyar | 472 | 91% | — | Repair |
+| 🥈 2 | [objectscript-unit-test](skills/objectscript-unit-test/) | Timothy Leavitt | 340 | 86% | — | Repair |
+| 🥈 2 | [iris-light-slim](skills/iris-light-slim/) | Tom Dyar | 268 | 86% | +14% | Repair |
+| 4 | [objectscript-navigation](skills/objectscript-navigation/) | Timothy Leavitt | 231 | 82% | — | Repair |
+| 5 | [objectscript-tdd](skills/objectscript-tdd/) | Timothy Leavitt | 256 | 55% | — | Repair |
+| — | [iris-sql](skills/iris-sql/) | Tom Dyar | 2445 | 100% | +7% | **SQL** |
+| — | [iris-light](skills/iris-light/) | Tom Dyar | 5170 | 21% | — | Repair |
+
+> **Note**: Negative results matter too. `objectscript-loop-patterns` (572 words) measured **-19% lift** when loaded globally — domain-specific skills should be loaded on demand, not globally. See [BENCHMARKING.md](BENCHMARKING.md) to run the suite yourself.
+
+**Want your skill on the leaderboard?** See [Contributing a skill](#contributing-a-skill) below.
 
 ---
 
@@ -31,7 +52,7 @@ curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objects
 
 That's it for the baseline (+14%). Your AI agent now knows the top 10 ObjectScript gotchas.
 
-### Step 2: Add the review skill for 100% (recommended)
+### Step 2: Add the #1 skill for 100%
 
 **Claude Code:**
 ```bash
@@ -47,26 +68,15 @@ curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objects
   > ~/.config/opencode/skills/objectscript-review/SKILL.md
 ```
 
-The review skill is a **hard gate** — it runs before showing you any ObjectScript code and corrects mistakes before they reach you.
-
-### Step 3 (optional): Add more validated skills
-
-| Skill | Pass rate | Best for |
-|---|---|---|
-| `objectscript-review` | **100%** | Hard-gate review — the anchor skill |
-| `objectscript-list-patterns` | 91% | `%List`, CSV building, backwards iteration |
-| `objectscript-unit-test` | 86% | Generating `%UnitTest.TestCase` scaffolds |
-| `objectscript-navigation` | 82% | Codebase discovery, class browsing |
-| `objectscript-sql-patterns` | ✓ | SQL table naming, `$HOROLOG` dates, SQLCODE |
-| `objectscript-loop-patterns` | ✓ | `$Order`, `Return` vs `Quit` in loops |
+### Step 3 (optional): Install the full validated set
 
 ```bash
-# Install all validated skills (global — works for all your projects)
 SKILLS_DIR=~/.config/opencode/skills   # or ~/.claude/skills for Claude Code
 BASE=https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/skills
 
 for skill in objectscript-review objectscript-list-patterns objectscript-sql-patterns \
-             objectscript-loop-patterns objectscript-unit-test objectscript-navigation; do
+             objectscript-loop-patterns objectscript-unit-test objectscript-navigation \
+             iris-light-slim; do
   mkdir -p "$SKILLS_DIR/$skill"
   curl -sL "$BASE/$skill/SKILL.md" > "$SKILLS_DIR/$skill/SKILL.md"
 done
@@ -80,11 +90,13 @@ echo "Done. $(ls $SKILLS_DIR | wc -l) skills installed."
 | File/Directory | Purpose |
 |---|---|
 | `AGENTS.md` | ObjectScript rules — drop in your repo root |
+| `BENCHMARKING.md` | **How to run the benchmarks yourself and submit results** |
 | `compile.md` | Skill: compile via Atelier REST, structured errors |
 | `introspect.md` | Skill: fetch any class definition from IRIS |
-| `skills/objectscript-review/` | **Start here** — hard-gate review, 100% pass rate |
-| `skills/objectscript-*` | Validated pattern skills (see table above) |
+| `skills/objectscript-review/` | **🥇 Start here** — hard-gate review, 100% on repair benchmark |
+| `skills/objectscript-*` | Validated pattern skills (see leaderboard above) |
 | `skills/iris-light-slim/` | 268-word all-in-one hard gate (alternative to review) |
+| `skills/iris-sql/` | IRIS SQL quirks: reserved words, SQLCODE, table naming |
 | `kb/` | Reference knowledge: error codes, idioms, IPM authoring |
 | `iris-dev.toml` | Package manifest for `iris-dev` CLI install |
 
@@ -100,27 +112,23 @@ echo "Done. $(ls $SKILLS_DIR | wc -l) skills installed."
 # 1. Copy AGENTS.md to your project
 curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/AGENTS.md > AGENTS.md
 
-# 2. Install the top 3 skills globally
+# 2. Install top skills globally
 mkdir -p ~/.claude/skills
-for skill in objectscript-review objectscript-sql-patterns objectscript-loop-patterns; do
+for skill in objectscript-review objectscript-sql-patterns iris-light-slim; do
   mkdir -p ~/.claude/skills/$skill
   curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/skills/$skill/SKILL.md \
     > ~/.claude/skills/$skill/SKILL.md
 done
-
-# 3. Verify
 ls ~/.claude/skills/
 ```
 
 ### If you use opencode
 
 ```bash
-# 1. Copy AGENTS.md to your project
 curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/AGENTS.md > AGENTS.md
 
-# 2. Install skills globally
 mkdir -p ~/.config/opencode/skills
-for skill in objectscript-review objectscript-sql-patterns objectscript-loop-patterns; do
+for skill in objectscript-review objectscript-sql-patterns iris-light-slim; do
   mkdir -p ~/.config/opencode/skills/$skill
   curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/skills/$skill/SKILL.md \
     > ~/.config/opencode/skills/$skill/SKILL.md
@@ -129,7 +137,7 @@ done
 
 ### If you use VS Code Copilot
 
-The [VS Code ObjectScript MCP extension](https://github.com/intersystems-community/vscode-objectscript-mcp) wires these skills into Copilot agent mode automatically. Install the extension and it picks up your IRIS connection from VS Code settings.
+The [VS Code ObjectScript MCP extension](https://github.com/intersystems-community/vscode-objectscript-mcp) wires skills into Copilot agent mode automatically.
 
 ### Connect to IRIS (for compile/introspect skills)
 
@@ -149,10 +157,50 @@ export IRIS_NS=USER
 
 1. **Open an existing ObjectScript class** in your editor
 2. Ask your AI: *"Review this method for ObjectScript mistakes"*
-3. With `objectscript-review` loaded, the AI will run the 10-item checklist and correct issues before showing you anything
+3. With `objectscript-review` loaded, the AI runs the 10-item checklist and corrects issues before showing you anything
 4. Ask it to *"write a unit test for this class"* — with `objectscript-unit-test`, it reads the actual IRIS class definition first
 
 **Tell us what you find.** File issues at [intersystems-community/vscode-objectscript-mcp](https://github.com/intersystems-community/vscode-objectscript-mcp) or ping `@tdyar` / `@tleavitt` on Teams.
+
+---
+
+## Contributing a skill
+
+**Your skill could be on the leaderboard.** The bar is clear: write a `SKILL.md`, run the benchmark, report your score.
+
+### 1. Write your skill
+
+Use the `objectscript-review` skill as the reference design — 205 words, a hard gate, a checklist, an output format. See [BENCHMARKING.md](BENCHMARKING.md) for the RED-GREEN methodology.
+
+Frontmatter required:
+```yaml
+---
+name: "yourgithub/your-skill-name"
+description: "Use when ..."    # triggers only — no workflow summary
+iris_version: ">=2024.1"
+tags: [objectscript]
+author: yourgithub
+state: draft
+---
+```
+
+### 2. Run the benchmark
+
+```bash
+# See BENCHMARKING.md for full instructions — takes ~5 minutes
+git clone https://github.com/intersystems-community/vscode-objectscript-mcp
+cd vscode-objectscript-mcp/light-skills
+./bench/run_benchmark.sh --skill path/to/your/SKILL.md --baseline
+```
+
+### 3. Submit a PR
+
+Open a PR to this repo with:
+- Your `skills/yourgithub/your-skill/SKILL.md`
+- Benchmark results in the PR description (pass rate, baseline, lift, IRIS version)
+- A one-line description of what your skill catches that others don't
+
+Skills that improve on the leaderboard get merged. Skills with negative lift on the repair suite get labeled "domain-specific" and noted as load-on-demand only.
 
 ---
 
@@ -165,30 +213,20 @@ pip install objectscript-mcp
 objectscript-mcp  # starts MCP server on stdio
 ```
 
-Configure in Claude Desktop / opencode `config.json`:
-```json
-{
-  "mcpServers": {
-    "objectscript": {
-      "command": "objectscript-mcp",
-      "env": {
-        "IRIS_HOST": "localhost",
-        "IRIS_PORT": "1972",
-        "IRIS_NAMESPACE": "USER"
-      }
-    }
-  }
-}
-```
-
-See [MCP_SETUP_GUIDE.md](../docs/MCP_SETUP_GUIDE.md) for full configuration options.
+See [MCP_SETUP_GUIDE.md](../docs/MCP_SETUP_GUIDE.md) for configuration.
 
 ---
 
 ## Benchmark methodology
 
-The 22-task repair suite covers real ObjectScript bug patterns. Each task has a buggy `.cls` file, a test that fails on the bug, and an oracle that verifies the fix. Tasks were drawn from internal JIRA bugs and ISC codebase patterns.
+Three suites, 41 tasks total, all on IRIS 2025.1 Community Edition in Docker with Claude Sonnet 4.6 via AWS Bedrock:
 
-All scores measured with Claude Sonnet 4.6 via AWS Bedrock. Lift = skill pass rate − baseline. Tests run on IRIS 2025.1 Community Edition in Docker.
+| Suite | Tasks | What it tests |
+|---|---|---|
+| ObjectScript repair | 22 | Single-function bugs: null checks, loops, SQL, error handling |
+| Multi-file repair | 5 | Method renames, signature changes, SQL renames across files |
+| IRIS SQL quirks | 14 | SQLCODE, reserved words, %INLIST, IN limits, streams, DDL |
 
-Full benchmark harness: [`objectscript-coder/bench/`](https://github.com/intersystems-community/vscode-objectscript-mcp)
+Each task: buggy `.cls` file + test that fails + oracle that verifies the fix. Lift = skill pass rate − baseline (no skill).
+
+**Run it yourself → [BENCHMARKING.md](BENCHMARKING.md)**
