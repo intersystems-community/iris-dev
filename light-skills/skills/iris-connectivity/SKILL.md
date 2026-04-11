@@ -1,15 +1,40 @@
 ---
-name: tdyar/iris-connectivity
-description: Use when connecting to IRIS from Python, Java, JDBC, ODBC, or any external language. IRIS connection APIs have specific package names, port numbers, and syntax that differ from every other database.
-license: MIT
-compatibility: python, java, objectscript, iris, sql
-iris_version: ">=2022.1"
-tags: [iris, python, jdbc, odbc, connection, dbapi, native-api]
 author: tdyar
-state: reviewed
+benchmark_date: '2026-04-11'
+benchmark_iris_version: '2025.1'
+benchmark_tasks:
+- prd-001
+- prd-002
+- prd-003
+- prd-004
+- prd-005
+- prd-006
+- prd-007
+compatibility: python, java, objectscript, iris, sql
+description: Use when connecting to IRIS from Python, Java, JDBC, ODBC, or any external
+  language. IRIS connection APIs have specific package names, port numbers, and syntax
+  that differ from every other database.
+iris_version: '>=2022.1'
+license: MIT
 metadata:
-  version: "1.0.0"
-  red_phase: "Model uses wrong Python package, wrong JDBC prefix, wrong proc-call syntax in 100% of cases without this skill"
+  baseline_pass_rate: 1.0
+  benchmark_note: Source inspection suite. Negative lift when loaded globally (-14%).
+    Load on-demand for Python/JDBC/connection tasks only.
+  lift: -0.143
+  red_phase: Model uses wrong Python package, wrong JDBC prefix, wrong proc-call syntax
+    in 100% of cases without this skill
+  version: 1.0.0
+name: tdyar/iris-connectivity
+pass_rate: 0.857
+state: reviewed
+tags:
+- iris
+- python
+- jdbc
+- odbc
+- connection
+- dbapi
+- native-api
 ---
 
 # IRIS Connectivity — Hard Gate

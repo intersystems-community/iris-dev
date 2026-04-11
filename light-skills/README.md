@@ -34,8 +34,11 @@ The top-scoring skill on the repair benchmark is **`objectscript-review`** by [T
 | 5 | [objectscript-tdd](skills/objectscript-tdd/) | Timothy Leavitt | 256 | 55% | — | Repair |
 | — | [iris-sql](skills/iris-sql/) | Tom Dyar | 2445 | 100% | +7% | **SQL** |
 | — | [iris-light](skills/iris-light/) | Tom Dyar | 5170 | 21% | — | Repair |
+| — | [iris-vector-ai](skills/iris-vector-ai/) ⚡ | Tom Dyar | 434 | — | domain | **Vector/AI** |
+| — | [iris-connectivity](skills/iris-connectivity/) ⚡ | Tom Dyar | 490 | — | domain | **Connectivity** |
+| — | [iris-product-features](skills/iris-product-features/) ⚡ | Tom Dyar | 679 | — | domain | **Product caps** |
 
-> **Note**: Negative results matter too. `objectscript-loop-patterns` (572 words) measured **-19% lift** when loaded globally — domain-specific skills should be loaded on demand, not globally. See [BENCHMARKING.md](BENCHMARKING.md) to run the suite yourself.
+> **Note**: Negative results matter too. `objectscript-loop-patterns` (572 words) measured **-19% lift** when loaded globally. The ⚡ product knowledge skills (`iris-vector-ai`, `iris-connectivity`, `iris-product-features`) are **load-on-demand** only — they correct specific failure modes when you're working in those domains but hurt if loaded globally. See [BENCHMARKING.md](BENCHMARKING.md).
 
 **Want your skill on the leaderboard?** See [Contributing a skill](#contributing-a-skill) below.
 
