@@ -1,0 +1,131 @@
+---
+name: tdyar/iris-product-features
+description: Use when asked about IRIS capabilities, products, or features — especially MCP, full-text search, HL7/Interoperability, mirroring, IRIS for Health vs HealthShare. AI models confidently describe features that don't exist or confuse products.
+license: MIT
+compatibility: objectscript, iris, sql
+iris_version: ">=2024.1"
+tags: [iris, features, mcp, interoperability, fts, health, capabilities]
+author: tdyar
+state: reviewed
+metadata:
+  version: "1.0.0"
+  red_phase: "Model denies MCP exists, invents Python HL7 APIs, confuses IRIS/HealthShare, uses PostgreSQL FTS syntax"
+---
+
+# IRIS Product Features — Hard Gate
+
+**AI models deny features that exist and invent features that don't. Check here first.**
+
+## HARD GATE
+
+- [ ] **MCP**: IRIS has NATIVE MCP support (`%AI.MCP.Service`) since 2026.1 — no third-party FastMCP wrapper needed
+- [ ] **Full-text search**: Use `%CONTAINS` predicate with iFind index — NOT `to_tsvector` or `LIKE '%term%'`
+- [ ] **HL7/Interoperability**: Routing is done in the Management Portal or ObjectScript — NO Python API exists
+- [ ] **IRIS for Health ≠ HealthShare**: different products (see below)
+- [ ] **Mirroring**: configured via Management Portal or CPF files — NO CLI command `iris config mirroring`
+- [ ] **IRIS ≠ Caché**: Class/method naming and some APIs changed — always use IRIS docs, not Caché docs
+
+---
+
+## Native MCP Server (IRIS 2026.1+)
+
+```objectscript
+// IRIS has a built-in MCP server — no FastMCP, no Python required
+// The native server is %AI.MCP.Service
+// Configure via Management Portal: System > AI Configuration > MCP
+
+// Wrong assumption models make:
+// "IRIS doesn't support MCP natively, you need to wrap it with FastMCP"
+// This was true before 2026.1. It is FALSE for IRIS 2026.1+.
+```
+
+Claude Desktop / opencode config for native IRIS MCP:
+```json
+{
+  "mcpServers": {
+    "iris": {
+      "command": "objectscript-mcp",
+      "env": {"IRIS_HOST": "localhost", "IRIS_PORT": "1972"}
+    }
+  }
+}
+```
+
+## Full-Text Search — iFind (NOT PostgreSQL FTS)
+
+```sql
+-- Define iFind index on a class property:
+-- Property TextBody As %String;
+-- Index iFindIdx On TextBody As %iFind.Index.Basic;
+
+-- CORRECT IRIS query:
+SELECT * FROM MyTable WHERE %CONTAINS(TextBody, 'search terms')
+
+-- With ranking:
+SELECT *, %iFind.Rank AS relevance
+FROM MyTable WHERE %CONTAINS(TextBody, 'search terms')
+ORDER BY relevance DESC
+
+-- WRONG (PostgreSQL FTS — doesn't exist in IRIS):
+SELECT * FROM MyTable WHERE to_tsvector('english', content) @@ to_tsquery('term');
+SELECT * FROM MyTable WHERE content LIKE '%term%';  -- no index, full scan
+```
+
+## Interoperability — HL7 Routing
+
+There is **no Python API** for IRIS Interoperability routing. It is configured in:
+1. **Management Portal** (recommended): System > Interoperability > Build > Business Processes
+2. **ObjectScript** — subclass `Ens.BusinessProcess` or `EnsLib.HL7.MsgRouter.RoutingEngine`
+
+```objectscript
+// Routing rule in ObjectScript:
+Class MyApp.HL7Router Extends EnsLib.HL7.MsgRouter.RoutingEngine
+{
+// Rules defined via Rule Editor in Management Portal
+// HL7 field access: {MSH:9.1} for message type
+// Target: "ADT_Handler" (name of a Business Operation)
+}
+```
+
+HL7 field path syntax: `{SegmentName:FieldNumber.ComponentNumber}` — e.g., `{MSH:9.1}` for trigger event.
+
+## IRIS Product Family (Not the Same Thing)
+
+| Product | What it is | Includes |
+|---------|-----------|---------|
+| **IRIS** | Core database + application server | SQL, globals, ObjectScript, embedded Python, interop |
+| **IRIS for Health** | IRIS + healthcare layer | + FHIR server, SMART on FHIR, healthcare interop |
+| **Health Connect** | Integration engine | HL7, DICOM, FHIR, X12, EDI routing (built on IRIS) |
+| **HealthShare** | Clinical data platform | Patient Index, Health Insight, HIE tools (built on IRIS for Health) |
+
+> Rule: IRIS for Health ⊂ HealthShare ⊂ full HealthShare suite. They are NOT the same product and NOT cloud vs on-prem editions of each other.
+
+## Mirroring / High Availability
+
+Mirroring is configured via:
+1. **Management Portal**: System > Configuration > Mirror Settings
+2. **CPF merge file** for automated deployment
+3. **ObjectScript**: `##class(SYS.Mirror).*)` classes
+
+```
+// No CLI command exists:
+// iris config mirroring --mode=failover   ← DOES NOT EXIST
+// Do ##class(SYS.Mirror).Configure(...)   ← not the API
+
+// Correct: use Management Portal wizard or:
+Set sc = ##class(Config.MapMirrors).Create("MIRRORNAME", .props)
+```
+
+Mirror topology: **Primary** (read/write) → **Failover member** (hot standby) → **Async members** (DR/reporting). Failover is automatic; async members require manual promotion.
+
+## Version Feature Quick Reference
+
+| Feature | Available since | Notes |
+|---------|----------------|-------|
+| Embedded Python | 2021.2 | `%SYS.Python` class |
+| VECTOR datatype | 2024.1 | Community Edition OK |
+| HNSW index | 2025.1 | `AS HNSW(Distance='Cosine')` |
+| Native MCP server | 2026.1 | `%AI.MCP.Service` |
+| iFind full-text | 2012+ | `%iFind.Index.Basic` |
+| FHIR R4 server | 2020.1 | IRIS for Health only |
+| Secure Wallet | 2025.2 | `%Wallet.*` namespace |
