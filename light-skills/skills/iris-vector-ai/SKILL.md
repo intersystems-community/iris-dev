@@ -1,15 +1,40 @@
 ---
-name: tdyar/iris-vector-ai
-description: Use when writing any IRIS vector search, embedding, HNSW index, similarity search, or AI feature code. Hard gate — IRIS vector syntax is completely different from pgvector.
-license: MIT
-compatibility: objectscript, iris, sql, python
-iris_version: ">=2024.1"
-tags: [iris, vector, hnsw, embedding, ai, similarity-search]
 author: tdyar
-state: reviewed
+benchmark_date: '2026-04-11'
+benchmark_iris_version: '2025.1'
+benchmark_tasks:
+- prd-001
+- prd-002
+- prd-003
+- prd-004
+- prd-005
+- prd-006
+- prd-007
+compatibility: objectscript, iris, sql, python
+description: Use when writing any IRIS vector search, embedding, HNSW index, similarity
+  search, or AI feature code. Hard gate — IRIS vector syntax is completely different
+  from pgvector.
+iris_version: '>=2024.1'
+license: MIT
 metadata:
-  version: "1.0.0"
-  red_phase: "12 prompts tested — model plagiarizes pgvector syntax 100% of the time without this skill"
+  baseline_pass_rate: 1.0
+  benchmark_note: 'Source inspection suite. Negative lift on unrelated tasks when
+    loaded globally. Load on-demand for vector/AI tasks. RED phase: model plagiarizes
+    pgvector syntax 100% without this skill.'
+  lift: 0.0
+  red_phase: 12 prompts tested — model plagiarizes pgvector syntax 100% of the time
+    without this skill
+  version: 1.0.0
+name: tdyar/iris-vector-ai
+pass_rate: 1.0
+state: reviewed
+tags:
+- iris
+- vector
+- hnsw
+- embedding
+- ai
+- similarity-search
 ---
 
 # IRIS Vector & AI — Hard Gate

@@ -1,15 +1,41 @@
 ---
-name: tdyar/iris-product-features
-description: Use when asked about IRIS capabilities, products, or features — especially MCP, full-text search, HL7/Interoperability, mirroring, IRIS for Health vs HealthShare. AI models confidently describe features that don't exist or confuse products.
-license: MIT
-compatibility: objectscript, iris, sql
-iris_version: ">=2024.1"
-tags: [iris, features, mcp, interoperability, fts, health, capabilities]
 author: tdyar
-state: reviewed
+benchmark_date: '2026-04-11'
+benchmark_iris_version: '2025.1'
+benchmark_tasks:
+- prd-001
+- prd-002
+- prd-003
+- prd-004
+- prd-005
+- prd-006
+- prd-007
+compatibility: objectscript, iris, sql
+description: Use when asked about IRIS capabilities, products, or features — especially
+  MCP, full-text search, HL7/Interoperability, mirroring, IRIS for Health vs HealthShare.
+  AI models confidently describe features that don't exist or confuse products.
+iris_version: '>=2024.1'
+license: MIT
 metadata:
-  version: "1.0.0"
-  red_phase: "Model denies MCP exists, invents Python HL7 APIs, confuses IRIS/HealthShare, uses PostgreSQL FTS syntax"
+  baseline_pass_rate: 1.0
+  benchmark_note: Source inspection suite. Negative lift when loaded globally (-29%).
+    Load on-demand when asked about IRIS capabilities/products. Features ARE in IRIS
+    — this skill prevents denial of existence.
+  lift: -0.286
+  red_phase: Model denies MCP exists, invents Python HL7 APIs, confuses IRIS/HealthShare,
+    uses PostgreSQL FTS syntax
+  version: 1.0.0
+name: tdyar/iris-product-features
+pass_rate: 0.714
+state: reviewed
+tags:
+- iris
+- features
+- mcp
+- interoperability
+- fts
+- health
+- capabilities
 ---
 
 # IRIS Product Features — Hard Gate
