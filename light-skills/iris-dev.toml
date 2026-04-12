@@ -10,7 +10,7 @@ repository = "https://github.com/intersystems-community/vscode-objectscript-mcp"
 skills = [
     # Tier 1: Benchmark-validated repair skills (start here)
     "skills/objectscript-review",        # 100% pass rate, +29% lift
-    "skills/iris-light-slim",            # 86% pass rate, +14% lift, 268 words
+    "skills/objectscript-guardrails",            # 86% pass rate, +14% lift, 268 words
     "skills/objectscript-unit-test",     # 86% pass rate
     "skills/objectscript-navigation",    # 82% pass rate
     "skills/objectscript-list-patterns", # 91% pass rate

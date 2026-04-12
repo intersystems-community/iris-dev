@@ -31,7 +31,7 @@ The top-scoring skill on the repair benchmark is **`objectscript-review`** by [T
 | 🥇 1 | **[objectscript-review](skills/objectscript-review/)** | **Timothy Leavitt** | 205 | **100%** | **+29%** | Repair |
 | 🥈 2 | [objectscript-list-patterns](skills/objectscript-list-patterns/) | Tom Dyar | 472 | 91% | — | Repair |
 | 🥈 2 | [objectscript-unit-test](skills/objectscript-unit-test/) | Timothy Leavitt | 340 | 86% | — | Repair |
-| 🥈 2 | [iris-light-slim](skills/iris-light-slim/) | Tom Dyar | 268 | 86% | +14% | Repair (no MCP) |
+| 🥈 2 | [objectscript-guardrails](skills/objectscript-guardrails/) | Tom Dyar | 268 | 86% | +14% | Repair (no MCP) |
 | 4 | [objectscript-navigation](skills/objectscript-navigation/) | Timothy Leavitt | 231 | 82% | — | Repair |
 | 5 | [objectscript-tdd](skills/objectscript-tdd/) | Timothy Leavitt | 256 | 55% | — | Repair |
 | — | [iris-sql](skills/iris-sql/) | Tom Dyar | 2445 | 100% | +7% | **SQL** |
@@ -81,7 +81,7 @@ BASE=https://raw.githubusercontent.com/intersystems-community/vscode-objectscrip
 
 for skill in objectscript-review objectscript-list-patterns objectscript-sql-patterns \
              objectscript-loop-patterns objectscript-unit-test objectscript-navigation \
-             iris-light-slim; do
+             objectscript-guardrails; do
   mkdir -p "$SKILLS_DIR/$skill"
   curl -sL "$BASE/$skill/SKILL.md" > "$SKILLS_DIR/$skill/SKILL.md"
 done
@@ -100,7 +100,7 @@ echo "Done. $(ls $SKILLS_DIR | wc -l) skills installed."
 | `introspect.md` | Skill: fetch any class definition from IRIS |
 | `skills/objectscript-review/` | **🥇 Start here** — hard-gate review, 100% on repair benchmark |
 | `skills/objectscript-*` | Validated pattern skills (see leaderboard above) |
-| `skills/iris-light-slim/` | 268-word all-in-one hard gate (alternative to review) |
+| `skills/objectscript-guardrails/` | 268-word all-in-one hard gate (alternative to review) |
 | `skills/iris-sql/` | IRIS SQL quirks: reserved words, SQLCODE, table naming |
 | `kb/` | Reference knowledge: error codes, idioms, IPM authoring |
 | `iris-dev.toml` | Package manifest for `iris-dev` CLI install |
@@ -119,7 +119,7 @@ curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objects
 
 # 2. Install top skills globally
 mkdir -p ~/.claude/skills
-for skill in objectscript-review objectscript-sql-patterns iris-light-slim; do
+for skill in objectscript-review objectscript-sql-patterns objectscript-guardrails; do
   mkdir -p ~/.claude/skills/$skill
   curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/skills/$skill/SKILL.md \
     > ~/.claude/skills/$skill/SKILL.md
@@ -133,7 +133,7 @@ ls ~/.claude/skills/
 curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/AGENTS.md > AGENTS.md
 
 mkdir -p ~/.config/opencode/skills
-for skill in objectscript-review objectscript-sql-patterns iris-light-slim; do
+for skill in objectscript-review objectscript-sql-patterns objectscript-guardrails; do
   mkdir -p ~/.config/opencode/skills/$skill
   curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/skills/$skill/SKILL.md \
     > ~/.config/opencode/skills/$skill/SKILL.md

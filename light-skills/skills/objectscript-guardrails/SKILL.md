@@ -25,10 +25,10 @@ benchmark_tasks:
 - jira-020
 - jira-021
 - jira-056
-description: Use when writing or fixing ObjectScript code. Hard gate — check these
-  rules before showing any code.
+description: Use when writing or reviewing any ObjectScript code. Hard gate — 10-item
+  checklist catches the most common AI mistakes before showing code to the user.
 iris_version: '>=2024.1'
-name: tdyar/iris-light-slim
+name: tdyar/objectscript-guardrails
 pass_rate: 0.8636363636363636
 state: reviewed
 tags:
