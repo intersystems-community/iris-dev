@@ -2,7 +2,9 @@
 
 **Benchmark-validated AI coding support for ObjectScript / IRIS.**
 
-No MCP server. No Python. No pip installs. Copy two files, get measurably better AI-generated ObjectScript.
+**Primary path**: Use the [VS Code ObjectScript MCP extension](https://github.com/intersystems-community/vscode-objectscript-mcp) — it wires compile, test, introspect, and Interoperability tools into Copilot agent mode with zero extra configuration, reading your existing `objectscript.conn`.
+
+**This repo** (`light-skills/`) provides the skill files and AGENTS.md that make any AI agent — with or without the MCP extension — write better ObjectScript.
 
 ---
 
@@ -29,7 +31,7 @@ The top-scoring skill on the repair benchmark is **`objectscript-review`** by [T
 | 🥇 1 | **[objectscript-review](skills/objectscript-review/)** | **Timothy Leavitt** | 205 | **100%** | **+29%** | Repair |
 | 🥈 2 | [objectscript-list-patterns](skills/objectscript-list-patterns/) | Tom Dyar | 472 | 91% | — | Repair |
 | 🥈 2 | [objectscript-unit-test](skills/objectscript-unit-test/) | Timothy Leavitt | 340 | 86% | — | Repair |
-| 🥈 2 | [iris-light-slim](skills/iris-light-slim/) | Tom Dyar | 268 | 86% | +14% | Repair |
+| 🥈 2 | [iris-light-slim](skills/iris-light-slim/) | Tom Dyar | 268 | 86% | +14% | Repair (no MCP) |
 | 4 | [objectscript-navigation](skills/objectscript-navigation/) | Timothy Leavitt | 231 | 82% | — | Repair |
 | 5 | [objectscript-tdd](skills/objectscript-tdd/) | Timothy Leavitt | 256 | 55% | — | Repair |
 | — | [iris-sql](skills/iris-sql/) | Tom Dyar | 2445 | 100% | +7% | **SQL** |
@@ -55,7 +57,7 @@ curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objects
 
 That's it for the baseline (+14%). Your AI agent now knows the top 10 ObjectScript gotchas.
 
-### Step 2: Add the #1 skill for 100%
+### Step 2: Add the #1 skill for 100% (without the MCP extension)
 
 **Claude Code:**
 ```bash

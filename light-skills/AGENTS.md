@@ -3,7 +3,9 @@
 Drop this file in your repo root (or `.claude/AGENTS.md`) so AI coding agents understand
 ObjectScript semantics before writing a single line of code.
 
-> **Benchmark result**: Claude Sonnet 4.6 with this file scores **86% on a 22-task ObjectScript repair suite** (+14% lift over no context). The `objectscript-review` skill below raises that to **100%** (+29% lift). Numbers from controlled A/B testing — see [`light-skills/README.md`](README.md).
+> **Primary workflow**: Most ISC SEs and developers use VS Code with the [ObjectScript MCP extension](https://github.com/intersystems-community/vscode-objectscript-mcp) — it wires `iris_compile`, `iris_test`, `docs_introspect`, and `interop_*` tools directly into Copilot agent mode using your existing `objectscript.conn` settings. This AGENTS.md covers the ObjectScript rules those tools operate under.
+
+> **Benchmark result**: Claude Sonnet 4.6 with this file scores **86% on a 22-task ObjectScript repair suite** (+14% lift over no context). The `objectscript-review` skill below raises that to **100%** (+29% lift).
 
 ---
 
