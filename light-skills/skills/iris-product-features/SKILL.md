@@ -155,3 +155,43 @@ Mirror topology: **Primary** (read/write) → **Failover member** (hot standby) 
 | iFind full-text | 2012+ | `%iFind.Index.Basic` |
 | FHIR R4 server | 2020.1 | IRIS for Health only |
 | Secure Wallet | 2025.2 | `%Wallet.*` namespace |
+
+---
+
+## Interoperability — Namespace Enablement (The Key Bit)
+
+Interoperability is **installed on every IRIS**. The question is whether it's **enabled on a specific namespace**.
+
+```objectscript
+// Check if THIS namespace is Interop-enabled:
+Write ##class(%EnsembleMgr).IsEnsembleNamespace()
+// 1 = enabled, 0 = not enabled (even if Interop is installed)
+
+// Enable a namespace (requires %Admin_Manage privilege):
+// Usually done once at setup — not per-session
+Do ##class(%EnsembleMgr).EnableNamespace("MYNS", 1)
+
+// Or check from %SYS:
+Set ns = "MYNS"
+Write ##class(Config.Namespaces).GetEnsemble(ns)
+```
+
+**What breaks without enablement:**
+
+```objectscript
+// These compile fine but fail at runtime if namespace is NOT Interop-enabled:
+Set prod = ##class(Ens.Director).GetActiveProductionName()   // <CLASS DOES NOT EXIST>
+Do ##class(Ens.Director).StartProduction("MyApp.Production")  // <CLASS DOES NOT EXIST>
+Set msg = ##class(EnsLib.HTTP.OutboundAdapter).%New()         // <CLASS DOES NOT EXIST>
+```
+
+The classes exist in the install but their **package mappings** aren't added to the namespace until `EnableNamespace` runs. This is why "IRIS has Interoperability" and "this namespace can run an Interop production" are different things.
+
+**Deploying to a new IRIS namespace that needs Interop:**
+
+1. Verify install: `iris list` shows `Interoperability: installed`
+2. Enable namespace: `Do ##class(%EnsembleMgr).EnableNamespace("MYNS", 1)`
+3. Confirm: `Write ##class(%EnsembleMgr).IsEnsembleNamespace()` → 1
+4. Start a production: use `interop_production_start` MCP tool or Management Portal
+
+**Exporting a namespace that has Interop enabled** will include `EnsLib.*`/`EnsPortal.*` in the export — these are ISC's framework classes, NOT your application code. Strip them from your deployment script; they'll already be present on any target IRIS.
