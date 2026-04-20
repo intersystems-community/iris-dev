@@ -38,21 +38,28 @@ jobs:
         shell: bash
         run: |
           src="target/${{ matrix.target }}/release/iris-dev"
-          mcp="target/${{ matrix.target }}/release/objectscript-mcp"
           [[ -f "${src}.exe" ]] && src="${src}.exe"
-          [[ -f "${mcp}.exe" ]] && mcp="${mcp}.exe"
           cp "$src" "${{ matrix.artifact }}"
-          # Also stage objectscript-mcp alias binary
-          mcp_artifact="${{ matrix.artifact }}"
-          mcp_artifact="${mcp_artifact/iris-dev/objectscript-mcp}"
-          cp "$mcp" "$mcp_artifact"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
 
+  build-vsix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: cd vscode-iris-dev && npm ci && npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: vscode-iris-dev/vscode-iris-dev-*.vsix
+
   release:
-    needs: build
+    needs: [build, build-vsix]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -67,8 +74,5 @@ jobs:
             iris-dev-macos-arm64
             iris-dev-macos-x86_64
             iris-dev-windows-x86_64.exe
-            objectscript-mcp-linux-x86_64
-            objectscript-mcp-macos-arm64
-            objectscript-mcp-macos-x86_64
-            objectscript-mcp-windows-x86_64.exe
+            vscode-iris-dev-*.vsix
           generate_release_notes: true
