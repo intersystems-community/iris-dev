@@ -1,4 +1,7 @@
 import * as vscode from 'vscode';
+import * as os from 'os';
+import * as fs from 'fs';
+import * as path from 'path';
 import which from 'which';
 
 function findIrisDev(): string | null {
@@ -157,9 +160,46 @@ export class IrisDevMcpProvider
   }
 }
 
+function hasIsfsWorkspace(): boolean {
+  return (vscode.workspace.workspaceFolders ?? []).some(
+    f => f.uri.scheme === 'isfs' || f.uri.scheme === 'isfs-readonly'
+  );
+}
+
+function setupOpenHintWatcher(context: vscode.ExtensionContext): void {
+  const hintDir = path.join(os.homedir(), '.iris-dev');
+  const hintPath = path.join(hintDir, 'open-hint.json');
+
+  // Create dir if needed
+  try { fs.mkdirSync(hintDir, { recursive: true }); } catch {}
+
+  const pattern = new vscode.RelativePattern(hintDir, 'open-hint.json');
+  const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+
+  const openFromHint = async () => {
+    try {
+      if (!hasIsfsWorkspace()) { return; }
+      const raw = fs.readFileSync(hintPath, 'utf8');
+      const hint = JSON.parse(raw) as { uri: string; ts: number };
+      if (Date.now() - hint.ts < 3000) {
+        await vscode.window.showTextDocument(vscode.Uri.parse(hint.uri), { preview: false });
+      }
+    } catch {
+      // Silently ignore — file may not exist or workspace isn't ISFS
+    }
+  };
+
+  watcher.onDidChange(openFromHint);
+  watcher.onDidCreate(openFromHint);
+  context.subscriptions.push(watcher);
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new IrisDevMcpProvider();
   context.subscriptions.push(provider);
+
+  setupOpenHintWatcher(context);
+
   if (typeof vscode.lm?.registerMcpServerDefinitionProvider === 'function') {
     context.subscriptions.push(
       vscode.lm.registerMcpServerDefinitionProvider('iris-dev', provider)

@@ -21,6 +21,8 @@ thiserror.workspace = true
 tracing.workspace = true
 urlencoding = "2"
 chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+dirs = "5"
 
 # Test dependencies
 [dev-dependencies]
@@ -72,3 +74,15 @@ path = "tests/unit/test_compile_params.rs"
 [[test]]
 name = "test_e2e_all_tools"
 path = "tests/integration/test_e2e_all_tools.rs"
+
+[[test]]
+name = "test_elicitation"
+path = "tests/unit/test_elicitation.rs"
+
+[[test]]
+name = "test_scm"
+path = "tests/integration/test_scm.rs"
+
+[[test]]
+name = "test_doc_params"
+path = "tests/unit/test_doc_params.rs"
