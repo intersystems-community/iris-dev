@@ -120,7 +120,7 @@ Before modifying a file, a developer (or the AI agent) can check whether it's ed
 **SCM Tools**
 
 - **FR-010**: `iris_source_control(action=status)` MUST return editable status, lock owner (if locked), and whether the document is source-controlled
-- **FR-011**: `iris_source_control(action=menu)` MUST call IRIS `OnMenu` and return available actions with IDs and labels
+- **FR-011**: `iris_source_control(action=menu)` MUST call IRIS `OnMenuItem` for each known menu item name and return those that are enabled, with IDs and labels
 - **FR-012**: `iris_source_control(action=execute)` MUST execute the specified action by ID and handle elicitation responses via optional `answer` parameter
 - **FR-013**: `iris_source_control(action=checkout)` MUST check out the document if not already checked out and return updated status
 - **FR-014**: All `iris_source_control` actions MUST return `{"controlled": false}` gracefully when no SCM system is installed
