@@ -77,20 +77,20 @@
 **Story goal**: Full document CRUD with ETag conflict handling and SCM hook support.
 **Independent test**: get → modify → put → get roundtrip; SCM hooks fire when `IRIS_SOURCE_CONTROL=true`.
 
-- [ ] T033 [US2] Write failing unit test `doc_mode_deserialization`: assert `"get"/"put"/"delete"/"head"` all deserialize to correct `DocMode` variants — `crates/iris-dev-core/tests/unit/test_doc_params.rs`
-- [ ] T034 [US2] Write failing integration test `iris_doc_get`: fetch `%Library.Base.cls`, assert content contains "Class %Library.Base" — `crates/iris-dev-core/tests/integration/test_doc.rs`
-- [ ] T035 [US2] Write failing integration test `iris_doc_roundtrip`: put modified content to a test class, get it back, assert modification persists — `crates/iris-dev-core/tests/integration/test_doc.rs`
-- [ ] T036 [US2] Write failing integration test `iris_doc_head_exists`: head `%Library.Base.cls`, assert `exists:true` — `crates/iris-dev-core/tests/integration/test_doc.rs`
-- [ ] T037 [US2] Write failing integration test `iris_doc_head_missing`: head `IrisDevTest.DoesNotExist.cls`, assert `exists:false` — `crates/iris-dev-core/tests/integration/test_doc.rs`
-- [ ] T038 [US2] Add `DocMode` enum and `IrisDocParams` struct with serde + JsonSchema derives — `crates/iris-dev-core/src/tools/doc.rs` (new file)
-- [ ] T039 [US2] Implement `handle_get`: `GET /api/atelier/v8/{ns}/doc/{name}`, join `result.content[0].content` lines — `crates/iris-dev-core/src/tools/doc.rs`
-- [ ] T040 [US2] Implement `handle_put`: `PUT /api/atelier/v8/{ns}/doc/{name}` with `{"enc":false,"content":[...lines...]}`, handle 409 with single ETag retry — `crates/iris-dev-core/src/tools/doc.rs`
-- [ ] T041 [US2] Add SCM hook invocation to `handle_put`: when `IRIS_SOURCE_CONTROL=true`, xecute `OnBeforeSave(name)` before PUT; check status; xecute `OnAfterSave(name)` after success — `crates/iris-dev-core/src/tools/doc.rs`
+- [x] T033 [US2] Write failing unit test `doc_mode_deserialization`: assert `"get"/"put"/"delete"/"head"` all deserialize to correct `DocMode` variants — `crates/iris-dev-core/tests/unit/test_doc_params.rs`
+- [x] T034 [US2] Write failing integration test `iris_doc_get`: fetch `%Library.Base.cls`, assert content contains "Class %Library.Base" — `crates/iris-dev-core/tests/integration/test_doc.rs`
+- [x] T035 [US2] Write failing integration test `iris_doc_roundtrip`: put modified content to a test class, get it back, assert modification persists — `crates/iris-dev-core/tests/integration/test_doc.rs`
+- [x] T036 [US2] Write failing integration test `iris_doc_head_exists`: head `%Library.Base.cls`, assert `exists:true` — `crates/iris-dev-core/tests/integration/test_doc.rs`
+- [x] T037 [US2] Write failing integration test `iris_doc_head_missing`: head `IrisDevTest.DoesNotExist.cls`, assert `exists:false` — `crates/iris-dev-core/tests/integration/test_doc.rs`
+- [x] T038 [US2] Add `DocMode` enum and `IrisDocParams` struct with serde + JsonSchema derives — `crates/iris-dev-core/src/tools/doc.rs` (new file)
+- [x] T039 [US2] Implement `handle_get`: `GET /api/atelier/v8/{ns}/doc/{name}`, join `result.content[0].content` lines — `crates/iris-dev-core/src/tools/doc.rs`
+- [x] T040 [US2] Implement `handle_put`: `PUT /api/atelier/v8/{ns}/doc/{name}` with `{"enc":false,"content":[...lines...]}`, handle 409 with single ETag retry — `crates/iris-dev-core/src/tools/doc.rs`
+- [x] T041 [US2] Add SCM hook invocation to `handle_put`: when `IRIS_SOURCE_CONTROL=true`, xecute `OnBeforeSave(name)` before PUT; check status; xecute `OnAfterSave(name)` after success — `crates/iris-dev-core/src/tools/doc.rs`
 - [x] T041a [US2] Add `IRIS_SKIP_SOURCE_CONTROL` bypass to `handle_put`: when env var is true, append `?csp=1` to the PUT URL to skip all server-side SCM checks — `crates/iris-dev-core/src/tools/doc.rs`
-- [ ] T042 [US2] Implement `handle_delete`: `DELETE /api/atelier/v8/{ns}/doc/{name}` — `crates/iris-dev-core/src/tools/doc.rs`
-- [ ] T043 [US2] Implement `handle_head`: `HEAD /api/atelier/v8/{ns}/doc/{name}`, return `exists` + timestamp from response headers — `crates/iris-dev-core/src/tools/doc.rs`
-- [ ] T044 [US2] Add batch support: `mode=get` with `names: Vec<String>` → parallel fetches; `mode=delete` with `names` → parallel deletes — `crates/iris-dev-core/src/tools/doc.rs`
-- [ ] T045 [US2] Wire `iris_doc` into `IrisTools` tool router with `#[tool]` macro — `crates/iris-dev-core/src/tools/mod.rs`
+- [x] T042 [US2] Implement `handle_delete`: `DELETE /api/atelier/v8/{ns}/doc/{name}` — `crates/iris-dev-core/src/tools/doc.rs`
+- [x] T043 [US2] Implement `handle_head`: `HEAD /api/atelier/v8/{ns}/doc/{name}`, return `exists` + timestamp from response headers — `crates/iris-dev-core/src/tools/doc.rs`
+- [x] T044 [US2] Add batch support: `mode=get` with `names: Vec<String>` → parallel fetches; `mode=delete` with `names` → parallel deletes — `crates/iris-dev-core/src/tools/doc.rs`
+- [x] T045 [US2] Wire `iris_doc` into `IrisTools` tool router with `#[tool]` macro — `crates/iris-dev-core/src/tools/mod.rs`
 - [x] T046 [US2] **Phase gate**: `cargo test iris_doc_get iris_doc_roundtrip iris_doc_head_exists iris_doc_head_missing` — all pass
 
 ---
@@ -100,16 +100,16 @@
 **Story goal**: Sync search with automatic async fallback; wildcard scope; regex support.
 **Independent test**: Search for known symbol in small namespace, results within 3s; verify async polling fires on timeout.
 
-- [ ] T047 [US3] Write failing unit test `search_params_defaults`: assert unset `regex/case_sensitive` default to false, `category` defaults to "ALL" — `crates/iris-dev-core/tests/unit/test_search_params.rs`
-- [ ] T048 [US3] Write failing integration test `iris_search_sync`: search `"iris_compile"` in USER namespace, assert at least one result within 3s — `crates/iris-dev-core/tests/integration/test_search.rs`
-- [ ] T049 [US3] Write failing integration test `iris_search_category_filter`: search with `category="CLS"`, assert no MAC or INT results — `crates/iris-dev-core/tests/integration/test_search.rs`
-- [ ] T050 [US3] Add `SearchParams` struct with `query, regex, case_sensitive, category, documents, namespace` fields — `crates/iris-dev-core/src/tools/search.rs` (new file)
-- [ ] T051 [US3] Implement sync path: `GET /api/atelier/v2/{ns}/action/search?query=...&regex=...&sys=false&category=...` with 2s timeout — `crates/iris-dev-core/src/tools/search.rs`
-- [ ] T052 [US3] Implement async fallback: on sync timeout, `POST /api/atelier/v2/{ns}/action/search` to get `workId`, poll `GET ?workId=X` every 2s up to 5 min — `crates/iris-dev-core/src/tools/search.rs`
-- [ ] T053 [US3] Add `documents` wildcard filtering: pre-fetch matching doc names via `iris_info(what=documents)`, pass as scope filter — `crates/iris-dev-core/src/tools/search.rs`
-- [ ] T054 [US3] Truncate results at 200, set `truncated:true, total_found:N` in response — `crates/iris-dev-core/src/tools/search.rs`
-- [ ] T055 [US3] Wire `iris_search` into `IrisTools` tool router — `crates/iris-dev-core/src/tools/mod.rs`
-- [ ] T056 [US3] **Phase gate**: `cargo test iris_search_sync iris_search_category_filter` — both pass
+- [x] T047 [US3] Write failing unit test `search_params_defaults`: assert unset `regex/case_sensitive` default to false, `category` defaults to "ALL" — `crates/iris-dev-core/tests/unit/test_search_params.rs`
+- [x] T048 [US3] Write failing integration test `iris_search_sync`: search `"iris_compile"` in USER namespace, assert at least one result within 3s — `crates/iris-dev-core/tests/integration/test_search.rs`
+- [x] T049 [US3] Write failing integration test `iris_search_category_filter`: search with `category="CLS"`, assert no MAC or INT results — `crates/iris-dev-core/tests/integration/test_search.rs`
+- [x] T050 [US3] Add `SearchParams` struct with `query, regex, case_sensitive, category, documents, namespace` fields — `crates/iris-dev-core/src/tools/search.rs` (new file)
+- [x] T051 [US3] Implement sync path: `GET /api/atelier/v2/{ns}/action/search?query=...&regex=...&sys=false&category=...` with 2s timeout — `crates/iris-dev-core/src/tools/search.rs`
+- [x] T052 [US3] Implement async fallback: on sync timeout, `POST /api/atelier/v2/{ns}/action/search` to get `workId`, poll `GET ?workId=X` every 2s up to 5 min — `crates/iris-dev-core/src/tools/search.rs`
+- [x] T053 [US3] Add `documents` wildcard filtering: pre-fetch matching doc names via `iris_info(what=documents)`, pass as scope filter — `crates/iris-dev-core/src/tools/search.rs`
+- [x] T054 [US3] Truncate results at 200, set `truncated:true, total_found:N` in response — `crates/iris-dev-core/src/tools/search.rs`
+- [x] T055 [US3] Wire `iris_search` into `IrisTools` tool router — `crates/iris-dev-core/src/tools/mod.rs`
+- [x] T056 [US3] **Phase gate**: `cargo test iris_search_sync iris_search_category_filter` — both pass
 
 ---
 
@@ -118,15 +118,15 @@
 **Story goal**: `iris_info`, `iris_symbols`, `iris_introspect`, `iris_macro`, `iris_debug`, `iris_generate` all working via Atelier REST.
 **Independent test**: Each tool returns valid structured data from live IRIS.
 
-- [ ] T057 [P] [US7] Write failing integration tests `iris_info_documents`, `iris_info_metadata`, `iris_macro_list`, `iris_introspect_class`, `iris_debug_error_logs` — `crates/iris-dev-core/tests/integration/test_discovery_tools.rs`
-- [ ] T058 [P] [US7] Implement `iris_info` dispatcher: `what=documents` → `GET /api/atelier/v8/{ns}/docs`; `what=modified` → `.../docs/modified`; `what=namespace` → `.../`; `what=metadata` → `.../metadata`; `what=jobs` → `.../jobs`; `what=csp_apps/csp_debug/sa_schema` → respective endpoints — `crates/iris-dev-core/src/tools/info.rs` (new file)
-- [ ] T059 [P] [US7] Reimplement `iris_symbols`: Atelier SQL query on `%Dictionary.ClassDefinition` via `/action/query` first; fall back to tree-sitter local if no IRIS — `crates/iris-dev-core/src/tools/mod.rs`
-- [ ] T060 [P] [US7] Implement `iris_introspect`: SQL queries on `%Dictionary.CompiledMethod`, `CompiledProperty`, `CompiledParameter`, `CompiledXData` for named class, joined into structured response — `crates/iris-dev-core/src/tools/mod.rs`
-- [ ] T061 [P] [US7] Implement `iris_macro` dispatcher: `list` → `GET /macros`; `signature/location/definition/expand` → `POST /action/getmacro` with `{"macros":[{"name":...,"arguments":N}]}` — `crates/iris-dev-core/src/tools/macro_tools.rs` (new file)
-- [ ] T062 [P] [US7] Implement `iris_debug` dispatcher: `map_int` → xecute `%Studio.Debugger.SourceLine`; `error_logs` → SQL on `%SYSTEM.Error`; `capture` → SQL on error state; `source_map` → xecute mapping — `crates/iris-dev-core/src/tools/debug.rs` (new file)
-- [ ] T063 [P] [US7] Implement `iris_generate`: call LLM via `IRIS_GENERATE_CLASS_MODEL` env (litellm HTTP); optionally compile result via `iris_compile` — `crates/iris-dev-core/src/tools/generate.rs` (new file)
-- [ ] T064 [US7] Wire `iris_info`, `iris_macro`, `iris_debug`, `iris_generate` into `IrisTools` tool router — `crates/iris-dev-core/src/tools/mod.rs`
-- [ ] T065 [US7] **Phase gate**: `cargo test iris_info_documents iris_info_metadata iris_macro_list iris_introspect_class iris_debug_error_logs` — all pass
+- [x] T057 [P] [US7] Write failing integration tests `iris_info_documents`, `iris_info_metadata`, `iris_macro_list`, `iris_introspect_class`, `iris_debug_error_logs` — `crates/iris-dev-core/tests/integration/test_discovery_tools.rs`
+- [x] T058 [P] [US7] Implement `iris_info` dispatcher: `what=documents` → `GET /api/atelier/v8/{ns}/docs`; `what=modified` → `.../docs/modified`; `what=namespace` → `.../`; `what=metadata` → `.../metadata`; `what=jobs` → `.../jobs`; `what=csp_apps/csp_debug/sa_schema` → respective endpoints — `crates/iris-dev-core/src/tools/info.rs` (new file)
+- [x] T059 [P] [US7] Reimplement `iris_symbols`: Atelier SQL query on `%Dictionary.ClassDefinition` via `/action/query` first; fall back to tree-sitter local if no IRIS — `crates/iris-dev-core/src/tools/mod.rs`
+- [x] T060 [P] [US7] Implement `iris_introspect`: SQL queries on `%Dictionary.CompiledMethod`, `CompiledProperty`, `CompiledParameter`, `CompiledXData` for named class, joined into structured response — `crates/iris-dev-core/src/tools/mod.rs`
+- [x] T061 [P] [US7] Implement `iris_macro` dispatcher: `list` → `GET /macros`; `signature/location/definition/expand` → `POST /action/getmacro` with `{"macros":[{"name":...,"arguments":N}]}` — `crates/iris-dev-core/src/tools/macro_tools.rs` (new file)
+- [x] T062 [P] [US7] Implement `iris_debug` dispatcher: `map_int` → xecute `%Studio.Debugger.SourceLine`; `error_logs` → SQL on `%SYSTEM.Error`; `capture` → SQL on error state; `source_map` → xecute mapping — `crates/iris-dev-core/src/tools/debug.rs` (new file)
+- [x] T063 [P] [US7] Implement `iris_generate`: call LLM via `IRIS_GENERATE_CLASS_MODEL` env (litellm HTTP); optionally compile result via `iris_compile` — `crates/iris-dev-core/src/tools/generate.rs` (new file)
+- [x] T064 [US7] Wire `iris_info`, `iris_macro`, `iris_debug`, `iris_generate` into `IrisTools` tool router — `crates/iris-dev-core/src/tools/mod.rs`
+- [x] T065 [US7] **Phase gate**: `cargo test iris_info_documents iris_info_metadata iris_macro_list iris_introspect_class iris_debug_error_logs` — all pass
 
 ---
 
@@ -135,12 +135,12 @@
 **Story goal**: All 9 interop tools via Atelier xecute + SQL, no native superserver.
 **Independent test**: `interop_production(action=status)` returns production state from Ensemble namespace using only `IRIS_WEB_PORT`.
 
-- [ ] T066 [US5] Write failing integration tests `interop_status_running`, `interop_logs_basic`, `interop_queues_basic` (skip if `IRIS_ENSEMBLE_NAMESPACE` not set) — `crates/iris-dev-core/tests/integration/test_interop.rs`
-- [ ] T067 [US5] Implement `interop_production` dispatcher via xecute: `status` → parse `GetProductionStatus` output; `start/stop/update/needs_update/recover` → corresponding `Ens.Director` xecute calls — `crates/iris-dev-core/src/tools/interop.rs`
-- [ ] T068 [US5] Implement `interop_query` dispatcher via Atelier SQL: `logs` → SELECT from `Ens_Util.Log`; `queues` → SELECT queue depths; `messages` → SELECT from `Ens.MessageHeader` — `crates/iris-dev-core/src/tools/interop.rs`
-- [ ] T069 [US5] Add `NOT_ENSEMBLE` graceful degradation: if xecute returns `<UNDEFINED>Ens.Director`, return `{success:false, error_code:"NOT_ENSEMBLE"}` — `crates/iris-dev-core/src/tools/interop.rs`
-- [ ] T070 [US5] Delete Python subprocess code from old interop implementations — `crates/iris-dev-core/src/tools/interop.rs`
-- [ ] T071 [US5] **Phase gate**: `cargo test interop_status_running interop_logs_basic interop_queues_basic` (or skip with note if no Ensemble namespace available)
+- [x] T066 [US5] Write failing integration tests `interop_status_running`, `interop_logs_basic`, `interop_queues_basic` (skip if `IRIS_ENSEMBLE_NAMESPACE` not set) — `crates/iris-dev-core/tests/integration/test_interop.rs`
+- [x] T067 [US5] Implement `interop_production` dispatcher via xecute: `status` → parse `GetProductionStatus` output; `start/stop/update/needs_update/recover` → corresponding `Ens.Director` xecute calls — `crates/iris-dev-core/src/tools/interop.rs`
+- [x] T068 [US5] Implement `interop_query` dispatcher via Atelier SQL: `logs` → SELECT from `Ens_Util.Log`; `queues` → SELECT queue depths; `messages` → SELECT from `Ens.MessageHeader` — `crates/iris-dev-core/src/tools/interop.rs`
+- [x] T069 [US5] Add `NOT_ENSEMBLE` graceful degradation: if xecute returns `<UNDEFINED>Ens.Director`, return `{success:false, error_code:"NOT_ENSEMBLE"}` — `crates/iris-dev-core/src/tools/interop.rs`
+- [x] T070 [US5] Delete Python subprocess code from old interop implementations — `crates/iris-dev-core/src/tools/interop.rs`
+- [x] T071 [US5] **Phase gate**: `cargo test interop_status_running interop_logs_basic interop_queues_basic` (or skip with note if no Ensemble namespace available)
 
 ---
 
@@ -149,13 +149,13 @@
 **Story goal**: `skill`, `skill_community`, `kb`, `agent_info` via xecute + in-memory buffer.
 **Independent test**: propose after 5 calls, list shows skill, forget removes it.
 
-- [ ] T072 [US6] Write failing integration tests `skill_propose_min_calls`, `skill_list_roundtrip`, `agent_info_stats` — `crates/iris-dev-core/tests/integration/test_skills.rs`
-- [ ] T073 [US6] Implement `skill` dispatcher: `list/describe/search` → xecute `^SKILLS` global reads; `forget` → xecute `Kill ^SKILLS(name)`; `propose` → require ≥5 session ring buffer calls, synthesize name+description, xecute `Set ^SKILLS(name)=...` — `crates/iris-dev-core/src/tools/skills.rs`
-- [ ] T074 [US6] Add `OBJECTSCRIPT_LEARNING=false` guard: return `LEARNING_DISABLED` for all skill/kb tools — `crates/iris-dev-core/src/tools/skills.rs`
-- [ ] T075 [US6] Implement `skill_community`: `list` → fetch GitHub manifest from subscribed repos; `install` → write skill to `^SKILLS` — `crates/iris-dev-core/src/tools/skills.rs`
-- [ ] T076 [US6] Implement `kb`: `index` → read files, write chunks to `^KBCHUNKS` via xecute; `recall` → BM25 substring search over `^KBCHUNKS` — `crates/iris-dev-core/src/tools/skills.rs`
-- [ ] T077 [US6] Implement `agent_info`: `stats` → skill count + ring buffer size; `history` → last N entries from ring buffer — `crates/iris-dev-core/src/tools/skills.rs`
-- [ ] T078 [US6] **Phase gate**: `cargo test skill_propose_min_calls skill_list_roundtrip agent_info_stats` — all pass
+- [x] T072 [US6] Write failing integration tests `skill_propose_min_calls`, `skill_list_roundtrip`, `agent_info_stats` — `crates/iris-dev-core/tests/integration/test_skills.rs`
+- [x] T073 [US6] Implement `skill` dispatcher: `list/describe/search` → xecute `^SKILLS` global reads; `forget` → xecute `Kill ^SKILLS(name)`; `propose` → require ≥5 session ring buffer calls, synthesize name+description, xecute `Set ^SKILLS(name)=...` — `crates/iris-dev-core/src/tools/skills.rs`
+- [x] T074 [US6] Add `OBJECTSCRIPT_LEARNING=false` guard: return `LEARNING_DISABLED` for all skill/kb tools — `crates/iris-dev-core/src/tools/skills.rs`
+- [x] T075 [US6] Implement `skill_community`: `list` → fetch GitHub manifest from subscribed repos; `install` → write skill to `^SKILLS` — `crates/iris-dev-core/src/tools/skills.rs`
+- [x] T076 [US6] Implement `kb`: `index` → read files, write chunks to `^KBCHUNKS` via xecute; `recall` → BM25 substring search over `^KBCHUNKS` — `crates/iris-dev-core/src/tools/skills.rs`
+- [x] T077 [US6] Implement `agent_info`: `stats` → skill count + ring buffer size; `history` → last N entries from ring buffer — `crates/iris-dev-core/src/tools/skills.rs`
+- [x] T078 [US6] **Phase gate**: `cargo test skill_propose_min_calls skill_list_roundtrip agent_info_stats` — all pass
 
 ---
 
@@ -163,15 +163,15 @@
 
 **Purpose**: Verify all 20 tools, binary size, documentation, remove last Python references.
 
-- [ ] T079 Write E2E test `e2e_all_tools_respond`: initialize server, call all 20 tools with minimal valid inputs, assert none return `INTERNAL_ERROR` — `crates/iris-dev-core/tests/integration/test_e2e_all_tools.rs`
-- [ ] T080 Write E2E test `e2e_steve_web_prefix`: full compile+get_doc+put_doc+search workflow with `IRIS_WEB_PREFIX=irisaicore IRIS_WEB_PORT=80` against a mock or real prefixed endpoint — `crates/iris-dev-core/tests/integration/test_e2e_all_tools.rs`
-- [ ] T081 Verify `cargo build --release` produces binary; assert no `python` in `otool -L` / `ldd` output — CI script or manual check
-- [ ] T082 [P] Audit `tools/mod.rs` for any remaining `std::process::Command::new("python")` calls — delete all found
-- [ ] T083 [P] Update `README.md`: remove "pip install" from install instructions; add "single binary, no Python required" to overview
-- [ ] T084 [P] Update `TROUBLESHOOTING.md` in `objectscript-mcp` repo: note that Python objectscript-mcp is no longer required when using iris-dev v2
-- [ ] T085 Bump `iris-dev` version to `0.2.0` in workspace `Cargo.toml`
-- [ ] T086 Run full test suite `cargo test --all` — must pass with 0 failures
-- [ ] T087 **Final gate**: `e2e_all_tools_respond` passes; `startup_latency_p50` benchmark passes (<100ms)
+- [x] T079 Write E2E test `e2e_all_tools_respond`: initialize server, call all 20 tools with minimal valid inputs, assert none return `INTERNAL_ERROR` — `crates/iris-dev-core/tests/integration/test_e2e_all_tools.rs`
+- [x] T080 Write E2E test `e2e_steve_web_prefix`: full compile+get_doc+put_doc+search workflow with `IRIS_WEB_PREFIX=irisaicore IRIS_WEB_PORT=80` against a mock or real prefixed endpoint — `crates/iris-dev-core/tests/integration/test_e2e_all_tools.rs`
+- [x] T081 Verify `cargo build --release` produces binary; assert no `python` in `otool -L` / `ldd` output — CI script or manual check
+- [x] T082 [P] Audit `tools/mod.rs` for any remaining `std::process::Command::new("python")` calls — delete all found
+- [x] T083 [P] Update `README.md`: remove "pip install" from install instructions; add "single binary, no Python required" to overview
+- [x] T084 [P] Update `TROUBLESHOOTING.md` in `objectscript-mcp` repo: note that Python objectscript-mcp is no longer required when using iris-dev v2
+- [x] T085 Bump `iris-dev` version to `0.2.0` in workspace `Cargo.toml`
+- [x] T086 Run full test suite `cargo test --all` — must pass with 0 failures
+- [x] T087 **Final gate**: `e2e_all_tools_respond` passes; `startup_latency_p50` benchmark passes (<100ms)
 
 ---
 

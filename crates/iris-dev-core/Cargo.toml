@@ -68,3 +68,7 @@ path = "tests/interop_e2e_tests.rs"
 [[test]]
 name = "test_compile_params"
 path = "tests/unit/test_compile_params.rs"
+
+[[test]]
+name = "test_e2e_all_tools"
+path = "tests/integration/test_e2e_all_tools.rs"
