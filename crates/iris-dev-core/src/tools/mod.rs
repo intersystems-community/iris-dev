@@ -10,8 +10,17 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 use std::sync::Arc;
+use std::collections::VecDeque;
 use crate::iris::connection::IrisConnection;
 pub mod interop;
+
+/// A single tool call entry for the session history ring buffer.
+#[derive(Debug, Clone)]
+pub struct ToolCallEntry {
+    pub tool: String,
+    pub success: bool,
+    pub timestamp: std::time::Instant,
+}
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CompileParams {
@@ -153,13 +162,22 @@ fn default_password() -> String { "SYS".to_string() }
 fn default_edition() -> String { "community".to_string() }
 
 fn iris_unreachable() -> McpError {
-    McpError::invalid_request("IRIS_UNREACHABLE: no IRIS connection available", None)
+    McpError::invalid_request("IRIS_UNREACHABLE: no IRIS connection. Set IRIS_HOST and IRIS_WEB_PORT env vars, or ensure IRIS is reachable on a discoverable port (52773, 41773, 51773, 8080).", None)
 }
 fn ok_json(v: serde_json::Value) -> Result<CallToolResult, McpError> {
     Ok(CallToolResult::success(vec![Content::text(v.to_string())]))
 }
 fn err_json(code: &str, msg: &str) -> Result<CallToolResult, McpError> {
     ok_json(serde_json::json!({"success": false, "error_code": code, "error": msg}))
+}
+fn err_json_with_url(code: &str, msg: &str, attempted_url: &str) -> Result<CallToolResult, McpError> {
+    ok_json(serde_json::json!({
+        "success": false,
+        "error_code": code,
+        "error": msg,
+        "attempted_url": attempted_url,
+        "hint": "Check IRIS_HOST and IRIS_WEB_PORT (and IRIS_WEB_PREFIX if using a non-root gateway)"
+    }))
 }
 fn is_network_error(msg: &str) -> bool {
     msg.contains("error sending request") || msg.contains("connection") || msg.contains("dns")
@@ -246,147 +264,241 @@ fn sort_containers(mut v: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
 pub struct IrisTools {
     pub iris: Option<Arc<IrisConnection>>,
     pub registry: Arc<crate::skills::SkillRegistry>,
+    /// Shared HTTP client — created once, reused across all tool calls.
+    pub client: Arc<reqwest::Client>,
+    /// Ring buffer of recent tool calls for skill_propose pattern mining.
+    pub history: Arc<std::sync::Mutex<VecDeque<ToolCallEntry>>>,
     tool_router: ToolRouter<IrisTools>,
 }
 
 #[tool_router]
 impl IrisTools {
     pub fn new(iris: Option<IrisConnection>) -> Self {
-        Self { iris: iris.map(Arc::new), registry: Arc::new(crate::skills::SkillRegistry::new()), tool_router: Self::tool_router() }
+        let client = Arc::new(IrisConnection::http_client().unwrap_or_default());
+        Self {
+            iris: iris.map(Arc::new),
+            registry: Arc::new(crate::skills::SkillRegistry::new()),
+            client,
+            history: Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(50))),
+            tool_router: Self::tool_router(),
+        }
     }
     pub fn with_registry(iris: Option<IrisConnection>, registry: crate::skills::SkillRegistry) -> Self {
-        Self { iris: iris.map(Arc::new), registry: Arc::new(registry), tool_router: Self::tool_router() }
+        let client = Arc::new(IrisConnection::http_client().unwrap_or_default());
+        Self {
+            iris: iris.map(Arc::new),
+            registry: Arc::new(registry),
+            client,
+            history: Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(50))),
+            tool_router: Self::tool_router(),
+        }
     }
     fn get_iris(&self) -> Result<&IrisConnection, McpError> {
         self.iris.as_deref().ok_or_else(iris_unreachable)
     }
-    fn http_client(&self) -> reqwest::Client {
-        IrisConnection::http_client().unwrap_or_default()
+    fn http_client(&self) -> &reqwest::Client {
+        &self.client
+    }
+    fn record_call(&self, tool: &str, success: bool) {
+        if let Ok(mut h) = self.history.lock() {
+            if h.len() == 50 { h.pop_front(); }
+            h.push_back(ToolCallEntry { tool: tool.to_string(), success, timestamp: std::time::Instant::now() });
+        }
     }
 
-    #[tool(description = "Compile an ObjectScript class or .cls file on IRIS. Pass class name or file path. Returns compiler output with errors.")]
+    #[tool(description = "Compile an ObjectScript class, routine, or wildcard package on IRIS via Atelier REST. Supports 'MyApp.*.cls' for package-level compilation. Returns structured errors with line numbers, columns, and severity. No Python required.")]
     async fn iris_compile(&self, Parameters(p): Parameters<CompileParams>) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
-        let python_code = format!(
-            "import json, os; \
-             os.environ.setdefault('IRIS_HOST', 'localhost'); \
-             os.environ.setdefault('IRIS_PORT', '{}'); \
-             os.environ.setdefault('IRIS_USERNAME', '{}'); \
-             os.environ.setdefault('IRIS_PASSWORD', '{}'); \
-             from objectscript_mcp.handlers.iris_compile import handle_iris_compile; \
-             print(json.dumps(handle_iris_compile(target={}, flags={}, namespace={}, confirmed=True)))",
-            iris.port_superserver.unwrap_or(1972),
-            iris.username,
-            iris.password,
-            serde_json::to_string(&p.target).unwrap_or_default(),
-            serde_json::to_string(&p.flags).unwrap_or_default(),
-            serde_json::to_string(&p.namespace).unwrap_or_default(),
-        );
-        let output = tokio::process::Command::new("python3")
-            .args(["-c", &python_code])
-            .output()
-            .await
-            .map_err(|e| McpError::internal_error(format!("python3 not available: {e}"), None))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return err_json("INTERNAL_ERROR", &format!("python3 error: {stderr}"));
+        let client = self.http_client();
+
+        // Expand wildcards: resolve "MyApp.*.cls" to a list of matching class names
+        let targets: Vec<String> = if p.target.contains('*') {
+            let list_url = iris.atelier_url(&format!("/v8/{}/docs?category=CLS", iris.namespace));
+            match client.get(&list_url)
+                .basic_auth(&iris.username, Some(&iris.password))
+                .send().await
+            {
+                Ok(resp) if resp.status().is_success() => {
+                    let body: serde_json::Value = resp.json().await.unwrap_or_default();
+                    let pattern = p.target.replace('.', "\\.").replace('*', ".*");
+                    let re = regex::Regex::new(&format!("(?i)^{}$", pattern)).unwrap_or_else(|_| regex::Regex::new(".*").unwrap());
+                    body["result"]["content"].as_array().unwrap_or(&vec![])
+                        .iter()
+                        .filter_map(|d| d["name"].as_str())
+                        .filter(|n| re.is_match(n))
+                        .map(|n| n.to_string())
+                        .collect()
+                }
+                _ => vec![p.target.clone()],
+            }
+        } else {
+            vec![p.target.clone()]
+        };
+
+        if targets.is_empty() {
+            return err_json("NOT_FOUND", &format!("No documents match pattern: {}", p.target));
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        match serde_json::from_str::<serde_json::Value>(stdout.trim()) {
-            Ok(v) => ok_json(v),
-            Err(_) => ok_json(serde_json::json!({"success": true, "target": p.target, "stdout": stdout.trim()})),
+
+        // Optional force_writable: unlock read-only databases
+        if p.force_writable {
+            let xecute_url = iris.atelier_url(&format!("/v1/{}/action/xecute", p.namespace));
+            let _ = client.post(&xecute_url)
+                .basic_auth(&iris.username, Some(&iris.password))
+                .json(&serde_json::json!({"expression": format!("do ##class(%Library.EnsembleMgr).EnableNamespace(\"{}\",1)", p.namespace)}))
+                .send().await;
         }
+
+        let compile_url = iris.atelier_url(&format!("/v8/{}/action/compile", p.namespace));
+        let resp = client.post(&compile_url)
+            .basic_auth(&iris.username, Some(&iris.password))
+            .json(&serde_json::json!({"docs": targets, "flags": p.flags}))
+            .send().await
+            .map_err(|e| McpError::internal_error(format!("HTTP error: {e}"), None))?;
+
+        if !resp.status().is_success() && resp.status().as_u16() != 200 {
+            let url_str = compile_url.clone();
+            let status = resp.status().as_u16();
+            return err_json_with_url("IRIS_UNREACHABLE", &format!("HTTP {}", status), &url_str);
+        }
+
+        let body: serde_json::Value = resp.json().await
+            .map_err(|e| McpError::internal_error(format!("JSON parse error: {e}"), None))?;
+
+        // Parse compiler output: extract structured errors from console array
+        let console = body["result"]["console"].as_array().cloned().unwrap_or_default();
+        let mut errors = vec![];
+        let mut warnings = vec![];
+        for line in &console {
+            let text = line.as_str().unwrap_or("");
+            // Atelier compile errors: "  1 ERROR #<code>:<line>: <message>"
+            // Warnings: "  2 WARNING #<code>:<line>: <message>"
+            if let Some(rest) = text.trim().strip_prefix("ERROR ") {
+                let parts: Vec<&str> = rest.splitn(3, ':').collect();
+                let (code, line_num, msg) = if parts.len() >= 3 {
+                    (parts[0].trim(), parts[1].trim().parse::<u32>().unwrap_or(0), parts[2].trim())
+                } else {
+                    ("", 0, rest)
+                };
+                errors.push(serde_json::json!({"severity":"error","code":code,"line":line_num,"column":0,"text":msg}));
+            } else if let Some(rest) = text.trim().strip_prefix("WARNING ") {
+                let parts: Vec<&str> = rest.splitn(3, ':').collect();
+                let (code, line_num, msg) = if parts.len() >= 3 {
+                    (parts[0].trim(), parts[1].trim().parse::<u32>().unwrap_or(0), parts[2].trim())
+                } else {
+                    ("", 0, rest)
+                };
+                warnings.push(serde_json::json!({"severity":"warning","code":code,"line":line_num,"column":0,"text":msg}));
+            }
+        }
+
+        let success = errors.is_empty();
+        self.record_call("iris_compile", success);
+        ok_json(serde_json::json!({
+            "success": success,
+            "target": p.target,
+            "targets_compiled": targets.len(),
+            "namespace": p.namespace,
+            "errors": errors,
+            "warnings": warnings,
+            "console": console,
+        }))
     }
 
-    #[tool(description = "Run %UnitTest tests matching a pattern on IRIS. Returns pass/fail counts and full output. Uses OCMCP.Exec helper class via objectscript-mcp Python package.")]
+    #[tool(description = "Run %UnitTest.Manager tests on IRIS via Atelier REST. Pass a class pattern like 'MyApp.Tests' or 'MyApp.Tests.Order'. Returns structured pass/fail counts and full trace output. No Python required.")]
     async fn iris_test(&self, Parameters(p): Parameters<TestParams>) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
+        let client = self.http_client();
         let code = format!(
             "do ##class(%UnitTest.Manager).RunTest(\"{}\",\"/noload/run\")",
             p.pattern.replace('"', "\\\"")
         );
-        let python_code = format!(
-            "import json, os; \
-             os.environ.setdefault('IRIS_HOST', 'localhost'); \
-             os.environ.setdefault('IRIS_PORT', '{}'); \
-             os.environ.setdefault('IRIS_USERNAME', '{}'); \
-             os.environ.setdefault('IRIS_PASSWORD', '{}'); \
-             from objectscript_mcp.handlers.iris_execute import handle_iris_execute; \
-             print(json.dumps(handle_iris_execute(code={}, namespace={})))",
-            iris.port_superserver.unwrap_or(1972),
-            iris.username,
-            iris.password,
-            serde_json::to_string(&code).unwrap_or_default(),
-            serde_json::to_string(&p.namespace).unwrap_or_default(),
-        );
-        let output = tokio::process::Command::new("python3")
-            .args(["-c", &python_code])
-            .output()
-            .await
-            .map_err(|e| McpError::internal_error(format!("python3 not available: {e}"), None))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return err_json("INTERNAL_ERROR", &format!("python3 error: {stderr}"));
+        let xecute_url = iris.atelier_url(&format!("/v1/{}/action/xecute", p.namespace));
+        let resp = client.post(&xecute_url)
+            .basic_auth(&iris.username, Some(&iris.password))
+            .json(&serde_json::json!({"expression": code}))
+            .send().await
+            .map_err(|e| McpError::internal_error(format!("HTTP error: {e}"), None))?;
+
+        if !resp.status().is_success() {
+            return err_json_with_url("IRIS_UNREACHABLE", &format!("HTTP {}", resp.status()), &xecute_url);
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        match serde_json::from_str::<serde_json::Value>(stdout.trim()) {
-            Ok(v) => {
-                let test_output = v["output"].as_str().unwrap_or("").to_string();
-                let passed = test_output.lines()
-                    .find(|l| l.to_lowercase().contains("passed:"))
-                    .and_then(|l| l.split(':').nth(1)?.trim().split_whitespace().next()?.parse::<u64>().ok())
-                    .unwrap_or(0);
-                let failed = test_output.lines()
-                    .find(|l| l.to_lowercase().contains("failed:"))
-                    .and_then(|l| l.split(':').nth(1)?.trim().split_whitespace().next()?.parse::<u64>().ok())
-                    .unwrap_or(0);
-                ok_json(serde_json::json!({
-                    "success": failed == 0 && v["success"].as_bool().unwrap_or(false),
-                    "pattern": p.pattern,
-                    "namespace": p.namespace,
-                    "passed": passed,
-                    "failed": failed,
-                    "tests_passed": failed == 0 && passed > 0,
-                    "stdout": test_output,
-                }))
-            }
-            Err(_) => ok_json(serde_json::json!({"success": true, "pattern": p.pattern, "stdout": stdout.trim()})),
-        }
+
+        let body: serde_json::Value = resp.json().await.unwrap_or_default();
+        let output_lines = body["result"]["content"][0]["content"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("\n"))
+            .unwrap_or_default();
+
+        let passed = output_lines.lines()
+            .find(|l| l.to_lowercase().contains("passed:"))
+            .and_then(|l| l.split(':').nth(1)?.trim().split_whitespace().next()?.parse::<u64>().ok())
+            .unwrap_or(0);
+        let failed = output_lines.lines()
+            .find(|l| l.to_lowercase().contains("failed:"))
+            .and_then(|l| l.split(':').nth(1)?.trim().split_whitespace().next()?.parse::<u64>().ok())
+            .unwrap_or(0);
+        let total = passed + failed;
+        let success = failed == 0 && total > 0;
+        self.record_call("iris_test", success);
+        ok_json(serde_json::json!({
+            "success": success,
+            "pattern": p.pattern,
+            "namespace": p.namespace,
+            "passed": passed,
+            "failed": failed,
+            "total": total,
+            "output": output_lines,
+        }))
     }
 
-    #[tool(description = "Run arbitrary ObjectScript code and return stdout output. Uses irisnative via the superserver port. Delegates to objectscript-mcp Python package (OCMCP.Exec helper class, auto-bootstrapped on first call).")]
+    #[tool(description = "Execute arbitrary ObjectScript code on IRIS via Atelier REST and return stdout output. No Python required. Example: 'write $ZVERSION,!' returns the IRIS version.")]
     async fn iris_execute(&self, Parameters(p): Parameters<ExecuteParams>) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
-        let python_code = format!(
-            "import json, os; \
-             os.environ.setdefault('IRIS_HOST', 'localhost'); \
-             os.environ.setdefault('IRIS_PORT', '{}'); \
-             os.environ.setdefault('IRIS_USERNAME', '{}'); \
-             os.environ.setdefault('IRIS_PASSWORD', '{}'); \
-             from objectscript_mcp.handlers.iris_execute import handle_iris_execute; \
-             print(json.dumps(handle_iris_execute(code={}, namespace={}, timeout={}, confirmed={})))",
-            iris.port_superserver.unwrap_or(1972),
-            iris.username,
-            iris.password,
-            serde_json::to_string(&p.code).unwrap_or_default(),
-            serde_json::to_string(&p.namespace).unwrap_or_default(),
-            p.timeout,
-            p.confirmed,
-        );
-        let output = tokio::process::Command::new("python3")
-            .args(["-c", &python_code])
-            .output()
-            .await
-            .map_err(|e| McpError::internal_error(format!("python3 not available: {e}"), None))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return err_json("INTERNAL_ERROR", &format!("python3 error: {stderr}"));
+        let client = self.http_client();
+        let xecute_url = iris.atelier_url(&format!("/v1/{}/action/xecute", p.namespace));
+        let resp = client.post(&xecute_url)
+            .basic_auth(&iris.username, Some(&iris.password))
+            .json(&serde_json::json!({"expression": p.code}))
+            .send().await
+            .map_err(|e| McpError::internal_error(format!("HTTP error: {e}"), None))?;
+
+        if !resp.status().is_success() {
+            return err_json_with_url("IRIS_UNREACHABLE", &format!("HTTP {}", resp.status()), &xecute_url);
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        match serde_json::from_str::<serde_json::Value>(stdout.trim()) {
-            Ok(v) => ok_json(v),
-            Err(_) => ok_json(serde_json::json!({"success": true, "output": stdout.trim()})),
+
+        let body: serde_json::Value = resp.json().await.unwrap_or_default();
+
+        // Check for IRIS-level errors in response
+        if let Some(errors) = body["status"]["errors"].as_array() {
+            if !errors.is_empty() {
+                let first = &errors[0];
+                let iris_err = serde_json::json!({
+                    "code": first["code"],
+                    "domain": first["domain"].as_str().unwrap_or(""),
+                    "id": first["id"].as_str().unwrap_or(""),
+                    "params": first["params"],
+                });
+                self.record_call("iris_execute", false);
+                return ok_json(serde_json::json!({
+                    "success": false,
+                    "error_code": "IRIS_ERROR",
+                    "error": first["error"].as_str().unwrap_or("ObjectScript error"),
+                    "iris_error": iris_err,
+                }));
+            }
         }
+
+        let output = body["result"]["content"][0]["content"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("\n"))
+            .unwrap_or_default();
+
+        self.record_call("iris_execute", true);
+        ok_json(serde_json::json!({
+            "success": true,
+            "output": output,
+            "namespace": p.namespace,
+        }))
     }
 
     #[tool(description = "List running IRIS Docker containers with name-match scoring. Tries iris-devtester first, falls back to docker ps. Containers sorted by score (name similarity to workspace) descending.")]

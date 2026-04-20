@@ -2,15 +2,34 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Which version of the Atelier REST API to use.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AtelierVersion {
+    V8,
+    V2,
+    V1,
+}
+
+impl AtelierVersion {
+    pub fn version_str(&self) -> &'static str {
+        match self {
+            AtelierVersion::V8 => "v8",
+            AtelierVersion::V2 => "v2",
+            AtelierVersion::V1 => "v1",
+        }
+    }
+}
+
 /// A resolved connection to a running IRIS instance via Atelier REST API.
 #[derive(Debug, Clone)]
 pub struct IrisConnection {
-    /// Base URL e.g. "http://localhost:52773"
+    /// Base URL e.g. "http://localhost:52773" or "http://localhost:80/prefix"
     pub base_url: String,
     pub namespace: String,
     pub username: String,
     pub password: String,
     pub version: Option<String>,
+    pub atelier_version: AtelierVersion,
     pub source: DiscoverySource,
     pub port_superserver: Option<u16>,
 }
@@ -38,15 +57,52 @@ impl IrisConnection {
             username: username.into(),
             password: password.into(),
             version: None,
+            atelier_version: AtelierVersion::V1,
             source,
             port_superserver: None,
         }
     }
 
     /// Build the full Atelier REST URL for a given path suffix.
-    /// e.g. atelier_url("/v1/USER/action/query") → "http://localhost:52773/api/atelier/v1/USER/action/query"
+    /// Handles optional path prefix already baked into base_url.
+    /// e.g. atelier_url("/v8/USER/action/compile") → "http://host:port[/prefix]/api/atelier/v8/USER/action/compile"
     pub fn atelier_url(&self, path: &str) -> String {
         format!("{}/api/atelier{}", self.base_url.trim_end_matches('/'), path)
+    }
+
+    /// Build a versioned Atelier URL using the connection's detected API version.
+    pub fn atelier_url_versioned(&self, path: &str) -> String {
+        let v = self.atelier_version.version_str();
+        self.atelier_url(&format!("/{}/{}{}", v, self.namespace, path))
+    }
+
+    /// Detect the highest available Atelier API version by probing.
+    /// Sets self.atelier_version in place.
+    pub async fn detect_version(&mut self, client: &reqwest::Client) {
+        // Try v8 first
+        let v8_url = self.atelier_url(&format!("/v8/{}/", self.namespace));
+        if let Ok(resp) = client.get(&v8_url)
+            .basic_auth(&self.username, Some(&self.password))
+            .send().await
+        {
+            if resp.status().is_success() {
+                self.atelier_version = AtelierVersion::V8;
+                return;
+            }
+        }
+        // Try v2
+        let v2_url = self.atelier_url(&format!("/v2/{}/", self.namespace));
+        if let Ok(resp) = client.get(&v2_url)
+            .basic_auth(&self.username, Some(&self.password))
+            .send().await
+        {
+            if resp.status().is_success() {
+                self.atelier_version = AtelierVersion::V2;
+                return;
+            }
+        }
+        // Fall back to v1
+        self.atelier_version = AtelierVersion::V1;
     }
 
     /// Execute ObjectScript code via xecute endpoint. Returns the response body.
