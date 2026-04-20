@@ -13,6 +13,12 @@ use std::sync::Arc;
 use std::collections::VecDeque;
 use crate::iris::connection::IrisConnection;
 pub mod interop;
+pub mod doc;
+pub mod search;
+pub mod info;
+pub mod skills_tools;
+
+pub use doc::{IrisDocParams, DocMode};
 
 /// A single tool call entry for the session history ring buffer.
 #[derive(Debug, Clone)]
@@ -129,6 +135,14 @@ pub struct ExecuteParams {
     pub timeout: u64,
     #[serde(default)]
     pub confirmed: bool,
+}
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct QueryParams {
+    pub query: String,
+    #[serde(default)]
+    pub parameters: Vec<serde_json::Value>,
+    #[serde(default = "default_namespace")]
+    pub namespace: String,
 }
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ListContainersParams {
@@ -499,6 +513,48 @@ impl IrisTools {
             "output": output,
             "namespace": p.namespace,
         }))
+    }
+
+    #[tool(description = "Read, write, delete, or check an IRIS document. mode='get' fetches source, mode='put' writes, mode='delete' removes, mode='head' checks existence. Supports batch ops via 'names' array. No Python required.")]
+    async fn iris_doc(&self, Parameters(p): Parameters<IrisDocParams>) -> Result<CallToolResult, McpError> {
+        let iris = self.get_iris()?;
+        let client = self.http_client();
+        let source_control = std::env::var("IRIS_SOURCE_CONTROL").map(|v| v == "true").unwrap_or(false);
+        let skip_source_control = std::env::var("IRIS_SKIP_SOURCE_CONTROL").map(|v| v == "true").unwrap_or(false);
+        let result = doc::handle_iris_doc(iris, client, p, source_control, skip_source_control).await;
+        self.record_call("iris_doc", result.is_ok());
+        result
+    }
+
+    #[tool(description = "Execute a SQL query on IRIS via Atelier REST. Returns rows as a JSON array with column names as keys. Supports SELECT, INSERT, UPDATE, DELETE. No Python required.")]
+    async fn iris_query(&self, Parameters(p): Parameters<QueryParams>) -> Result<CallToolResult, McpError> {
+        let iris = self.get_iris()?;
+        let client = self.http_client();
+        let query_url = iris.atelier_url(&format!("/v1/{}/action/query", p.namespace));
+        let resp = client.post(&query_url)
+            .basic_auth(&iris.username, Some(&iris.password))
+            .json(&serde_json::json!({"query": p.query, "parameters": p.parameters}))
+            .send().await
+            .map_err(|e| McpError::internal_error(format!("HTTP error: {e}"), None))?;
+
+        if !resp.status().is_success() {
+            return err_json_with_url("IRIS_UNREACHABLE", &format!("HTTP {}", resp.status()), &query_url);
+        }
+
+        let body: serde_json::Value = resp.json().await.unwrap_or_default();
+
+        if let Some(errors) = body["status"]["errors"].as_array() {
+            if !errors.is_empty() {
+                let msg = errors[0]["error"].as_str().unwrap_or("SQL error");
+                self.record_call("iris_query", false);
+                return err_json("SQL_ERROR", msg);
+            }
+        }
+
+        let rows = body["result"]["content"].as_array().cloned().unwrap_or_default();
+        let count = rows.len();
+        self.record_call("iris_query", true);
+        ok_json(serde_json::json!({"success": true, "rows": rows, "count": count, "namespace": p.namespace}))
     }
 
     #[tool(description = "List running IRIS Docker containers with name-match scoring. Tries iris-devtester first, falls back to docker ps. Containers sorted by score (name similarity to workspace) descending.")]
@@ -1006,6 +1062,78 @@ Methods:
     async fn interop_message_search(&self, Parameters(p): Parameters<interop::MessageSearchParams>) -> Result<CallToolResult, McpError> {
         interop::interop_message_search_impl(self.iris.as_deref(), p).await
     }
+
+    #[tool(description = "Full-text search across IRIS documents via Atelier REST v2. Auto-upgrades to async polling for large namespaces. Supports regex, case sensitivity, category filter (CLS/MAC/INT/INC/ALL), and wildcard document scopes.")]
+    async fn iris_search(&self, Parameters(p): Parameters<search::SearchParams>) -> Result<CallToolResult, McpError> {
+        let iris = self.get_iris()?;
+        let result = search::handle_iris_search(iris, self.http_client(), p).await;
+        self.record_call("iris_search", result.is_ok());
+        result
+    }
+
+    #[tool(description = "Discover IRIS namespace contents. what=documents lists all docs, what=modified lists recently changed, what=namespace returns config, what=metadata returns IRIS version, what=jobs lists active jobs, what=csp_apps lists CSP apps, what=csp_debug returns debug ID, what=sa_schema returns SQL Analytics schema.")]
+    async fn iris_info(&self, Parameters(p): Parameters<info::InfoParams>) -> Result<CallToolResult, McpError> {
+        let iris = self.get_iris()?;
+        let result = info::handle_iris_info(iris, self.http_client(), p).await;
+        self.record_call("iris_info", result.is_ok());
+        result
+    }
+
+    #[tool(description = "Inspect IRIS macros. action=list returns all macros, action=signature returns parameters, action=location finds definition file/line, action=definition returns text, action=expand expands with arguments.")]
+    async fn iris_macro(&self, Parameters(p): Parameters<info::MacroParams>) -> Result<CallToolResult, McpError> {
+        let iris = self.get_iris()?;
+        let result = info::handle_iris_macro(iris, self.http_client(), p).await;
+        self.record_call("iris_macro", result.is_ok());
+        result
+    }
+
+    #[tool(description = "IRIS debug tools. action=map_int maps a runtime error offset to source line, action=error_logs fetches recent error log entries, action=capture captures current error state, action=source_map builds .INT to .CLS mapping.")]
+    async fn iris_debug(&self, Parameters(p): Parameters<info::DebugParams>) -> Result<CallToolResult, McpError> {
+        let iris = self.get_iris()?;
+        let result = info::handle_iris_debug(iris, self.http_client(), p).await;
+        self.record_call("iris_debug", result.is_ok());
+        result
+    }
+
+    #[tool(description = "Generate ObjectScript class or test scaffolding via LLM. Requires IRIS_GENERATE_CLASS_MODEL env var. gen_type=class generates a new class, gen_type=test generates %UnitTest scaffolding for an existing class.")]
+    async fn iris_generate(&self, Parameters(p): Parameters<info::GenerateParams>) -> Result<CallToolResult, McpError> {
+        let iris = self.get_iris()?;
+        let result = info::handle_iris_generate(iris, self.http_client(), p).await;
+        self.record_call("iris_generate", result.is_ok());
+        result
+    }
+
+    #[tool(description = "Manage the learning agent skill registry. action=list returns all skills, action=describe returns one skill, action=search finds skills by keyword, action=forget removes a skill, action=propose mines recent tool calls and synthesizes a new skill (requires ≥5 calls).")]
+    async fn skill(&self, Parameters(p): Parameters<skills_tools::SkillParams>) -> Result<CallToolResult, McpError> {
+        let iris = self.get_iris()?;
+        let result = skills_tools::handle_skill(iris, self.http_client(), p, &self.history).await;
+        self.record_call("skill", result.is_ok());
+        result
+    }
+
+    #[tool(description = "Community skill registry. action=list browses published skills from subscribed GitHub repos, action=install writes a community skill to the local ^SKILLS global.")]
+    async fn skill_community(&self, Parameters(p): Parameters<skills_tools::SkillCommunityParams>) -> Result<CallToolResult, McpError> {
+        let iris = self.get_iris()?;
+        let result = skills_tools::handle_skill_community(iris, self.http_client(), p, &self.registry).await;
+        self.record_call("skill_community", result.is_ok());
+        result
+    }
+
+    #[tool(description = "Knowledge base tools. action=index reads markdown/text files and stores them in ^KBCHUNKS, action=recall searches the KB for relevant content by keyword.")]
+    async fn kb(&self, Parameters(p): Parameters<skills_tools::KbParams>) -> Result<CallToolResult, McpError> {
+        let iris = self.get_iris()?;
+        let result = skills_tools::handle_kb(iris, self.http_client(), p).await;
+        self.record_call("kb", result.is_ok());
+        result
+    }
+
+    #[tool(description = "Session and learning agent information. what=stats returns skill count and session call count, what=history returns recent tool call history.")]
+    async fn agent_info(&self, Parameters(p): Parameters<skills_tools::AgentInfoParams>) -> Result<CallToolResult, McpError> {
+        let iris = self.get_iris()?;
+        let result = skills_tools::handle_agent_info(iris, self.http_client(), p, &self.history).await;
+        self.record_call("agent_info", result.is_ok());
+        result
+    }
 }
 
 
@@ -1014,7 +1142,7 @@ impl ServerHandler for IrisTools {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::from_build_env())
-            .with_instructions("iris-dev: 23 tools for ObjectScript and IRIS development.".to_string())
+            .with_instructions("iris-dev v2: 20 composable tools for ObjectScript and IRIS development. No Python required.".to_string())
     }
 }
 

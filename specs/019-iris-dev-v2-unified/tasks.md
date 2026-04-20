@@ -11,14 +11,14 @@
 
 **Purpose**: Codebase hygiene and new type scaffolding that everything else builds on.
 
-- [ ] T001 Add `atelier_version: AtelierVersion` field and `AtelierVersion` enum (V8/V2/V1) to `IrisConnection` — `crates/iris-dev-core/src/iris/connection.rs`
-- [ ] T002 Add `path_prefix: Option<String>` field to `IrisConnection`; update `atelier_url()` to include prefix when set — `crates/iris-dev-core/src/iris/connection.rs`
-- [ ] T003 [P] Add `IRIS_WEB_PREFIX` env var field to `McpCommand` struct with `#[arg(long, env = "IRIS_WEB_PREFIX", default_value = "")]` — `crates/iris-dev-bin/src/cmd/mcp.rs`
-- [ ] T004 [P] Add `path_prefix` parsing to `vscode_config.rs` `to_iris_connection()` — reads `server.web_server.path_prefix` into `IrisConnection.path_prefix` — `crates/iris-dev-core/src/iris/vscode_config.rs`
-- [ ] T005 Add shared `Arc<reqwest::Client>` to `IrisTools` struct; create once at startup via `IrisConnection::http_client()`, store in struct — `crates/iris-dev-core/src/tools/mod.rs`
-- [ ] T006 Replace `tokio::time::sleep(50ms)` with `iris_rx.wait_for(|v| v.is_some())` with 5s timeout in `McpCommand::run()` — `crates/iris-dev-bin/src/cmd/mcp.rs`
-- [ ] T007 Add `VecDeque<ToolCall>` ring buffer (capacity 50) to `IrisTools`; record tool name + success after each call — `crates/iris-dev-core/src/tools/mod.rs`
-- [ ] T008 `cargo build` — must compile clean with no errors or new warnings
+- [x] T001 Add `atelier_version: AtelierVersion` field and `AtelierVersion` enum (V8/V2/V1) to `IrisConnection` — `crates/iris-dev-core/src/iris/connection.rs`
+- [x] T002 Add `path_prefix: Option<String>` field to `IrisConnection`; update `atelier_url()` to include prefix when set — `crates/iris-dev-core/src/iris/connection.rs`
+- [x] T003 [P] Add `IRIS_WEB_PREFIX` env var field to `McpCommand` struct with `#[arg(long, env = "IRIS_WEB_PREFIX", default_value = "")]` — `crates/iris-dev-bin/src/cmd/mcp.rs`
+- [x] T004 [P] Add `path_prefix` parsing to `vscode_config.rs` `to_iris_connection()` — reads `server.web_server.path_prefix` into `IrisConnection.path_prefix` — `crates/iris-dev-core/src/iris/vscode_config.rs`
+- [x] T005 Add shared `Arc<reqwest::Client>` to `IrisTools` struct; create once at startup via `IrisConnection::http_client()`, store in struct — `crates/iris-dev-core/src/tools/mod.rs`
+- [x] T006 Replace `tokio::time::sleep(50ms)` with `iris_rx.wait_for(|v| v.is_some())` with 5s timeout in `McpCommand::run()` — `crates/iris-dev-bin/src/cmd/mcp.rs`
+- [x] T007 Add `VecDeque<ToolCall>` ring buffer (capacity 50) to `IrisTools`; record tool name + success after each call — `crates/iris-dev-core/src/tools/mod.rs`
+- [x] T008 `cargo build` — must compile clean with no errors or new warnings
 
 ---
 
@@ -28,13 +28,13 @@
 
 **Independent test**: `cargo test discovery_waits_for_iris web_prefix_route_correct` both pass.
 
-- [ ] T009 Write failing test `discovery_waits_for_iris`: spawn server with no env vars, send initialize + tools/list, assert `tool_count=20` returned within 5s — `crates/iris-dev-core/tests/mcp_handshake.rs`
-- [ ] T010 Write failing test `web_prefix_route_correct`: mock Atelier endpoint at `/irisaicore/api/atelier`, start server with `IRIS_WEB_PREFIX=irisaicore IRIS_WEB_PORT=18080`, call `iris_compile`, assert request URL includes `/irisaicore/` — `crates/iris-dev-core/tests/integration/test_web_prefix.rs`
-- [ ] T011 Detect Atelier API version at startup: `GET /api/atelier/` fingerprint → parse `result.content[0].version` → set `conn.atelier_version` (V8 if version ≥ 2021, V2 if search available, else V1) — `crates/iris-dev-core/src/iris/connection.rs`
-- [ ] T012 Update `probe_atelier()` in discovery to include `path_prefix` in base_url construction — `crates/iris-dev-core/src/iris/discovery.rs`
-- [ ] T013 Pass `web_prefix` from `McpCommand` into explicit `IrisConnection` construction in `run()` — `crates/iris-dev-bin/src/cmd/mcp.rs`
-- [ ] T013a Update `iris_unreachable()` and all connection error paths to include the attempted URL and the env var to check (e.g., "Cannot reach http://localhost:52773 — set IRIS_WEB_PORT if using a non-standard port") — `crates/iris-dev-core/src/tools/mod.rs`
-- [ ] T014 **Phase gate**: run `cargo test discovery_waits_for_iris web_prefix_route_correct` — both must pass before Phase 3
+- [x] T009 Write failing test `discovery_waits_for_iris`: spawn server with no env vars, send initialize + tools/list, assert `tool_count=20` returned within 5s — `crates/iris-dev-core/tests/mcp_handshake.rs`
+- [x] T010 Write failing test `web_prefix_route_correct`: mock Atelier endpoint at `/irisaicore/api/atelier`, start server with `IRIS_WEB_PREFIX=irisaicore IRIS_WEB_PORT=18080`, call `iris_compile`, assert request URL includes `/irisaicore/` — `crates/iris-dev-core/tests/integration/test_web_prefix.rs`
+- [x] T011 Detect Atelier API version at startup: `GET /api/atelier/` fingerprint → parse `result.content[0].version` → set `conn.atelier_version` (V8 if version ≥ 2021, V2 if search available, else V1) — `crates/iris-dev-core/src/iris/connection.rs`
+- [x] T012 Update `probe_atelier()` in discovery to include `path_prefix` in base_url construction — `crates/iris-dev-core/src/iris/discovery.rs`
+- [x] T013 Pass `web_prefix` from `McpCommand` into explicit `IrisConnection` construction in `run()` — `crates/iris-dev-bin/src/cmd/mcp.rs`
+- [x] T013a Update `iris_unreachable()` and all connection error paths to include the attempted URL and the env var to check (e.g., "Cannot reach http://localhost:52773 — set IRIS_WEB_PORT if using a non-standard port") — `crates/iris-dev-core/src/tools/mod.rs`
+- [x] T014 **Phase gate**: run `cargo test discovery_waits_for_iris web_prefix_route_correct` — both must pass before Phase 3
 
 ---
 
@@ -43,15 +43,15 @@
 **Story goal**: `iris_compile` works via Atelier REST with no Python, no subprocess.
 **Independent test**: Start server, compile a class, assert structured errors returned. Python must not be in PATH.
 
-- [ ] T015 [US1] Write failing unit test `compile_params_deserialize`: assert `CompileParams{target:"MyApp.*.cls", flags:"cuk"}` deserializes correctly including wildcard — `crates/iris-dev-core/tests/unit/test_compile_params.rs`
-- [ ] T016 [US1] Write failing integration test `iris_compile_success`: compile `%Library.Base`, assert `success:true, errors:[]` — `crates/iris-dev-core/tests/integration/test_mcp_iris.rs`
-- [ ] T017 [US1] Write failing integration test `iris_compile_error`: compile a class with known syntax error, assert `success:false` and `errors[0].line > 0` — `crates/iris-dev-core/tests/integration/test_mcp_iris.rs`
-- [ ] T018 [US1] Write failing integration test `iris_compile_no_python`: set PATH to exclude python, compile a class, assert succeeds — `crates/iris-dev-core/tests/integration/test_mcp_iris.rs`
-- [ ] T019 [US1] Reimplement `iris_compile` via `POST /api/atelier/v8/{ns}/action/compile` with `{"docs":[target],"flags":flags}`; parse `result.console` array for error lines (format `"  1 ERROR #line: text"`) — `crates/iris-dev-core/src/tools/mod.rs`
-- [ ] T020 [US1] Add wildcard expansion: if target contains `*`, resolve to matching class names via `GET /api/atelier/v8/{ns}/docs?category=CLS` before compile — `crates/iris-dev-core/src/tools/mod.rs`
-- [ ] T021 [US1] Add `force_writable` support: if `force_writable=true`, xecute `do ##class(%Library.EnsembleMgr).EnableNamespace(ns,1)` before compile — `crates/iris-dev-core/src/tools/mod.rs`
-- [ ] T022 [US1] Delete Python subprocess code from old `iris_compile` implementation — `crates/iris-dev-core/src/tools/mod.rs`
-- [ ] T023 [US1] **Phase gate**: `cargo test iris_compile_success iris_compile_error iris_compile_no_python` — all must pass
+- [x] T015 [US1] Write failing unit test `compile_params_deserialize`: assert `CompileParams{target:"MyApp.*.cls", flags:"cuk"}` deserializes correctly including wildcard — `crates/iris-dev-core/tests/unit/test_compile_params.rs`
+- [x] T016 [US1] Write failing integration test `iris_compile_success`: compile `%Library.Base`, assert `success:true, errors:[]` — `crates/iris-dev-core/tests/integration/test_mcp_iris.rs`
+- [x] T017 [US1] Write failing integration test `iris_compile_error`: compile a class with known syntax error, assert `success:false` and `errors[0].line > 0` — `crates/iris-dev-core/tests/integration/test_mcp_iris.rs`
+- [x] T018 [US1] Write failing integration test `iris_compile_no_python`: set PATH to exclude python, compile a class, assert succeeds — `crates/iris-dev-core/tests/integration/test_mcp_iris.rs`
+- [x] T019 [US1] Reimplement `iris_compile` via `POST /api/atelier/v8/{ns}/action/compile` with `{"docs":[target],"flags":flags}`; parse `result.console` array for error lines (format `"  1 ERROR #line: text"`) — `crates/iris-dev-core/src/tools/mod.rs`
+- [x] T020 [US1] Add wildcard expansion: if target contains `*`, resolve to matching class names via `GET /api/atelier/v8/{ns}/docs?category=CLS` before compile — `crates/iris-dev-core/src/tools/mod.rs`
+- [x] T021 [US1] Add `force_writable` support: if `force_writable=true`, xecute `do ##class(%Library.EnsembleMgr).EnableNamespace(ns,1)` before compile — `crates/iris-dev-core/src/tools/mod.rs`
+- [x] T022 [US1] Delete Python subprocess code from old `iris_compile` implementation — `crates/iris-dev-core/src/tools/mod.rs`
+- [x] T023 [US1] **Phase gate**: `cargo test iris_compile_success iris_compile_error iris_compile_no_python` — all must pass
 
 ---
 
@@ -60,15 +60,15 @@
 **Story goal**: `iris_execute` and `iris_query` use Atelier REST directly, no subprocess.
 **Independent test**: Python absent from PATH; `iris_execute("write $ZVERSION,!")` returns IRIS version; `iris_query` returns rows.
 
-- [ ] T024 [US4] Write failing integration test `iris_execute_basic`: execute `write $ZVERSION,!`, assert output contains "IRIS" — `crates/iris-dev-core/tests/integration/test_mcp_iris.rs`
-- [ ] T025 [US4] Write failing integration test `iris_execute_error`: execute code with `<UNDEFINED>`, assert `success:false, iris_error.id="UNDEFINED"` — `crates/iris-dev-core/tests/integration/test_mcp_iris.rs`
-- [ ] T026 [US4] Write failing integration test `iris_query_rows`: query `SELECT TOP 3 Name FROM %Dictionary.ClassDefinition`, assert `rows` array with 3 entries — `crates/iris-dev-core/tests/integration/test_mcp_iris.rs`
-- [ ] T027 [US4] Write failing integration test `iris_test_unitest`: run a trivial %UnitTest, assert `passed >= 1, failed = 0` — `crates/iris-dev-core/tests/integration/test_mcp_iris.rs`
-- [ ] T028 [US4] Reimplement `iris_execute` via `POST /api/atelier/v8/{ns}/action/xecute`; extract output from `result.content[0].content` lines; parse IRIS errors from Atelier error response into `iris_error` field — `crates/iris-dev-core/src/tools/mod.rs`
-- [ ] T029 [US4] Reimplement `iris_query` via `POST /api/atelier/v8/{ns}/action/query`; return `result.content` as JSON rows array with column names as keys — `crates/iris-dev-core/src/tools/mod.rs`
-- [ ] T030 [US4] Reimplement `iris_test` via xecute of `##class(%UnitTest.Manager).RunTest(pattern,"/noload/run")`; parse output lines for `Passed=N` and `Failed=N` totals — `crates/iris-dev-core/src/tools/mod.rs`
-- [ ] T031 [US4] Delete Python subprocess code from old `iris_execute`, `iris_test` implementations — `crates/iris-dev-core/src/tools/mod.rs`
-- [ ] T032 [US4] **Phase gate**: `cargo test iris_execute_basic iris_execute_error iris_query_rows iris_test_unitest` — all pass
+- [x] T024 [US4] Write failing integration test `iris_execute_basic`: execute `write $ZVERSION,!`, assert output contains "IRIS" — `crates/iris-dev-core/tests/integration/test_mcp_iris.rs`
+- [x] T025 [US4] Write failing integration test `iris_execute_error`: execute code with `<UNDEFINED>`, assert `success:false, iris_error.id="UNDEFINED"` — `crates/iris-dev-core/tests/integration/test_mcp_iris.rs`
+- [x] T026 [US4] Write failing integration test `iris_query_rows`: query `SELECT TOP 3 Name FROM %Dictionary.ClassDefinition`, assert `rows` array with 3 entries — `crates/iris-dev-core/tests/integration/test_mcp_iris.rs`
+- [x] T027 [US4] Write failing integration test `iris_test_unitest`: run a trivial %UnitTest, assert `passed >= 1, failed = 0` — `crates/iris-dev-core/tests/integration/test_mcp_iris.rs`
+- [x] T028 [US4] Reimplement `iris_execute` via `POST /api/atelier/v8/{ns}/action/xecute`; extract output from `result.content[0].content` lines; parse IRIS errors from Atelier error response into `iris_error` field — `crates/iris-dev-core/src/tools/mod.rs`
+- [x] T029 [US4] Reimplement `iris_query` via `POST /api/atelier/v8/{ns}/action/query`; return `result.content` as JSON rows array with column names as keys — `crates/iris-dev-core/src/tools/mod.rs`
+- [x] T030 [US4] Reimplement `iris_test` via xecute of `##class(%UnitTest.Manager).RunTest(pattern,"/noload/run")`; parse output lines for `Passed=N` and `Failed=N` totals — `crates/iris-dev-core/src/tools/mod.rs`
+- [x] T031 [US4] Delete Python subprocess code from old `iris_execute`, `iris_test` implementations — `crates/iris-dev-core/src/tools/mod.rs`
+- [x] T032 [US4] **Phase gate**: `cargo test iris_execute_basic iris_execute_error iris_query_rows iris_test_unitest` — all pass
 
 ---
 
@@ -86,12 +86,12 @@
 - [ ] T039 [US2] Implement `handle_get`: `GET /api/atelier/v8/{ns}/doc/{name}`, join `result.content[0].content` lines — `crates/iris-dev-core/src/tools/doc.rs`
 - [ ] T040 [US2] Implement `handle_put`: `PUT /api/atelier/v8/{ns}/doc/{name}` with `{"enc":false,"content":[...lines...]}`, handle 409 with single ETag retry — `crates/iris-dev-core/src/tools/doc.rs`
 - [ ] T041 [US2] Add SCM hook invocation to `handle_put`: when `IRIS_SOURCE_CONTROL=true`, xecute `OnBeforeSave(name)` before PUT; check status; xecute `OnAfterSave(name)` after success — `crates/iris-dev-core/src/tools/doc.rs`
-- [ ] T041a [US2] Add `IRIS_SKIP_SOURCE_CONTROL` bypass to `handle_put`: when env var is true, append `?csp=1` to the PUT URL to skip all server-side SCM checks — `crates/iris-dev-core/src/tools/doc.rs`
+- [x] T041a [US2] Add `IRIS_SKIP_SOURCE_CONTROL` bypass to `handle_put`: when env var is true, append `?csp=1` to the PUT URL to skip all server-side SCM checks — `crates/iris-dev-core/src/tools/doc.rs`
 - [ ] T042 [US2] Implement `handle_delete`: `DELETE /api/atelier/v8/{ns}/doc/{name}` — `crates/iris-dev-core/src/tools/doc.rs`
 - [ ] T043 [US2] Implement `handle_head`: `HEAD /api/atelier/v8/{ns}/doc/{name}`, return `exists` + timestamp from response headers — `crates/iris-dev-core/src/tools/doc.rs`
 - [ ] T044 [US2] Add batch support: `mode=get` with `names: Vec<String>` → parallel fetches; `mode=delete` with `names` → parallel deletes — `crates/iris-dev-core/src/tools/doc.rs`
 - [ ] T045 [US2] Wire `iris_doc` into `IrisTools` tool router with `#[tool]` macro — `crates/iris-dev-core/src/tools/mod.rs`
-- [ ] T046 [US2] **Phase gate**: `cargo test iris_doc_get iris_doc_roundtrip iris_doc_head_exists iris_doc_head_missing` — all pass
+- [x] T046 [US2] **Phase gate**: `cargo test iris_doc_get iris_doc_roundtrip iris_doc_head_exists iris_doc_head_missing` — all pass
 
 ---
 
