@@ -88,7 +88,12 @@ impl VsCodeSettings {
             let host = server.web_server.host.as_deref().unwrap_or("localhost");
             let web_port = server.web_server.port.unwrap_or(52773);
             let scheme = server.web_server.scheme.as_deref().unwrap_or("http");
-            let base_url = format!("{}://{}:{}", scheme, host, web_port);
+            let path_prefix = server.web_server.path_prefix.as_deref().unwrap_or("").trim_matches('/');
+            let base_url = if path_prefix.is_empty() {
+                format!("{}://{}:{}", scheme, host, web_port)
+            } else {
+                format!("{}://{}:{}/{}", scheme, host, web_port, path_prefix)
+            };
             let username = server.username.as_deref().unwrap_or("_SYSTEM");
             let password = server.password.as_deref().unwrap_or("SYS");
             let ns = conn.ns.as_deref().unwrap_or("USER");
