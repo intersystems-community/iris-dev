@@ -112,9 +112,9 @@ Before modifying a file, a developer (or the AI agent) can check whether it's ed
 
 **Auto-Open**
 
-- **FR-006**: `iris_doc(mode=put)` MUST include `"open_uri": "isfs://NAMESPACE/DocumentName.cls"` in its success response
-- **FR-007**: `iris_compile` MUST include `open_uri` in its success response when compiling a single named document
-- **FR-008**: The vscode-iris-dev extension MUST watch tool result content for `open_uri` and call VS Code's open document API when an ISFS workspace folder is present
+- **FR-006**: `iris_doc(mode=put)` MUST write `~/.iris-dev/open-hint.json` containing `{"uri": "isfs://NAMESPACE/DocumentName.cls", "ts": <epoch_ms>}` after a successful write
+- **FR-007**: `iris_compile` MUST write the same sentinel file when compiling a single named document successfully
+- **FR-008**: The vscode-iris-dev extension MUST watch `~/.iris-dev/open-hint.json` with a FileSystemWatcher and open the URI when an ISFS workspace folder is active and the hint is newer than 3 seconds
 - **FR-009**: Auto-open MUST be silently skipped when no ISFS workspace is open — no error
 
 **SCM Tools**
@@ -151,6 +151,7 @@ Before modifying a file, a developer (or the AI agent) can check whether it's ed
 ### Session 2026-04-20
 
 - Q: How should elicitation be implemented given rmcp 1.2 has no first-class Elicitation API? → A: Use MCP spec formal Elicitation message type via raw JSON-RPC (spec-compliant, Option C) as the primary path, with structured JSON response fallback (Option B) when the client signals it does not support elicitation. This makes iris-dev spec-capable while remaining functional for all clients.
+- Q: How should the VS Code extension receive the open_uri hint to auto-open documents? → A: Binary writes a sentinel file (`~/.iris-dev/open-hint.json`) after a successful put; the vscode-iris-dev extension watches that file with VS Code's FileSystemWatcher and opens the document. No MCP protocol changes needed.
 
 ---
 
