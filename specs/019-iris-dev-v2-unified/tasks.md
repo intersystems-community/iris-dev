@@ -33,6 +33,7 @@
 - [ ] T011 Detect Atelier API version at startup: `GET /api/atelier/` fingerprint → parse `result.content[0].version` → set `conn.atelier_version` (V8 if version ≥ 2021, V2 if search available, else V1) — `crates/iris-dev-core/src/iris/connection.rs`
 - [ ] T012 Update `probe_atelier()` in discovery to include `path_prefix` in base_url construction — `crates/iris-dev-core/src/iris/discovery.rs`
 - [ ] T013 Pass `web_prefix` from `McpCommand` into explicit `IrisConnection` construction in `run()` — `crates/iris-dev-bin/src/cmd/mcp.rs`
+- [ ] T013a Update `iris_unreachable()` and all connection error paths to include the attempted URL and the env var to check (e.g., "Cannot reach http://localhost:52773 — set IRIS_WEB_PORT if using a non-standard port") — `crates/iris-dev-core/src/tools/mod.rs`
 - [ ] T014 **Phase gate**: run `cargo test discovery_waits_for_iris web_prefix_route_correct` — both must pass before Phase 3
 
 ---
@@ -85,6 +86,7 @@
 - [ ] T039 [US2] Implement `handle_get`: `GET /api/atelier/v8/{ns}/doc/{name}`, join `result.content[0].content` lines — `crates/iris-dev-core/src/tools/doc.rs`
 - [ ] T040 [US2] Implement `handle_put`: `PUT /api/atelier/v8/{ns}/doc/{name}` with `{"enc":false,"content":[...lines...]}`, handle 409 with single ETag retry — `crates/iris-dev-core/src/tools/doc.rs`
 - [ ] T041 [US2] Add SCM hook invocation to `handle_put`: when `IRIS_SOURCE_CONTROL=true`, xecute `OnBeforeSave(name)` before PUT; check status; xecute `OnAfterSave(name)` after success — `crates/iris-dev-core/src/tools/doc.rs`
+- [ ] T041a [US2] Add `IRIS_SKIP_SOURCE_CONTROL` bypass to `handle_put`: when env var is true, append `?csp=1` to the PUT URL to skip all server-side SCM checks — `crates/iris-dev-core/src/tools/doc.rs`
 - [ ] T042 [US2] Implement `handle_delete`: `DELETE /api/atelier/v8/{ns}/doc/{name}` — `crates/iris-dev-core/src/tools/doc.rs`
 - [ ] T043 [US2] Implement `handle_head`: `HEAD /api/atelier/v8/{ns}/doc/{name}`, return `exists` + timestamp from response headers — `crates/iris-dev-core/src/tools/doc.rs`
 - [ ] T044 [US2] Add batch support: `mode=get` with `names: Vec<String>` → parallel fetches; `mode=delete` with `names` → parallel deletes — `crates/iris-dev-core/src/tools/doc.rs`
