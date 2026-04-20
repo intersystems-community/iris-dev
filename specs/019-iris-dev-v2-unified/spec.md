@@ -180,7 +180,7 @@ A developer investigating unfamiliar code can list macros, find their definition
 
 - **FR-006**: `iris_get_doc` MUST support all IRIS document types: cls, mac, int, inc, csp, dfi, lut
 - **FR-007**: `iris_put_doc` MUST handle ETag conflicts with a single automatic retry
-- **FR-008**: `iris_put_doc` MUST invoke SCM hooks via xecute when `IRIS_SOURCE_CONTROL=true`
+- **FR-008**: `iris_put_doc` MUST invoke SCM hooks via xecute when `IRIS_SOURCE_CONTROL=true`, using the same IRIS_USERNAME/IRIS_PASSWORD credentials as the MCP connection — no separate SCM user
 - **FR-009**: `iris_put_doc` MUST append `?csp=1` when `IRIS_SKIP_SOURCE_CONTROL=true`
 - **FR-010**: Batch operations MUST use single Atelier batch requests, not N individual calls
 
@@ -282,6 +282,7 @@ A developer investigating unfamiliar code can list macros, find their definition
 
 - Q: Should the server expose 60 dedicated tools or ~20 composable multi-action tools? → A: 20 composable tools. Empirical test against Haiku 4.5 with realistic noisy context showed 100% correct invocation of multi-action tools (same as dedicated), at 229 description tokens vs 731 — a 3.2× context saving with zero accuracy cost.
 - Q: Where are session tool-call patterns stored for `skill_propose`? → A: In-memory ring buffer (last 50 calls); propose requires minimum 5 calls in session.
+- Q: What credentials does the `iris_put_doc` SCM hook xecute use? → A: Same credentials as the MCP connection (IRIS_USERNAME/IRIS_PASSWORD). No separate SCM user required.
 
 ---
 
