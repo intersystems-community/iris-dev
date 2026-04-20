@@ -19,6 +19,8 @@ anyhow.workspace = true
 regex.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+urlencoding = "2"
+chrono = { version = "0.4", features = ["serde"] }
 
 # Test dependencies
 [dev-dependencies]
