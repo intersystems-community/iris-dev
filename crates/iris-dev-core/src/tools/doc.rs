@@ -26,6 +26,10 @@ pub struct IrisDocParams {
     pub content: Option<String>,
     #[serde(default = "default_namespace")]
     pub namespace: String,
+    /// Elicitation resume ID (from a prior elicitation_required response)
+    pub elicitation_id: Option<String>,
+    /// User's answer to the elicitation question ("yes" or "no")
+    pub elicitation_answer: Option<String>,
 }
 
 fn default_namespace() -> String { "USER".to_string() }
@@ -43,12 +47,11 @@ pub async fn handle_iris_doc(
     iris: &IrisConnection,
     client: &reqwest::Client,
     p: IrisDocParams,
-    source_control: bool,
-    skip_source_control: bool,
+    elicitation_store: &crate::elicitation::ElicitationStore,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     match p.mode {
         DocMode::Get => handle_get(iris, client, p).await,
-        DocMode::Put => handle_put(iris, client, p, source_control, skip_source_control).await,
+        DocMode::Put => handle_put(iris, client, p, elicitation_store).await,
         DocMode::Delete => handle_delete(iris, client, p).await,
         DocMode::Head => handle_head(iris, client, p).await,
     }
@@ -106,13 +109,26 @@ async fn handle_put(
     iris: &IrisConnection,
     client: &reqwest::Client,
     p: IrisDocParams,
-    source_control: bool,
-    skip_source_control: bool,
+    elicitation_store: &crate::elicitation::ElicitationStore,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     let name = p.name.as_deref().unwrap_or("");
+    let ns = &p.namespace;
 
-    // Atelier requires MAC routines to start with "ROUTINE <name>"
-    // and INC files with "ROUTINE <name> [Type=INC]" — inject header if missing.
+    // Elicitation resume — user answered a prior SCM dialog
+    if let (Some(eid), Some(answer)) = (&p.elicitation_id, &p.elicitation_answer) {
+        if let Some(pending) = elicitation_store.lookup(eid) {
+            elicitation_store.clear(eid);
+            if answer.to_lowercase() != "yes" {
+                return ok_json(serde_json::json!({"success": false, "error_code": "WRITE_ABORTED", "error": "User declined checkout"}));
+            }
+            // User said yes — proceed with the stored content directly
+            let resume_content = pending.content.as_deref().unwrap_or("");
+            return do_write(iris, client, &pending.document, resume_content, &pending.namespace).await;
+        }
+        return err_json("ELICITATION_EXPIRED", "Elicitation session expired or not found");
+    }
+
+    // Inject ROUTINE header for .mac/.inc if missing
     let raw_content = p.content.as_deref().unwrap_or("");
     let content_owned;
     let content = {
@@ -131,35 +147,64 @@ async fn handle_put(
         }
     };
 
-    // SCM OnBeforeSave hook
-    if source_control {
-        let xecute_url = iris.atelier_url(&format!("/v1/{}/action/xecute", p.namespace));
-        let scm_code = format!(
-            "set sc=##class(%Studio.SourceControl.ISC).OnBeforeSave(\"{name}\") if $system.Status.IsError(sc) {{ write \"SCM_ERROR:\",$system.Status.GetErrorText(sc) }} else {{ write \"SCM_OK\" }}"
-        );
-        if let Ok(resp) = client.post(&xecute_url)
-            .basic_auth(&iris.username, Some(&iris.password))
-            .json(&serde_json::json!({"expression": scm_code}))
-            .send().await
-        {
-            if let Ok(body) = resp.json::<serde_json::Value>().await {
-                let out = body["result"]["content"][0]["content"]
-                    .as_array()
-                    .and_then(|a| a.first())
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                if out.starts_with("SCM_ERROR:") {
-                    return err_json("SCM_REJECTED", &out.replace("SCM_ERROR:", ""));
+    // SCM OnBeforeSave — check if write is allowed
+    let xecute_url = iris.atelier_url(&format!("/v1/{}/action/xecute", ns));
+    let scm_check = format!(
+        "set scmObj=##class(%Studio.SourceControl.Base).%GetImplementationObject(\"{n}\") if '$IsObject(scmObj) {{ write \"NO_SCM\" }} else {{ set action=0 set msg=\"\" set target=\"\" set reload=0 set sc=scmObj.UserAction(0,\"%SourceMenu,CheckOut\",\"{n}\",\"\",.action,.target,.msg,.reload) write action_\"|\"_msg }}",
+        n = name.replace('"', "\\\"")
+    );
+    if let Ok(resp) = client.post(&xecute_url)
+        .basic_auth(&iris.username, Some(&iris.password))
+        .json(&serde_json::json!({"expression": scm_check}))
+        .send().await
+    {
+        if let Ok(body) = resp.json::<serde_json::Value>().await {
+            let out = body["result"]["content"][0]["content"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(""))
+                .unwrap_or_default();
+
+            if out != "NO_SCM" && !out.is_empty() {
+                let parts: Vec<&str> = out.splitn(2, '|').collect();
+                let action_code = parts.first().and_then(|s| s.trim().parse::<u8>().ok()).unwrap_or(0);
+                let msg = parts.get(1).map(|s| s.trim()).unwrap_or("");
+
+                if action_code == 1 {
+                    // Needs elicitation — store pending write
+                    let eid = elicitation_store.insert(
+                        name,
+                        crate::elicitation::ElicitationAction::Put,
+                        Some(content.to_string()),
+                        None,
+                        ns.clone(),
+                    );
+                    return ok_json(serde_json::json!({
+                        "success": false,
+                        "elicitation_required": true,
+                        "elicitation_id": eid,
+                        "message": if msg.is_empty() { format!("{} requires checkout. Check out and write?", name) } else { msg.to_string() },
+                        "options": ["yes", "no"],
+                    }));
+                } else if action_code == 6 {
+                    return err_json("SCM_REJECTED", &format!("Source control rejected: {}", msg));
                 }
+                // action_code == 0: proceed
             }
         }
     }
 
+    do_write(iris, client, name, content, ns).await
+}
+
+async fn do_write(
+    iris: &IrisConnection,
+    client: &reqwest::Client,
+    name: &str,
+    content: &str,
+    namespace: &str,
+) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     let lines: Vec<&str> = content.lines().collect();
-    let mut url = iris.atelier_url(&format!("/v8/{}/doc/{}", p.namespace, urlencoding::encode(name)));
-    if skip_source_control {
-        url.push_str("?csp=1");
-    }
+    let url = iris.atelier_url(&format!("/v8/{}/doc/{}", namespace, urlencoding::encode(name)));
 
     let resp = client.put(&url)
         .basic_auth(&iris.username, Some(&iris.password))
@@ -168,38 +213,32 @@ async fn handle_put(
         .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
 
     if resp.status().as_u16() == 409 {
-        // ETag conflict — fetch current ETag and retry once
-        let head_url = iris.atelier_url(&format!("/v8/{}/doc/{}", p.namespace, urlencoding::encode(name)));
+        let head_url = iris.atelier_url(&format!("/v8/{}/doc/{}", namespace, urlencoding::encode(name)));
         let etag = client.head(&head_url)
             .basic_auth(&iris.username, Some(&iris.password))
             .send().await
             .ok()
             .and_then(|r| r.headers().get("ETag").and_then(|v| v.to_str().ok()).map(|s| s.to_string()));
 
-        let retry_resp = client.put(&url)
+        let retry = client.put(&url)
             .basic_auth(&iris.username, Some(&iris.password))
             .header("If-None-Match", etag.as_deref().unwrap_or(""))
             .json(&serde_json::json!({"enc": false, "content": lines}))
             .send().await
-            .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error on retry: {e}"), None))?;
+            .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP retry error: {e}"), None))?;
 
-        if !retry_resp.status().is_success() {
+        if !retry.status().is_success() {
             return err_json("CONFLICT", "Document modified by another user; retry failed");
         }
     } else if !resp.status().is_success() {
         return err_json("IRIS_UNREACHABLE", &format!("HTTP {}", resp.status()));
     }
 
-    // SCM OnAfterSave (best-effort)
-    if source_control {
-        let xecute_url = iris.atelier_url(&format!("/v1/{}/action/xecute", p.namespace));
-        let _ = client.post(&xecute_url)
-            .basic_auth(&iris.username, Some(&iris.password))
-            .json(&serde_json::json!({"expression": format!("do ##class(%Studio.SourceControl.ISC).OnAfterSave(\"{name}\")")}))
-            .send().await;
-    }
+    // Write open hint for VS Code auto-open
+    crate::tools::write_open_hint(namespace, name);
 
-    ok_json(serde_json::json!({"success": true, "name": name}))
+    let open_uri = format!("isfs://{}/{}", namespace, name);
+    ok_json(serde_json::json!({"success": true, "name": name, "open_uri": open_uri}))
 }
 
 async fn handle_delete(

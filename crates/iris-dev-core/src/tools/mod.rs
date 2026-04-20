@@ -12,13 +12,16 @@ use schemars::JsonSchema;
 use std::sync::Arc;
 use std::collections::VecDeque;
 use crate::iris::connection::IrisConnection;
+use crate::elicitation::ElicitationStore;
 pub mod interop;
 pub mod doc;
 pub mod search;
 pub mod info;
 pub mod skills_tools;
+pub mod scm;
 
 pub use doc::{IrisDocParams, DocMode};
+pub use scm::ScmParams;
 
 /// A single tool call entry for the session history ring buffer.
 #[derive(Debug, Clone)]
@@ -184,6 +187,20 @@ fn ok_json(v: serde_json::Value) -> Result<CallToolResult, McpError> {
 fn err_json(code: &str, msg: &str) -> Result<CallToolResult, McpError> {
     ok_json(serde_json::json!({"success": false, "error_code": code, "error": msg}))
 }
+pub fn write_open_hint(namespace: &str, document: &str) {
+    if let Some(home) = dirs::home_dir() {
+        let dir = home.join(".iris-dev");
+        let _ = std::fs::create_dir_all(&dir);
+        let uri = format!("isfs://{}/{}", namespace, document);
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let json = serde_json::json!({"uri": uri, "ts": ts});
+        let _ = std::fs::write(dir.join("open-hint.json"), json.to_string());
+    }
+}
+
 fn err_json_with_url(code: &str, msg: &str, attempted_url: &str) -> Result<CallToolResult, McpError> {
     ok_json(serde_json::json!({
         "success": false,
@@ -282,6 +299,8 @@ pub struct IrisTools {
     pub client: Arc<reqwest::Client>,
     /// Ring buffer of recent tool calls for skill_propose pattern mining.
     pub history: Arc<std::sync::Mutex<VecDeque<ToolCallEntry>>>,
+    /// Pending elicitation state for SCM dialogs.
+    pub elicitation_store: Arc<ElicitationStore>,
     tool_router: ToolRouter<IrisTools>,
 }
 
@@ -294,6 +313,7 @@ impl IrisTools {
             registry: Arc::new(crate::skills::SkillRegistry::new()),
             client,
             history: Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(50))),
+            elicitation_store: Arc::new(ElicitationStore::new()),
             tool_router: Self::tool_router(),
         }
     }
@@ -304,6 +324,7 @@ impl IrisTools {
             registry: Arc::new(registry),
             client,
             history: Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(50))),
+            elicitation_store: Arc::new(ElicitationStore::new()),
             tool_router: Self::tool_router(),
         }
     }
@@ -362,10 +383,22 @@ impl IrisTools {
                 .send().await;
         }
 
-        let compile_url = iris.atelier_url(&format!("/v8/{}/action/compile", p.namespace));
+        // Atelier compile: POST with JSON array of document names (with extensions)
+        // e.g. ["MyApp.Patient.cls", "MyApp.Utils.cls"]
+        let compile_url = iris.atelier_url(&format!("/v1/{}/action/compile?flags={}", p.namespace, urlencoding::encode(&p.flags)));
+
+        // Ensure targets have extensions
+        let targets_with_ext: Vec<String> = targets.iter().map(|t| {
+            if t.contains('.') && !t.ends_with(".cls") && !t.ends_with(".mac") && !t.ends_with(".inc") && !t.ends_with(".int") {
+                format!("{}.cls", t)
+            } else {
+                t.clone()
+            }
+        }).collect();
+
         let resp = client.post(&compile_url)
             .basic_auth(&iris.username, Some(&iris.password))
-            .json(&serde_json::json!({"docs": targets, "flags": p.flags}))
+            .json(&targets_with_ext)
             .send().await
             .map_err(|e| McpError::internal_error(format!("HTTP error: {e}"), None))?;
 
@@ -378,8 +411,19 @@ impl IrisTools {
         let body: serde_json::Value = resp.json().await
             .map_err(|e| McpError::internal_error(format!("JSON parse error: {e}"), None))?;
 
-        // Parse compiler output: extract structured errors from console array
-        let console = body["result"]["console"].as_array().cloned().unwrap_or_default();
+        // Parse compiler output — console is at top level for query-param compile
+        let console = body["console"].as_array()
+            .or_else(|| body["result"]["console"].as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        // Also check status.errors for any compile errors
+        if let Some(status_errors) = body["status"]["errors"].as_array() {
+            if !status_errors.is_empty() {
+                let msg = status_errors[0]["error"].as_str().unwrap_or("Compile error");
+                return err_json("COMPILE_ERROR", msg);
+            }
+        }
         let mut errors = vec![];
         let mut warnings = vec![];
         for line in &console {
@@ -407,7 +451,16 @@ impl IrisTools {
 
         let success = errors.is_empty();
         self.record_call("iris_compile", success);
-        ok_json(serde_json::json!({
+
+        // Write open hint for single non-wildcard successful compile
+        let open_uri = if success && !p.target.contains('*') && targets.len() == 1 {
+            write_open_hint(&p.namespace, &p.target);
+            Some(format!("isfs://{}/{}", p.namespace, p.target))
+        } else {
+            None
+        };
+
+        let mut resp = serde_json::json!({
             "success": success,
             "target": p.target,
             "targets_compiled": targets.len(),
@@ -415,7 +468,11 @@ impl IrisTools {
             "errors": errors,
             "warnings": warnings,
             "console": console,
-        }))
+        });
+        if let Some(uri) = open_uri {
+            resp["open_uri"] = serde_json::Value::String(uri);
+        }
+        ok_json(resp)
     }
 
     #[tool(description = "Run %UnitTest.Manager tests on IRIS via Atelier REST. Pass a class pattern like 'MyApp.Tests' or 'MyApp.Tests.Order'. Returns structured pass/fail counts and full trace output. No Python required.")]
@@ -515,13 +572,11 @@ impl IrisTools {
         }))
     }
 
-    #[tool(description = "Read, write, delete, or check an IRIS document. mode='get' fetches source, mode='put' writes, mode='delete' removes, mode='head' checks existence. Supports batch ops via 'names' array. No Python required.")]
+    #[tool(description = "Read, write, delete, or check an IRIS document. mode='get' fetches source, mode='put' writes (with automatic SCM checkout if needed), mode='delete' removes, mode='head' checks existence. Supports batch ops via 'names' array and elicitation_id/elicitation_answer for SCM dialog resumption. No Python required.")]
     async fn iris_doc(&self, Parameters(p): Parameters<IrisDocParams>) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
         let client = self.http_client();
-        let source_control = std::env::var("IRIS_SOURCE_CONTROL").map(|v| v == "true").unwrap_or(false);
-        let skip_source_control = std::env::var("IRIS_SKIP_SOURCE_CONTROL").map(|v| v == "true").unwrap_or(false);
-        let result = doc::handle_iris_doc(iris, client, p, source_control, skip_source_control).await;
+        let result = doc::handle_iris_doc(iris, client, p, &self.elicitation_store).await;
         self.record_call("iris_doc", result.is_ok());
         result
     }
@@ -1123,6 +1178,14 @@ Methods:
         let iris = self.get_iris()?;
         let result = skills_tools::handle_agent_info(iris, self.http_client(), p, &self.history).await;
         self.record_call("agent_info", result.is_ok());
+        result
+    }
+
+    #[tool(description = "IRIS source control operations. action=status checks lock state and owner, action=menu lists available SCM actions, action=checkout checks out the document, action=execute runs a specific SCM action by ID. Handles elicitation for interactive SCM dialogs. Pass elicitation_id+answer to resume a pending SCM interaction.")]
+    async fn iris_source_control(&self, Parameters(p): Parameters<ScmParams>) -> Result<CallToolResult, McpError> {
+        let iris = self.get_iris()?;
+        let result = scm::handle_iris_source_control(iris, self.http_client(), p, &self.elicitation_store).await;
+        self.record_call("iris_source_control", result.is_ok());
         result
     }
 }
