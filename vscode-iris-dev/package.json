@@ -7,9 +7,21 @@
   "engines": {
     "vscode": "^1.99.0"
   },
-  "categories": ["AI", "Other"],
-  "keywords": ["intersystems", "iris", "objectscript", "mcp", "copilot"],
-  "activationEvents": ["onStartupFinished", "onMcpCollection:iris-dev"],
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "keywords": [
+    "intersystems",
+    "iris",
+    "objectscript",
+    "mcp",
+    "copilot"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onMcpCollection:iris-dev"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "mcpServerDefinitionProviders": [
@@ -35,7 +47,7 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
+    "compile": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
     "package": "npm run compile && vsce package --no-dependencies"
   },
   "dependencies": {
@@ -46,6 +58,7 @@
     "@types/vscode": "^1.99.0",
     "@types/which": "^3.0.4",
     "@vscode/vsce": "^3",
+    "esbuild": "^0.28.0",
     "typescript": "^5"
   }
 }
