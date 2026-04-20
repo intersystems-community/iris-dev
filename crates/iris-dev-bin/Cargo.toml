@@ -9,6 +9,10 @@ license.workspace = true
 name = "iris-dev"
 path = "src/main.rs"
 
+[[bin]]
+name = "objectscript-mcp"
+path = "src/main.rs"
+
 [dependencies]
 iris-dev-core = { path = "../iris-dev-core" }
 rmcp = { workspace = true }
