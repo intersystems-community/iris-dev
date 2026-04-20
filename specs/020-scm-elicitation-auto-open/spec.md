@@ -104,7 +104,7 @@ Before modifying a file, a developer (or the AI agent) can check whether it's ed
 
 **Elicitation**
 
-- **FR-001**: When `iris_doc(mode=put)` triggers an IRIS UserAction dialog (code 1), the tool MUST return an MCP Elicitation request with the dialog message and Yes/No options
+- **FR-001**: When `iris_doc(mode=put)` triggers an IRIS UserAction dialog (code 1), the tool MUST send a formal MCP `elicitation/create` request (spec-compliant JSON-RPC) as the primary path; when the client does not advertise elicitation capability, fall back to a structured JSON response containing the question and options
 - **FR-002**: `iris_doc(mode=put)` MUST accept an optional `elicitation_answer` parameter to resume a pending elicitation
 - **FR-003**: Pending elicitation state MUST expire after 5 minutes of inactivity
 - **FR-004**: When the MCP client does not support elicitation, `iris_doc(mode=put)` MUST return a descriptive error including the lock owner — no silent failure, no popup
@@ -146,10 +146,18 @@ Before modifying a file, a developer (or the AI agent) can check whether it's ed
 
 ---
 
+## Clarifications
+
+### Session 2026-04-20
+
+- Q: How should elicitation be implemented given rmcp 1.2 has no first-class Elicitation API? → A: Use MCP spec formal Elicitation message type via raw JSON-RPC (spec-compliant, Option C) as the primary path, with structured JSON response fallback (Option B) when the client signals it does not support elicitation. This makes iris-dev spec-capable while remaining functional for all clients.
+
+---
+
 ## Assumptions
 
 1. IRIS UserAction code 1 (Dialog) is the primary case for elicitation — codes 4 (CSP page) and 5 (executable launch) are out of scope for this release; they return descriptive errors.
 2. The vscode-iris-dev extension can detect ISFS workspace folders by checking `vscode.workspace.workspaceFolders` for URIs with `isfs://` or `isfs-readonly://` scheme.
 3. Tim Leavitt and Nathan Keast will be invited to review this spec before implementation begins.
-4. MCP Elicitation support in rmcp 1.2 is confirmed available — if not, the fallback (descriptive error) is acceptable for initial release.
+4. Elicitation implementation: MCP spec formal `elicitation/create` message via raw JSON-RPC as primary path; structured JSON response fallback (`{"elicitation_required": true, "message": "...", "options": [...]}`) when client capability is absent.
 5. Session state (PendingElicitation) is in-memory only — not persisted across server restarts.
