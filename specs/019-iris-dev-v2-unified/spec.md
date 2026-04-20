@@ -6,7 +6,9 @@
 
 ## Overview
 
-Merge three separate IRIS MCP implementations (iris-dev Rust, objectscript-mcp Python, Nathan Keast's intersystems-mcp-atelier TypeScript) into a single elegant Rust binary. The result is a zero-dependency, cross-platform MCP server exposing 60 tools covering every IRIS developer workflow: compile, test, execute, document CRUD, full-text search, introspection, macros, CSP, debug, Interoperability, and a learning agent.
+Merge three separate IRIS MCP implementations (iris-dev Rust, objectscript-mcp Python, Nathan Keast's intersystems-mcp-atelier TypeScript) into a single elegant Rust binary. The result is a zero-dependency, cross-platform MCP server exposing **20 composable tools** covering every IRIS developer workflow: compile, test, execute, document CRUD, full-text search, introspection, macros, CSP, debug, Interoperability, and a learning agent.
+
+**Why 20, not 60**: An empirical test against Haiku 4.5 (via Bedrock) with realistic noisy context confirmed that multi-action tools (`iris_doc(mode=get/put/delete/head)`, `iris_macro(action=list/signature/expand)`, `interop_production(action=status/start/stop)`) are invoked correctly 100% of the time — identical accuracy to dedicated single-purpose tools. The 20-tool design uses 229 description tokens vs 731 for 60 tools: a **3.2× context saving** with zero accuracy cost. Smaller tool lists also reduce LLM confusion when selecting between near-identical tools.
 
 The finished system works identically for:
 - **Tim Leavitt** — ISC internal, P4, no Docker, standard IRIS at localhost:52773
@@ -27,13 +29,13 @@ A developer opens a project in VS Code, starts `iris-dev mcp`, and within 5 seco
 
 **Acceptance Scenarios**:
 
-1. **Given** `IRIS_HOST` and `IRIS_WEB_PORT` are set, **When** `iris-dev mcp` starts, **Then** the server connects to IRIS within 5 seconds and reports `tool_count=60`
+1. **Given** `IRIS_HOST` and `IRIS_WEB_PORT` are set, **When** `iris-dev mcp` starts, **Then** the server connects to IRIS within 5 seconds and reports `tool_count=20`
 2. **Given** no env vars are set, **When** the server starts, **Then** it scans localhost ports [52773, 41773, 51773, 8080] in parallel and connects to the first that responds with an IRIS fingerprint
 3. **Given** Docker is not available, **When** the discovery cascade runs, **Then** it skips Docker detection without error and proceeds to VS Code settings.json within 50ms
 4. **Given** `IRIS_WEB_PREFIX=irisaicore` and `IRIS_WEB_PORT=80`, **When** `iris_compile` is called, **Then** the request goes to `http://localhost:80/irisaicore/api/atelier/v8/USER/action/compile` and returns results
 5. **Given** a class has compile errors, **When** `iris_compile` is called, **Then** the response includes `success: false`, structured error objects with line numbers, and the target name
 6. **Given** `iris_compile` is called with `"Package.*.cls"`, **When** the compilation runs, **Then** all classes in the package are compiled in a single Atelier v8 batch request
-7. **Given** Python is completely uninstalled, **When** any tool is called, **Then** all 60 tools respond without error
+7. **Given** Python is completely uninstalled, **When** any tool is called, **Then** all 20 tools respond without error
 
 ---
 
@@ -219,6 +221,33 @@ A developer investigating unfamiliar code can list macros, find their definition
 - **FR-028**: The artifact MUST be a single static binary with no Python, Node.js, or runtime dependencies
 - **FR-029**: `cargo build --release` MUST be the only build step required
 
+### Tool Inventory (20 tools)
+
+| Tool | `action`/`mode` params | Replaces |
+|------|------------------------|---------|
+| `iris_compile` | — | iris_compile |
+| `iris_execute` | — | iris_execute |
+| `iris_query` | — | iris_query |
+| `iris_test` | — | iris_test |
+| `iris_search` | — | iris_search |
+| `iris_doc` | `mode`: get, put, delete, head | iris_get_doc, iris_put_doc, iris_delete_doc, iris_head_doc, iris_get_docs, iris_delete_docs |
+| `iris_symbols` | — | iris_symbols, iris_symbols_local |
+| `iris_introspect` | — | iris_introspect + %Dictionary deep query |
+| `iris_macro` | `action`: list, signature, location, definition, expand | all 5 macro tools |
+| `iris_info` | `what`: documents, modified, namespace, metadata, jobs, csp_apps, csp_debug, sa_schema | 8 discovery/listing tools |
+| `iris_debug` | `action`: map_int, capture, error_logs, source_map | all 4 debug tools |
+| `iris_generate` | `type`: class, test | iris_generate_class, iris_generate_test |
+| `interop_production` | `action`: status, start, stop, update, needs_update, recover | all 6 production lifecycle tools |
+| `interop_query` | `what`: logs, queues, messages | interop_logs, interop_queues, interop_message_search |
+| `skill` | `action`: list, describe, search, forget, propose | skill_list/describe/search/forget/propose |
+| `skill_community` | `action`: list, install | skill_community_list, skill_community_install |
+| `kb` | `action`: index, recall | kb_index, kb_recall |
+| `agent_info` | `what`: history, stats | agent_history, agent_stats |
+| `iris_containers` | `action`: list, select, start | iris_list_containers, iris_select_container, iris_start_sandbox |
+| `iris_symbols_local` | — | iris_symbols_local (kept separate: no IRIS required) |
+
+**Note**: `iris_symbols_local` stays dedicated because it operates on local filesystem with no IRIS connection — merging it into `iris_symbols` would conflate two fundamentally different data sources.
+
 ### Key Entities
 
 - **IrisConnection**: `{base_url (with prefix), namespace, username, password, atelier_version, discovery_source}`
@@ -234,7 +263,7 @@ A developer investigating unfamiliar code can list macros, find their definition
 
 ### Measurable Outcomes
 
-- **SC-001**: All 60 tools respond successfully against a standard IRIS install with no Docker and no Python (Tim's environment)
+- **SC-001**: All 20 tools respond successfully against a standard IRIS install with no Docker and no Python (Tim's environment)
 - **SC-002**: `iris_compile`, `iris_execute`, `iris_query`, and `iris_test` work with Python completely absent from the system
 - **SC-003**: Server startup time (initialize response) under 100ms at p50 across 5 runs — preserves existing benchmark
 - **SC-004**: `iris_search` returns results in under 3 seconds for namespaces under 10,000 classes; larger namespaces complete via async fallback without user-visible failure
@@ -244,6 +273,15 @@ A developer investigating unfamiliar code can list macros, find their definition
 - **SC-008**: New integration tests cover: compile, execute, query, get_doc, put_doc (with/without prefix), search (sync and async paths), interop_production_status, skill_list
 - **SC-009**: Tim can configure the MCP server with three env vars (`IRIS_HOST`, `IRIS_WEB_PORT`, `IRIS_USERNAME`/`IRIS_PASSWORD`) and have all tools functional — no Python install, no objectscript-mcp package
 - **SC-010**: `cargo build --release` produces a working binary; no additional installation steps required
+
+---
+
+## Clarifications
+
+### Session 2026-04-19
+
+- Q: Should the server expose 60 dedicated tools or ~20 composable multi-action tools? → A: 20 composable tools. Empirical test against Haiku 4.5 with realistic noisy context showed 100% correct invocation of multi-action tools (same as dedicated), at 229 description tokens vs 731 — a 3.2× context saving with zero accuracy cost.
+- Q: Where are session tool-call patterns stored for `skill_propose`? → A: In-memory ring buffer (last 50 calls); propose requires minimum 5 calls in session.
 
 ---
 
