@@ -1141,7 +1141,7 @@ Methods:
         result
     }
 
-    #[tool(description = "Generate ObjectScript class or test scaffolding via LLM. Requires IRIS_GENERATE_CLASS_MODEL env var. gen_type=class generates a new class, gen_type=test generates %UnitTest scaffolding for an existing class.")]
+    #[tool(description = "Prepare context for generating an ObjectScript class or %UnitTest. Returns a ready-to-use prompt plus IRIS namespace context (existing class names, method signatures). No API key needed — the calling AI agent does the generation using the returned prompt, then saves with iris_doc(mode=put) and compiles with iris_compile. gen_type=class for new classes, gen_type=test for %UnitTest scaffolding.")]
     async fn iris_generate(&self, Parameters(p): Parameters<info::GenerateParams>) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
         let result = info::handle_iris_generate(iris, self.http_client(), p).await;
