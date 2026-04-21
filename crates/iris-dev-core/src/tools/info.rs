@@ -201,19 +201,20 @@ pub async fn handle_iris_debug(
 }
 
 // ── iris_generate ─────────────────────────────────────────────────────────────
+//
+// Context-provider design: returns everything the calling AI agent needs to
+// write the class itself. No API key, no server-side LLM call, works with
+// Copilot, Claude Code, or any MCP client.
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct GenerateParams {
-    /// Description of what to generate
+    /// What to generate — natural language description, e.g. "a Patient class with Name and DOB properties"
     pub description: String,
-    /// Type: class or test
+    /// Type: "class" (default) or "test"
     #[serde(default = "default_type")]
     pub gen_type: String,
-    /// Class name to generate tests for (when gen_type=test)
+    /// Existing class name to generate tests for (gen_type=test only)
     pub class_name: Option<String>,
-    /// Compile after generating
-    #[serde(default)]
-    pub compile: bool,
     #[serde(default = "default_namespace")]
     pub namespace: String,
 }
@@ -225,94 +226,97 @@ pub async fn handle_iris_generate(
     client: &reqwest::Client,
     p: GenerateParams,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-    let model = std::env::var("IRIS_GENERATE_CLASS_MODEL").unwrap_or_default();
-    if model.is_empty() {
-        return err_json("LLM_UNAVAILABLE", "IRIS_GENERATE_CLASS_MODEL env var not set");
-    }
+    let ns = &p.namespace;
+    let query_url = iris.atelier_url(&format!("/v1/{}/action/query", ns));
 
-    // Build prompt
-    let prompt = match p.gen_type.as_str() {
-        "test" => format!(
-            "Generate an InterSystems IRIS %UnitTest.TestCase subclass for '{}'. {}. Return only valid ObjectScript class code.",
-            p.class_name.as_deref().unwrap_or("the class"),
-            p.description
-        ),
-        _ => format!(
-            "Generate an InterSystems IRIS ObjectScript class. {}. Return only valid ObjectScript class code.",
-            p.description
-        ),
-    };
+    match p.gen_type.as_str() {
+        "test" => {
+            let cls = p.class_name.as_deref().unwrap_or("");
 
-    // Call LLM via litellm-compatible HTTP endpoint
-    let litellm_url = std::env::var("LITELLM_URL")
-        .unwrap_or_else(|_| "https://api.anthropic.com/v1/messages".to_string());
+            // Fetch the class's methods and properties as generation context
+            let sql = format!(
+                "SELECT Name, FormalSpec, ReturnType, Description \
+                 FROM %Dictionary.CompiledMethod WHERE parent = '{}' ORDER BY Name",
+                cls.replace('\'', "''")
+            );
+            let resp = client.post(&query_url)
+                .basic_auth(&iris.username, Some(&iris.password))
+                .json(&serde_json::json!({"query": sql}))
+                .send().await
+                .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            let methods = body["result"]["content"].clone();
 
-    let api_key = std::env::var("ANTHROPIC_API_KEY")
-        .or_else(|_| std::env::var("OPENAI_API_KEY"))
-        .unwrap_or_default();
+            let prompt = format!(
+                "Write an InterSystems IRIS %UnitTest.TestCase subclass to test '{}'. \
+                 Requirements: {}. \
+                 The class has these methods: {}. \
+                 Rules: extend %UnitTest.TestCase, prefix test methods with 'Test', \
+                 use $$$AssertEquals/$$$AssertTrue macros, include ##class({}).%New() in setup. \
+                 Write only valid ObjectScript — no explanations, no markdown fences.",
+                cls, p.description,
+                serde_json::to_string(&methods).unwrap_or_default(),
+                cls
+            );
 
-    let body = serde_json::json!({
-        "model": model,
-        "max_tokens": 2048,
-        "messages": [{"role": "user", "content": prompt}]
-    });
+            ok_json(serde_json::json!({
+                "success": true,
+                "gen_type": "test",
+                "target_class": cls,
+                "namespace": ns,
+                "prompt": prompt,
+                "context": {
+                    "methods": methods,
+                    "suggested_class_name": format!("{}.Test", cls),
+                },
+                "instructions": "Use the prompt above to write the class, then call iris_doc(mode=put) to save it and iris_compile to compile it."
+            }))
+        }
 
-    let resp = client.post(&litellm_url)
-        .header("x-api-key", &api_key)
-        .header("anthropic-version", "2023-06-01")
-        .json(&body)
-        .send().await
-        .map_err(|e| rmcp::ErrorData::internal_error(format!("LLM request failed: {e}"), None))?;
+        _ => {
+            // Fetch existing classes in the namespace as naming/style context
+            let sql = "SELECT TOP 10 Name FROM %Dictionary.ClassDefinition \
+                       WHERE Name NOT LIKE '%\\%%' ESCAPE '\\' ORDER BY Name";
+            let resp = client.post(&query_url)
+                .basic_auth(&iris.username, Some(&iris.password))
+                .json(&serde_json::json!({"query": sql}))
+                .send().await
+                .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            let existing: Vec<String> = body["result"]["content"]
+                .as_array().unwrap_or(&vec![])
+                .iter()
+                .filter_map(|r| r["Name"].as_str().map(|s| s.to_string()))
+                .collect();
 
-    let llm_body: serde_json::Value = resp.json().await.unwrap_or_default();
-    let generated = llm_body["content"][0]["text"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+            // Detect likely package prefix from existing classes
+            let package = existing.first()
+                .and_then(|n| n.split('.').next())
+                .unwrap_or("MyApp")
+                .to_string();
 
-    if generated.is_empty() {
-        return err_json("LLM_ERROR", "LLM returned empty response");
-    }
+            let prompt = format!(
+                "Write an InterSystems IRIS ObjectScript class. \
+                 Requirements: {}. \
+                 Use package prefix '{}' to match existing classes in this namespace. \
+                 Rules: valid ObjectScript syntax, extend %Persistent or %RegisteredObject \
+                 as appropriate, include property definitions with types, add basic accessor \
+                 methods if needed. Write only the class code — no explanations, no markdown fences.",
+                p.description, package
+            );
 
-    let mut result = serde_json::json!({
-        "success": true,
-        "gen_type": p.gen_type,
-        "generated": generated,
-    });
-
-    // Optional compile
-    if p.compile && !generated.is_empty() {
-        // Extract class name from generated code
-        let class_name = generated.lines()
-            .find(|l| l.trim_start().starts_with("Class "))
-            .and_then(|l| l.trim_start().strip_prefix("Class "))
-            .and_then(|l| l.split_whitespace().next())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| "Generated.Class".to_string());
-
-        // First write the document
-        let put_url = iris.atelier_url(&format!("/v8/{}/doc/{}.cls", p.namespace, urlencoding::encode(&class_name)));
-        let lines: Vec<&str> = generated.lines().collect();
-        let _ = client.put(&put_url)
-            .basic_auth(&iris.username, Some(&iris.password))
-            .json(&serde_json::json!({"enc": false, "content": lines}))
-            .send().await;
-
-        // Then compile
-        let compile_url = iris.atelier_url(&format!("/v8/{}/action/compile", p.namespace));
-        let compile_resp = client.post(&compile_url)
-            .basic_auth(&iris.username, Some(&iris.password))
-            .json(&serde_json::json!({"docs": [format!("{}.cls", class_name)], "flags": "cuk"}))
-            .send().await;
-
-        if let Ok(cr) = compile_resp {
-            if cr.status().is_success() {
-                if let Ok(cb) = cr.json::<serde_json::Value>().await {
-                    result["compile_result"] = cb["result"].clone();
-                }
-            }
+            ok_json(serde_json::json!({
+                "success": true,
+                "gen_type": "class",
+                "namespace": ns,
+                "prompt": prompt,
+                "context": {
+                    "existing_classes": existing,
+                    "suggested_package": package,
+                    "iris_version": iris.version.as_deref().unwrap_or("unknown"),
+                },
+                "instructions": "Use the prompt above to write the class, then call iris_doc(mode=put) to save it and iris_compile to compile it."
+            }))
         }
     }
-
-    Ok(rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(result.to_string())]))
 }
