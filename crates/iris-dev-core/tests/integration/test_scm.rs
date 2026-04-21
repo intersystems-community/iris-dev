@@ -131,3 +131,30 @@ fn iris_compile_open_uri() {
     let hint_path = dirs::home_dir().unwrap().join(".iris-dev/open-hint.json");
     assert!(hint_path.exists(), "sentinel file should exist at {:?}", hint_path);
 }
+
+/// iris_generate returns a prompt + context without requiring an API key.
+#[test]
+fn iris_generate_returns_context_no_api_key() {
+    let env = iris_env();
+    if env[0].1.is_empty() { eprintln!("Skipping: IRIS_HOST not set"); return; }
+    let env_refs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
+
+    let responses = mcp_exchange(&env_refs, &[
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}}),
+        serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
+        serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"iris_generate","arguments":{
+            "description": "a Patient class with Name and DateOfBirth properties",
+            "gen_type": "class",
+            "namespace": "USER"
+        }}}),
+    ]);
+
+    let result = parse_tool(&responses, 2);
+    assert_eq!(result["success"], true, "iris_generate should succeed without API key: {}", result);
+    assert!(result["prompt"].as_str().is_some(), "should return a prompt: {}", result);
+    assert!(result["instructions"].as_str().is_some(), "should return instructions: {}", result);
+    assert!(result.get("context").is_some(), "should return context: {}", result);
+    // Must NOT contain LLM_UNAVAILABLE
+    assert_ne!(result["error_code"].as_str(), Some("LLM_UNAVAILABLE"),
+        "must not require API key: {}", result);
+}
