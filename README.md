@@ -132,6 +132,34 @@ Requires Rust stable. No other dependencies.
 
 ---
 
+## Working with multiple IRIS instances or namespaces
+
+**Different instances** — set `IRIS_HOST` + `IRIS_WEB_PORT` per project. The VS Code extension reads these from your workspace's `objectscript.conn` automatically. For Claude Code, set them in `.claude/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "iris-dev": {
+      "command": "/path/to/iris-dev",
+      "env": {
+        "IRIS_HOST": "prod-iris.example.com",
+        "IRIS_WEB_PORT": "52773",
+        "IRIS_WEB_PREFIX": "myapp",
+        "IRIS_USERNAME": "devuser",
+        "IRIS_PASSWORD": "devpass",
+        "IRIS_NAMESPACE": "MYAPP"
+      }
+    }
+  }
+}
+```
+
+**Limiting to a specific namespace** — set `IRIS_NAMESPACE`. All tools (`iris_symbols`, `iris_search`, `iris_info`, `iris_compile`, etc.) scope to this namespace by default. Each tool also accepts an explicit `namespace` parameter to override per-call. This keeps the context window small — `iris_symbols` only searches your namespace, not all of `%SYS`.
+
+**Non-root web gateway** — set `IRIS_WEB_PREFIX` to the path prefix (e.g. `"irisaicore"` for `http://host:80/irisaicore/api/atelier`).
+
+---
+
 ## Commands
 
 - `iris-dev mcp` — Start the MCP server
