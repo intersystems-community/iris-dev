@@ -16,6 +16,11 @@
 
 set -euo pipefail
 
+# Always run from repo root regardless of where the script is invoked from
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
+
 IRIS_HOST="${IRIS_HOST:-localhost}"
 IRIS_PORT="${IRIS_PORT:-52773}"
 IRIS_USERNAME="${IRIS_USERNAME:-_SYSTEM}"
@@ -42,8 +47,8 @@ if [[ -x "$BIN" ]]; then
     _pass "binary exists: $BIN"
 else
     echo "  Building release binary..."
-    cargo build --release -q 2>&1 | tail -5
-    [[ -x "$BIN" ]] && _pass "binary built OK" || { _fail "build failed"; exit 1; }
+    cargo build --release 2>&1
+    [[ -x "$BIN" ]] && _pass "binary built OK" || { _fail "build failed — see output above"; exit 1; }
 fi
 
 # ──────────────────────────────────────────────────────────────
