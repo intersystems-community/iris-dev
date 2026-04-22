@@ -1,7 +1,9 @@
-"""LLM-as-judge scoring using Claude Haiku."""
-import os
+"""LLM-as-judge scoring using Claude Haiku (Bedrock or direct API)."""
 import json
-import anthropic
+try:
+    from ._client import make_client, haiku_model
+except ImportError:
+    from _client import make_client, haiku_model
 
 RUBRIC = """You are evaluating an AI coding agent's performance on an ObjectScript/IRIS task.
 
@@ -37,11 +39,11 @@ def score_result(task: dict, result: dict) -> dict:
         transcript=transcript,
     )
 
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+    client = make_client()
     for attempt in range(2):
         try:
             msg = client.messages.create(
-                model="claude-haiku-4-5",
+                model=haiku_model(),
                 max_tokens=256,
                 messages=[{"role": "user", "content": prompt}],
             )

@@ -28,8 +28,8 @@ def _mock_anthropic(score: int, reasoning: str):
 
 
 def test_score_result_returns_valid_schema():
-    with patch("judge.anthropic.Anthropic") as MockAnth:
-        MockAnth.return_value = _mock_anthropic(3, "Correct and efficient")
+    with patch("judge.make_client") as mock_make:
+        mock_make.return_value = _mock_anthropic(3, "Correct and efficient")
         from judge import score_result
         result = score_result(SAMPLE_TASK, SAMPLE_RESULT)
     assert "score" in result
@@ -39,18 +39,18 @@ def test_score_result_returns_valid_schema():
 
 
 def test_score_result_returns_score_3():
-    with patch("judge.anthropic.Anthropic") as MockAnth:
-        MockAnth.return_value = _mock_anthropic(3, "Perfect")
+    with patch("judge.make_client") as mock_make:
+        mock_make.return_value = _mock_anthropic(3, "Perfect")
         from judge import score_result
         result = score_result(SAMPLE_TASK, SAMPLE_RESULT)
     assert result["score"] == 3
 
 
 def test_score_result_handles_api_error():
-    with patch("judge.anthropic.Anthropic") as MockAnth:
+    with patch("judge.make_client") as mock_make:
         mock_client = MagicMock()
         mock_client.messages.create.side_effect = Exception("API error")
-        MockAnth.return_value = mock_client
+        mock_make.return_value = mock_client
         from judge import score_result
         result = score_result(SAMPLE_TASK, SAMPLE_RESULT)
     assert result["score"] == 0
