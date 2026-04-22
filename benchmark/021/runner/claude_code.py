@@ -1,9 +1,13 @@
-"""Claude Code harness driver — MCP stdio + Anthropic API tool loop."""
+"""Claude Code harness driver — MCP stdio + Anthropic API tool loop (Bedrock or direct)."""
 import os
 import json
 import time
 import subprocess
 import anthropic
+try:
+    from ._client import make_client, sonnet_model
+except ImportError:
+    from _client import make_client, sonnet_model
 
 PATH_A_SYSTEM = """You are an ObjectScript developer working in LOCAL FILES mode.
 
@@ -117,7 +121,7 @@ def run_task(task: dict, path: str) -> dict:
     _handshake(proc)
     tools = _get_tools(proc)
 
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+    client = make_client()
     system = _build_system_prompt(path)
     messages = [{"role": "user", "content": task["description"]}]
     transcript = []
@@ -125,7 +129,7 @@ def run_task(task: dict, path: str) -> dict:
 
     for _ in range(20):  # max 20 turns
         response = client.messages.create(
-            model="claude-sonnet-4-5",
+            model=sonnet_model(),
             max_tokens=4096,
             system=system,
             tools=tools,

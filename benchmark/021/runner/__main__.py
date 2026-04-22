@@ -27,8 +27,13 @@ def check_env():
     if missing:
         print(f"ERROR: missing required env vars: {', '.join(missing)}", file=sys.stderr)
         sys.exit(2)
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("WARNING: ANTHROPIC_API_KEY not set — judge and claude-code harness will fail",
+    use_bedrock = bool(
+        os.environ.get("CLAUDE_CODE_USE_BEDROCK") or
+        os.environ.get("AWS_BEARER_TOKEN_BEDROCK") or
+        os.environ.get("AWS_ACCESS_KEY_ID")
+    )
+    if not use_bedrock and not os.environ.get("ANTHROPIC_API_KEY"):
+        print("WARNING: no API credentials found. Set ANTHROPIC_API_KEY or AWS Bedrock env vars.",
               file=sys.stderr)
 
 

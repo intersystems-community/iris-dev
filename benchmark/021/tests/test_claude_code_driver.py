@@ -46,7 +46,7 @@ def _make_mock_anthropic(tool_calls: list, final_text: str):
 def test_run_task_returns_transcript():
     mock_tool_result = {"result": {"content": [{"type": "text", "text": '{"success":true}'}]}}
 
-    with patch("claude_code.anthropic.Anthropic") as MockAnth, \
+    with patch("claude_code.make_client") as MockAnth, \
          patch("claude_code._mcp_call") as mock_mcp, \
          patch("claude_code._spawn_mcp") as mock_spawn, \
          patch("claude_code._shutdown_mcp"), \
