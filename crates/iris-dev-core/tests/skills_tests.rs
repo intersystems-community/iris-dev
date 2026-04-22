@@ -15,7 +15,9 @@ fn registry_starts_empty() {
 async fn load_invalid_repo_returns_error() {
     let mut registry = SkillRegistry::new();
     // nonexistent repo should return Ok (graceful) or Err — never panic
-    let result = registry.load_from_github("nonexistent/repo-that-does-not-exist-xyzzy").await;
+    let result = registry
+        .load_from_github("nonexistent/repo-that-does-not-exist-xyzzy")
+        .await;
     // Accept either outcome — the important thing is no panic
     let _ = result;
 }
@@ -39,13 +41,31 @@ async fn e2e_subscribe_to_iris_vector_rag() {
         return;
     }
     let mut registry = SkillRegistry::new();
-    registry.load_from_github("intersystems-community/iris-vector-rag").await
+    registry
+        .load_from_github("intersystems-community/iris-vector-rag")
+        .await
         .expect("should load iris-vector-rag package");
-    assert!(registry.list_skills().len() >= 2, "should have at least 2 skills");
-    assert!(registry.list_kb_items().len() >= 1, "should have at least 1 KB item");
-    let names: Vec<_> = registry.list_skills().iter().map(|s| s.name.as_str()).collect();
-    assert!(names.contains(&"iris-rag-pipeline"), "iris-rag-pipeline skill must be present");
-    assert!(names.contains(&"iris-vector-search"), "iris-vector-search skill must be present");
+    assert!(
+        registry.list_skills().len() >= 2,
+        "should have at least 2 skills"
+    );
+    assert!(
+        registry.list_kb_items().len() >= 1,
+        "should have at least 1 KB item"
+    );
+    let names: Vec<_> = registry
+        .list_skills()
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
+    assert!(
+        names.contains(&"iris-rag-pipeline"),
+        "iris-rag-pipeline skill must be present"
+    );
+    assert!(
+        names.contains(&"iris-vector-search"),
+        "iris-vector-search skill must be present"
+    );
 }
 
 /// Unit test: subscribe parsing uses iris-dev.toml from the skills/ subdirectory.
@@ -58,14 +78,18 @@ async fn subscribe_path_convention_is_light_skills_subdir() {
     // This test verifies our manifest parser handles the skills paths correctly.
     use iris_dev_core::manifest::parse_manifest;
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("iris-dev.toml"), r#"
+    std::fs::write(
+        dir.path().join("iris-dev.toml"),
+        r#"
 [package]
 name = "iris-vector-rag-skills"
 version = "1.0.0"
 [provides]
 skills = ["skills/iris-rag-pipeline", "skills/iris-vector-search"]
 kb_items = ["kb/iris-vector-patterns.md"]
-"#).unwrap();
+"#,
+    )
+    .unwrap();
     let manifest = parse_manifest(dir.path().join("iris-dev.toml")).unwrap();
     let provides = manifest.provides.unwrap();
     assert_eq!(provides.skills.len(), 2);

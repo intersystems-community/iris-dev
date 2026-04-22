@@ -9,9 +9,9 @@
 //!
 //! Each step fails silently and falls through to the next.
 
+use crate::iris::connection::{DiscoverySource, IrisConnection};
 use anyhow::Result;
 use std::time::Duration;
-use crate::iris::connection::{IrisConnection, DiscoverySource};
 
 /// The ports we scan on localhost for IRIS web servers.
 const IRIS_WEB_PORTS: &[u16] = &[52773, 41773, 51773, 8080];
@@ -79,18 +79,23 @@ pub async fn discover_iris(explicit: Option<IrisConnection>) -> Result<Option<Ir
         let password = std::env::var("IRIS_PASSWORD").unwrap_or_else(|_| "SYS".to_string());
         let namespace = std::env::var("IRIS_NAMESPACE").unwrap_or_else(|_| "USER".to_string());
 
-        if let Some(mut conn) = probe_atelier(&host, port, &username, &password, &namespace, 5000).await {
+        if let Some(mut conn) =
+            probe_atelier(&host, port, &username, &password, &namespace, 5000).await
+        {
             conn.source = DiscoverySource::EnvVar;
             return Ok(Some(conn));
         }
     }
 
     // 3. Localhost scan (parallel, 100ms each)
-    let scan_tasks: Vec<_> = IRIS_WEB_PORTS.iter().map(|&port| {
-        tokio::spawn(async move {
-            probe_atelier("localhost", port, "_SYSTEM", "SYS", "USER", 100).await
+    let scan_tasks: Vec<_> = IRIS_WEB_PORTS
+        .iter()
+        .map(|&port| {
+            tokio::spawn(async move {
+                probe_atelier("localhost", port, "_SYSTEM", "SYS", "USER", 100).await
+            })
         })
-    }).collect();
+        .collect();
 
     for task in scan_tasks {
         if let Ok(Some(conn)) = task.await {
@@ -133,15 +138,22 @@ pub fn score_container_name(container_name: &str, workspace_basename: &str) -> u
         return 0;
     }
 
-    let suffix_bonus = if cn.ends_with("-iris") || cn.ends_with("_iris") { 10 } else { 0 }
-        + if cn.ends_with("-test") || cn.ends_with("_test") { 5 } else { 0 };
+    let suffix_bonus = if cn.ends_with("-iris") || cn.ends_with("_iris") {
+        10
+    } else {
+        0
+    } + if cn.ends_with("-test") || cn.ends_with("_test") {
+        5
+    } else {
+        0
+    };
 
     base + suffix_bonus
 }
 
 async fn discover_via_docker() -> Option<IrisConnection> {
-    use bollard::Docker;
     use bollard::container::ListContainersOptions;
+    use bollard::Docker;
 
     let workspace_basename = std::env::current_dir()
         .ok()
@@ -149,12 +161,13 @@ async fn discover_via_docker() -> Option<IrisConnection> {
         .unwrap_or_default();
 
     let docker = Docker::connect_with_defaults().ok()?;
-    let containers = docker.list_containers(
-        Some(ListContainersOptions::<String> {
+    let containers = docker
+        .list_containers(Some(ListContainersOptions::<String> {
             all: false,
             ..Default::default()
-        })
-    ).await.ok()?;
+        }))
+        .await
+        .ok()?;
 
     let mut candidates: Vec<(u32, String, u16, Option<u16>)> = Vec::new();
 
@@ -164,7 +177,9 @@ async fn discover_via_docker() -> Option<IrisConnection> {
             continue;
         }
 
-        let container_name = container.names.clone()
+        let container_name = container
+            .names
+            .clone()
             .and_then(|n| n.into_iter().next())
             .unwrap_or_default()
             .trim_start_matches('/')
@@ -193,9 +208,9 @@ async fn discover_via_docker() -> Option<IrisConnection> {
     candidates.sort_by(|a, b| b.0.cmp(&a.0));
 
     for (_score, container_name, web_port, port_ss) in candidates {
-        if let Some(mut conn) = probe_atelier(
-            "localhost", web_port, "_SYSTEM", "SYS", "USER", 500
-        ).await {
+        if let Some(mut conn) =
+            probe_atelier("localhost", web_port, "_SYSTEM", "SYS", "USER", 500).await
+        {
             conn.source = DiscoverySource::Docker { container_name };
             conn.port_superserver = port_ss;
             return Some(conn);
@@ -206,12 +221,12 @@ async fn discover_via_docker() -> Option<IrisConnection> {
 
 /// Attempt to find IRIS connection from VS Code settings.json in common locations.
 async fn discover_via_vscode_settings() -> Option<IrisConnection> {
-    let candidates = [
-        std::env::current_dir().ok()?.join(".vscode/settings.json"),
-    ];
+    let candidates = [std::env::current_dir().ok()?.join(".vscode/settings.json")];
 
     for path in &candidates {
-        if !path.exists() { continue; }
+        if !path.exists() {
+            continue;
+        }
         if let Ok(settings) = crate::iris::vscode_config::parse_vscode_settings(path) {
             if let Some(conn) = settings.to_iris_connection().await {
                 return Some(conn);

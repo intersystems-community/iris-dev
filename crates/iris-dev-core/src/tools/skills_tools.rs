@@ -1,20 +1,24 @@
 //! skill, skill_community, kb, agent_info tools via Atelier xecute + ^SKILLS global.
 
-use schemars::JsonSchema;
-use serde::Deserialize;
 use crate::iris::connection::IrisConnection;
 use crate::tools::ToolCallEntry;
+use schemars::JsonSchema;
+use serde::Deserialize;
 use std::collections::VecDeque;
 
 fn ok_json(v: serde_json::Value) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-    Ok(rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(v.to_string())]))
+    Ok(rmcp::model::CallToolResult::success(vec![
+        rmcp::model::Content::text(v.to_string()),
+    ]))
 }
 fn err_json(code: &str, msg: &str) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     ok_json(serde_json::json!({"success": false, "error_code": code, "error": msg}))
 }
 
 fn learning_enabled() -> bool {
-    std::env::var("OBJECTSCRIPT_LEARNING").map(|v| v != "false").unwrap_or(true)
+    std::env::var("OBJECTSCRIPT_LEARNING")
+        .map(|v| v != "false")
+        .unwrap_or(true)
 }
 
 fn skills_namespace() -> String {
@@ -28,14 +32,21 @@ async fn xecute(
     namespace: &str,
 ) -> anyhow::Result<String> {
     let url = iris.atelier_url(&format!("/v1/{}/action/xecute", namespace));
-    let resp = client.post(&url)
+    let resp = client
+        .post(&url)
         .basic_auth(&iris.username, Some(&iris.password))
         .json(&serde_json::json!({"expression": code}))
-        .send().await?;
+        .send()
+        .await?;
     let body: serde_json::Value = resp.json().await?;
     let output = body["result"]["content"][0]["content"]
         .as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("\n"))
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
         .unwrap_or_default();
     Ok(output)
 }
@@ -57,7 +68,10 @@ pub async fn handle_skill(
     history: &std::sync::Mutex<VecDeque<ToolCallEntry>>,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     if !learning_enabled() {
-        return err_json("LEARNING_DISABLED", "Set OBJECTSCRIPT_LEARNING=true to enable skills");
+        return err_json(
+            "LEARNING_DISABLED",
+            "Set OBJECTSCRIPT_LEARNING=true to enable skills",
+        );
     }
 
     let ns = skills_namespace();
@@ -66,12 +80,16 @@ pub async fn handle_skill(
         "list" => {
             let code = "set key=\"\" set out=\"[\" for  { set key=$order(^SKILLS(key)) quit:key=\"\"  set data=$get(^SKILLS(key)) set out=out_\"{\"_\"\\\"name\\\":\\\"\"_key_\"\\\",\\\"description\\\":\\\"\"_$piece(data,\"|\",1)_\"\\\",\\\"usage_count\\\":\"_$piece(data,\"|\",3)_\"}\" set out=out_\",\" } set out=$extract(out,1,*-1)_\"]\" write out";
             let raw = xecute(iris, client, code, &ns).await.unwrap_or_default();
-            let skills: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!([]));
+            let skills: serde_json::Value =
+                serde_json::from_str(&raw).unwrap_or(serde_json::json!([]));
             ok_json(serde_json::json!({"success": true, "skills": skills}))
         }
         "describe" => {
             let name = p.name.as_deref().unwrap_or("");
-            let code = format!("set data=$get(^SKILLS(\"{}\")) write data", name.replace('"', "\\\""));
+            let code = format!(
+                "set data=$get(^SKILLS(\"{}\")) write data",
+                name.replace('"', "\\\"")
+            );
             let raw = xecute(iris, client, &code, &ns).await.unwrap_or_default();
             if raw.is_empty() {
                 return err_json("NOT_FOUND", &format!("Skill '{}' not found", name));
@@ -93,12 +111,16 @@ pub async fn handle_skill(
                 query.replace('"', "\\\"")
             );
             let raw = xecute(iris, client, &code, &ns).await.unwrap_or_default();
-            let results: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!([]));
+            let results: serde_json::Value =
+                serde_json::from_str(&raw).unwrap_or(serde_json::json!([]));
             ok_json(serde_json::json!({"success": true, "query": query, "results": results}))
         }
         "forget" => {
             let name = p.name.as_deref().unwrap_or("");
-            let code = format!("kill ^SKILLS(\"{}\") write \"ok\"", name.replace('"', "\\\""));
+            let code = format!(
+                "kill ^SKILLS(\"{}\") write \"ok\"",
+                name.replace('"', "\\\"")
+            );
             xecute(iris, client, &code, &ns).await.unwrap_or_default();
             ok_json(serde_json::json!({"success": true, "name": name, "action": "forgotten"}))
         }
@@ -106,18 +128,40 @@ pub async fn handle_skill(
             let calls: Vec<String> = {
                 let h = history.lock().unwrap();
                 if h.len() < 5 {
-                    return err_json("INSUFFICIENT_HISTORY",
-                        &format!("Need at least 5 tool calls to propose a skill, have {}", h.len()));
+                    return err_json(
+                        "INSUFFICIENT_HISTORY",
+                        &format!(
+                            "Need at least 5 tool calls to propose a skill, have {}",
+                            h.len()
+                        ),
+                    );
                 }
                 h.iter().rev().take(20).map(|c| c.tool.clone()).collect()
             };
             // Synthesize skill name from most frequent tool
             let mut freq = std::collections::HashMap::new();
-            for t in &calls { *freq.entry(t.as_str()).or_insert(0u32) += 1; }
-            let top = freq.iter().max_by_key(|e| e.1).map(|e| *e.0).unwrap_or("workflow");
+            for t in &calls {
+                *freq.entry(t.as_str()).or_insert(0u32) += 1;
+            }
+            let top = freq
+                .iter()
+                .max_by_key(|e| e.1)
+                .map(|e| *e.0)
+                .unwrap_or("workflow");
             let skill_name = format!("auto-{}-{}", top, chrono::Utc::now().timestamp() % 10000);
-            let description = format!("Auto-synthesized from recent tool calls: {}", calls.join(", "));
-            let body = format!("Recent workflow: {}", calls.iter().take(5).cloned().collect::<Vec<_>>().join(" → "));
+            let description = format!(
+                "Auto-synthesized from recent tool calls: {}",
+                calls.join(", ")
+            );
+            let body = format!(
+                "Recent workflow: {}",
+                calls
+                    .iter()
+                    .take(5)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" → ")
+            );
             let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
             let code = format!(
                 "set ^SKILLS(\"{}\")=\"{}|{}|0|{}\" write \"ok\"",
@@ -132,7 +176,13 @@ pub async fn handle_skill(
                 "skill": {"name": skill_name, "description": description, "body": body}
             }))
         }
-        other => err_json("INVALID_PARAM", &format!("Unknown action='{}'. Use: list, describe, search, forget, propose", other)),
+        other => err_json(
+            "INVALID_PARAM",
+            &format!(
+                "Unknown action='{}'. Use: list, describe, search, forget, propose",
+                other
+            ),
+        ),
     }
 }
 
@@ -152,12 +202,17 @@ pub async fn handle_skill_community(
     registry: &crate::skills::SkillRegistry,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     if !learning_enabled() {
-        return err_json("LEARNING_DISABLED", "Set OBJECTSCRIPT_LEARNING=true to enable community skills");
+        return err_json(
+            "LEARNING_DISABLED",
+            "Set OBJECTSCRIPT_LEARNING=true to enable community skills",
+        );
     }
 
     match p.action.as_str() {
         "list" => {
-            let items: Vec<serde_json::Value> = registry.list_skills().iter()
+            let items: Vec<serde_json::Value> = registry
+                .list_skills()
+                .iter()
                 .map(|s| serde_json::json!({"name": s.name, "description": s.description}))
                 .collect();
             ok_json(serde_json::json!({"success": true, "skills": items}))
@@ -167,7 +222,10 @@ pub async fn handle_skill_community(
             if pkg.is_empty() {
                 return err_json("INVALID_PARAM", "package name required for action=install");
             }
-            let skill_opt = registry.list_skills().iter().find(|s| s.name == pkg)
+            let skill_opt = registry
+                .list_skills()
+                .iter()
+                .find(|s| s.name == pkg)
                 .map(|s| (s.name.clone(), s.description.clone(), s.content.clone()));
             match skill_opt {
                 Some((sname, sdesc, scontent)) => {
@@ -186,7 +244,10 @@ pub async fn handle_skill_community(
                 None => err_json("NOT_FOUND", &format!("Community skill '{}' not found", pkg)),
             }
         }
-        other => err_json("INVALID_PARAM", &format!("Unknown action='{}'. Use: list, install", other)),
+        other => err_json(
+            "INVALID_PARAM",
+            &format!("Unknown action='{}'. Use: list, install", other),
+        ),
     }
 }
 
@@ -203,7 +264,9 @@ pub struct KbParams {
     pub top_k: usize,
 }
 
-fn default_top_k() -> usize { 5 }
+fn default_top_k() -> usize {
+    5
+}
 
 pub async fn handle_kb(
     iris: &IrisConnection,
@@ -211,7 +274,10 @@ pub async fn handle_kb(
     p: KbParams,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     if !learning_enabled() {
-        return err_json("LEARNING_DISABLED", "Set OBJECTSCRIPT_LEARNING=true to enable KB");
+        return err_json(
+            "LEARNING_DISABLED",
+            "Set OBJECTSCRIPT_LEARNING=true to enable KB",
+        );
     }
 
     let ns = skills_namespace();
@@ -219,16 +285,30 @@ pub async fn handle_kb(
     match p.action.as_str() {
         "index" => {
             let path = p.path.as_deref().unwrap_or(".");
-            let workspace = std::env::var("OBJECTSCRIPT_WORKSPACE").unwrap_or_else(|_| ".".to_string());
-            let base = if path == "." { workspace.as_str() } else { path };
+            let workspace =
+                std::env::var("OBJECTSCRIPT_WORKSPACE").unwrap_or_else(|_| ".".to_string());
+            let base = if path == "." {
+                workspace.as_str()
+            } else {
+                path
+            };
 
             let mut indexed = 0usize;
             if let Ok(entries) = std::fs::read_dir(base) {
                 for entry in entries.flatten() {
                     let fp = entry.path();
-                    if fp.extension().and_then(|e| e.to_str()).map(|e| e == "md" || e == "txt").unwrap_or(false) {
+                    if fp
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .map(|e| e == "md" || e == "txt")
+                        .unwrap_or(false)
+                    {
                         if let Ok(content) = std::fs::read_to_string(&fp) {
-                            let fname = fp.file_name().and_then(|n| n.to_str()).unwrap_or("").replace('"', "\\\"");
+                            let fname = fp
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("")
+                                .replace('"', "\\\"");
                             let chunk: String = content.chars().take(2000).collect();
                             let chunk_escaped = chunk.replace('"', "\\\"").replace('\n', "\\n");
                             let code = format!(
@@ -251,10 +331,14 @@ pub async fn handle_kb(
                 top_k = top_k,
             );
             let raw = xecute(iris, client, &code, &ns).await.unwrap_or_default();
-            let results: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!([]));
+            let results: serde_json::Value =
+                serde_json::from_str(&raw).unwrap_or(serde_json::json!([]));
             ok_json(serde_json::json!({"success": true, "query": query, "results": results}))
         }
-        other => err_json("INVALID_PARAM", &format!("Unknown action='{}'. Use: index, recall", other)),
+        other => err_json(
+            "INVALID_PARAM",
+            &format!("Unknown action='{}'. Use: index, recall", other),
+        ),
     }
 }
 
@@ -268,7 +352,9 @@ pub struct AgentInfoParams {
     pub limit: usize,
 }
 
-fn default_limit() -> usize { 20 }
+fn default_limit() -> usize {
+    20
+}
 
 pub async fn handle_agent_info(
     iris: &IrisConnection,
@@ -280,7 +366,8 @@ pub async fn handle_agent_info(
         "stats" => {
             let ns = skills_namespace();
             let code = "set count=0 set key=\"\" for { set key=$order(^SKILLS(key)) quit:key=\"\"  set count=count+1 } write count";
-            let skill_count: usize = xecute(iris, client, code, &ns).await
+            let skill_count: usize = xecute(iris, client, code, &ns)
+                .await
                 .unwrap_or_default()
                 .trim()
                 .parse()
@@ -295,15 +382,27 @@ pub async fn handle_agent_info(
         }
         "history" => {
             let limit = p.limit;
-            let calls: Vec<serde_json::Value> = history.lock().map(|h| {
-                h.iter().rev().take(limit).map(|c| serde_json::json!({
-                    "tool": c.tool,
-                    "success": c.success,
-                    "ago_secs": c.timestamp.elapsed().as_secs(),
-                })).collect()
-            }).unwrap_or_default();
+            let calls: Vec<serde_json::Value> = history
+                .lock()
+                .map(|h| {
+                    h.iter()
+                        .rev()
+                        .take(limit)
+                        .map(|c| {
+                            serde_json::json!({
+                                "tool": c.tool,
+                                "success": c.success,
+                                "ago_secs": c.timestamp.elapsed().as_secs(),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
             ok_json(serde_json::json!({"success": true, "calls": calls}))
         }
-        other => err_json("INVALID_PARAM", &format!("Unknown what='{}'. Use: stats, history", other)),
+        other => err_json(
+            "INVALID_PARAM",
+            &format!("Unknown what='{}'. Use: stats, history", other),
+        ),
     }
 }

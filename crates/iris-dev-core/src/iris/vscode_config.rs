@@ -1,10 +1,10 @@
 //! Parse VS Code settings.json for IRIS connection configuration.
 //! Supports both direct host/port connections and named server references.
 
+use crate::iris::connection::{DiscoverySource, IrisConnection};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
-use crate::iris::connection::{IrisConnection, DiscoverySource};
 
 #[derive(Debug, Deserialize, Default)]
 pub struct VsCodeSettings {
@@ -63,15 +63,15 @@ impl IntersystemsServer {
 pub fn parse_vscode_settings(path: impl AsRef<Path>) -> anyhow::Result<VsCodeSettings> {
     let content = std::fs::read_to_string(path.as_ref())?;
     // VS Code settings.json may have trailing commas or comments — use serde_json's lenient parser
-    let settings: VsCodeSettings = serde_json::from_str(&content)
-        .unwrap_or_else(|_| {
-            // Try stripping JS-style comments (basic)
-            let cleaned: String = content.lines()
-                .filter(|l| !l.trim_start().starts_with("//"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            serde_json::from_str(&cleaned).unwrap_or_default()
-        });
+    let settings: VsCodeSettings = serde_json::from_str(&content).unwrap_or_else(|_| {
+        // Try stripping JS-style comments (basic)
+        let cleaned: String = content
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        serde_json::from_str(&cleaned).unwrap_or_default()
+    });
     Ok(settings)
 }
 
@@ -79,7 +79,9 @@ impl VsCodeSettings {
     /// Convert parsed settings to an IrisConnection, resolving named servers.
     pub async fn to_iris_connection(&self) -> Option<IrisConnection> {
         let conn = self.objectscript_conn.as_ref()?;
-        if conn.active == Some(false) { return None; }
+        if conn.active == Some(false) {
+            return None;
+        }
 
         // Named server path
         if let Some(server_name) = &conn.server {
@@ -88,7 +90,12 @@ impl VsCodeSettings {
             let host = server.web_server.host.as_deref().unwrap_or("localhost");
             let web_port = server.web_server.port.unwrap_or(52773);
             let scheme = server.web_server.scheme.as_deref().unwrap_or("http");
-            let path_prefix = server.web_server.path_prefix.as_deref().unwrap_or("").trim_matches('/');
+            let path_prefix = server
+                .web_server
+                .path_prefix
+                .as_deref()
+                .unwrap_or("")
+                .trim_matches('/');
             let base_url = if path_prefix.is_empty() {
                 format!("{}://{}:{}", scheme, host, web_port)
             } else {
@@ -98,7 +105,13 @@ impl VsCodeSettings {
             let password = server.password.as_deref().unwrap_or("SYS");
             let ns = conn.ns.as_deref().unwrap_or("USER");
 
-            let iris_conn = IrisConnection::new(base_url, ns, username, password, DiscoverySource::VsCodeSettings);
+            let iris_conn = IrisConnection::new(
+                base_url,
+                ns,
+                username,
+                password,
+                DiscoverySource::VsCodeSettings,
+            );
             // Note: super_server_port is available if needed for native connections
             return Some(iris_conn);
         }
@@ -111,6 +124,12 @@ impl VsCodeSettings {
         let ns = conn.ns.as_deref().unwrap_or("USER");
         let base_url = format!("http://{}:{}", host, port);
 
-        Some(IrisConnection::new(base_url, ns, username, password, DiscoverySource::VsCodeSettings))
+        Some(IrisConnection::new(
+            base_url,
+            ns,
+            username,
+            password,
+            DiscoverySource::VsCodeSettings,
+        ))
     }
 }

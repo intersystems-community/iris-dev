@@ -36,6 +36,7 @@ jobs:
           key: ${{ matrix.target }}
       - uses: cargo-bins/cargo-binstall@v1
       - run: cargo binstall cargo-zigbuild --no-confirm
+      - uses: mlugg/setup-zig@v2
       - run: cargo zigbuild --release --target ${{ matrix.target }} -p iris-dev
       - name: Stage artifact
         shell: bash

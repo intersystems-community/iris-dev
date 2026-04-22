@@ -13,7 +13,9 @@ pub enum DocMode {
     Head,
 }
 
-fn default_mode() -> DocMode { DocMode::Get }
+fn default_mode() -> DocMode {
+    DocMode::Get
+}
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct IrisDocParams {
@@ -36,11 +38,15 @@ pub struct IrisDocParams {
     pub elicitation_answer: Option<String>,
 }
 
-fn default_namespace() -> String { "USER".to_string() }
+fn default_namespace() -> String {
+    "USER".to_string()
+}
 use crate::iris::connection::IrisConnection;
 
 fn ok_json(v: serde_json::Value) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-    Ok(rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(v.to_string())]))
+    Ok(rmcp::model::CallToolResult::success(vec![
+        rmcp::model::Content::text(v.to_string()),
+    ]))
 }
 fn err_json(code: &str, msg: &str) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     ok_json(serde_json::json!({"success": false, "error_code": code, "error": msg}))
@@ -70,8 +76,15 @@ async fn handle_get(
         let mut results = vec![];
         let mut futs = vec![];
         for name in &p.names {
-            let url = iris.atelier_url(&format!("/v8/{}/doc/{}", p.namespace, urlencoding::encode(name)));
-            let req = client.get(&url).basic_auth(&iris.username, Some(&iris.password)).send();
+            let url = iris.atelier_url(&format!(
+                "/v8/{}/doc/{}",
+                p.namespace,
+                urlencoding::encode(name)
+            ));
+            let req = client
+                .get(&url)
+                .basic_auth(&iris.username, Some(&iris.password))
+                .send();
             futs.push((name.clone(), req));
         }
         for (name, fut) in futs {
@@ -81,7 +94,9 @@ async fn handle_get(
                     let content = doc_content_to_string(&body);
                     results.push(serde_json::json!({"name": name, "content": content}));
                 }
-                Ok(resp) => results.push(serde_json::json!({"name": name, "error": format!("HTTP {}", resp.status())})),
+                Ok(resp) => results.push(
+                    serde_json::json!({"name": name, "error": format!("HTTP {}", resp.status())}),
+                ),
                 Err(e) => results.push(serde_json::json!({"name": name, "error": e.to_string()})),
             }
         }
@@ -89,10 +104,16 @@ async fn handle_get(
     }
 
     let name = p.name.as_deref().unwrap_or("");
-    let url = iris.atelier_url(&format!("/v8/{}/doc/{}", p.namespace, urlencoding::encode(name)));
-    let resp = client.get(&url)
+    let url = iris.atelier_url(&format!(
+        "/v8/{}/doc/{}",
+        p.namespace,
+        urlencoding::encode(name)
+    ));
+    let resp = client
+        .get(&url)
         .basic_auth(&iris.username, Some(&iris.password))
-        .send().await
+        .send()
+        .await
         .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
 
     if resp.status().as_u16() == 404 {
@@ -104,7 +125,10 @@ async fn handle_get(
 
     let body: serde_json::Value = resp.json().await.unwrap_or_default();
     let content = doc_content_to_string(&body);
-    let ts = body["result"]["content"][0]["ts"].as_str().unwrap_or("").to_string();
+    let ts = body["result"]["content"][0]["ts"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
     ok_json(serde_json::json!({"success": true, "name": name, "content": content, "timestamp": ts}))
 }
 
@@ -122,20 +146,35 @@ async fn handle_put(
         if let Some(pending) = elicitation_store.lookup(eid) {
             elicitation_store.clear(eid);
             if answer.to_lowercase() != "yes" {
-                return ok_json(serde_json::json!({"success": false, "error_code": "WRITE_ABORTED", "error": "User declined checkout"}));
+                return ok_json(
+                    serde_json::json!({"success": false, "error_code": "WRITE_ABORTED", "error": "User declined checkout"}),
+                );
             }
             // User said yes — proceed with the stored content directly
             let resume_content = pending.content.as_deref().unwrap_or("");
-            return do_write(iris, client, &pending.document, resume_content, &pending.namespace).await;
+            return do_write(
+                iris,
+                client,
+                &pending.document,
+                resume_content,
+                &pending.namespace,
+            )
+            .await;
         }
-        return err_json("ELICITATION_EXPIRED", "Elicitation session expired or not found");
+        return err_json(
+            "ELICITATION_EXPIRED",
+            "Elicitation session expired or not found",
+        );
     }
 
     // Inject ROUTINE header for .mac/.inc if missing
     let raw_content = p.content.as_deref().unwrap_or("");
     let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
     let routine_name = name.rsplit_once('.').map(|(n, _)| n).unwrap_or(name);
-    let needs_header = !raw_content.trim_start().to_uppercase().starts_with("ROUTINE ");
+    let needs_header = !raw_content
+        .trim_start()
+        .to_uppercase()
+        .starts_with("ROUTINE ");
     let content_owned: String;
     let content: &str = match ext.as_str() {
         "mac" if needs_header => {
@@ -155,20 +194,30 @@ async fn handle_put(
         "set scmObj=##class(%Studio.SourceControl.Base).%GetImplementationObject(\"{n}\") if '$IsObject(scmObj) {{ write \"NO_SCM\" }} else {{ set action=0 set msg=\"\" set target=\"\" set reload=0 set sc=scmObj.UserAction(0,\"%SourceMenu,CheckOut\",\"{n}\",\"\",.action,.target,.msg,.reload) write action_\"|\"_msg }}",
         n = name.replace('"', "\\\"")
     );
-    if let Ok(resp) = client.post(&xecute_url)
+    if let Ok(resp) = client
+        .post(&xecute_url)
         .basic_auth(&iris.username, Some(&iris.password))
         .json(&serde_json::json!({"expression": scm_check}))
-        .send().await
+        .send()
+        .await
     {
         if let Ok(body) = resp.json::<serde_json::Value>().await {
             let out = body["result"]["content"][0]["content"]
                 .as_array()
-                .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(""))
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join("")
+                })
                 .unwrap_or_default();
 
             if out != "NO_SCM" && !out.is_empty() {
                 let parts: Vec<&str> = out.splitn(2, '|').collect();
-                let action_code = parts.first().and_then(|s| s.trim().parse::<u8>().ok()).unwrap_or(0);
+                let action_code = parts
+                    .first()
+                    .and_then(|s| s.trim().parse::<u8>().ok())
+                    .unwrap_or(0);
                 let msg = parts.get(1).map(|s| s.trim()).unwrap_or("");
 
                 if action_code == 1 {
@@ -206,31 +255,53 @@ async fn do_write(
     namespace: &str,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     let lines: Vec<&str> = content.lines().collect();
-    let url = iris.atelier_url(&format!("/v8/{}/doc/{}", namespace, urlencoding::encode(name)));
+    let url = iris.atelier_url(&format!(
+        "/v8/{}/doc/{}",
+        namespace,
+        urlencoding::encode(name)
+    ));
 
-    let resp = client.put(&url)
+    let resp = client
+        .put(&url)
         .basic_auth(&iris.username, Some(&iris.password))
         .json(&serde_json::json!({"enc": false, "content": lines}))
-        .send().await
+        .send()
+        .await
         .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
 
     if resp.status().as_u16() == 409 {
-        let head_url = iris.atelier_url(&format!("/v8/{}/doc/{}", namespace, urlencoding::encode(name)));
-        let etag = client.head(&head_url)
+        let head_url = iris.atelier_url(&format!(
+            "/v8/{}/doc/{}",
+            namespace,
+            urlencoding::encode(name)
+        ));
+        let etag = client
+            .head(&head_url)
             .basic_auth(&iris.username, Some(&iris.password))
-            .send().await
+            .send()
+            .await
             .ok()
-            .and_then(|r| r.headers().get("ETag").and_then(|v| v.to_str().ok()).map(|s| s.to_string()));
+            .and_then(|r| {
+                r.headers()
+                    .get("ETag")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.to_string())
+            });
 
-        let retry = client.put(&url)
+        let retry = client
+            .put(&url)
             .basic_auth(&iris.username, Some(&iris.password))
             .header("If-None-Match", etag.as_deref().unwrap_or(""))
             .json(&serde_json::json!({"enc": false, "content": lines}))
-            .send().await
+            .send()
+            .await
             .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP retry error: {e}"), None))?;
 
         if !retry.status().is_success() {
-            return err_json("CONFLICT", "Document modified by another user; retry failed");
+            return err_json(
+                "CONFLICT",
+                "Document modified by another user; retry failed",
+            );
         }
     } else if !resp.status().is_success() {
         return err_json("IRIS_UNREACHABLE", &format!("HTTP {}", resp.status()));
@@ -253,21 +324,40 @@ async fn handle_delete(
         let mut deleted = vec![];
         let mut errors = vec![];
         for name in &p.names {
-            let url = iris.atelier_url(&format!("/v8/{}/doc/{}", p.namespace, urlencoding::encode(name)));
-            match client.delete(&url).basic_auth(&iris.username, Some(&iris.password)).send().await {
+            let url = iris.atelier_url(&format!(
+                "/v8/{}/doc/{}",
+                p.namespace,
+                urlencoding::encode(name)
+            ));
+            match client
+                .delete(&url)
+                .basic_auth(&iris.username, Some(&iris.password))
+                .send()
+                .await
+            {
                 Ok(r) if r.status().is_success() => deleted.push(name.clone()),
-                Ok(r) => errors.push(serde_json::json!({"name": name, "error": format!("HTTP {}", r.status())})),
+                Ok(r) => errors.push(
+                    serde_json::json!({"name": name, "error": format!("HTTP {}", r.status())}),
+                ),
                 Err(e) => errors.push(serde_json::json!({"name": name, "error": e.to_string()})),
             }
         }
-        return ok_json(serde_json::json!({"success": errors.is_empty(), "deleted": deleted, "errors": errors}));
+        return ok_json(
+            serde_json::json!({"success": errors.is_empty(), "deleted": deleted, "errors": errors}),
+        );
     }
 
     let name = p.name.as_deref().unwrap_or("");
-    let url = iris.atelier_url(&format!("/v8/{}/doc/{}", p.namespace, urlencoding::encode(name)));
-    let resp = client.delete(&url)
+    let url = iris.atelier_url(&format!(
+        "/v8/{}/doc/{}",
+        p.namespace,
+        urlencoding::encode(name)
+    ));
+    let resp = client
+        .delete(&url)
         .basic_auth(&iris.username, Some(&iris.password))
-        .send().await
+        .send()
+        .await
         .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
 
     if resp.status().as_u16() == 404 {
@@ -285,14 +375,21 @@ async fn handle_head(
     p: IrisDocParams,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     let name = p.name.as_deref().unwrap_or("");
-    let url = iris.atelier_url(&format!("/v8/{}/doc/{}", p.namespace, urlencoding::encode(name)));
-    let resp = client.head(&url)
+    let url = iris.atelier_url(&format!(
+        "/v8/{}/doc/{}",
+        p.namespace,
+        urlencoding::encode(name)
+    ));
+    let resp = client
+        .head(&url)
         .basic_auth(&iris.username, Some(&iris.password))
-        .send().await
+        .send()
+        .await
         .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
 
     let exists = resp.status().is_success();
-    let ts = resp.headers()
+    let ts = resp
+        .headers()
         .get("ETag")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
@@ -303,6 +400,11 @@ async fn handle_head(
 fn doc_content_to_string(body: &serde_json::Value) -> String {
     body["result"]["content"][0]["content"]
         .as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("\n"))
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
         .unwrap_or_default()
 }

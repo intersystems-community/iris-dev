@@ -67,7 +67,11 @@ impl IrisConnection {
     /// Handles optional path prefix already baked into base_url.
     /// e.g. atelier_url("/v8/USER/action/compile") → "http://host:port[/prefix]/api/atelier/v8/USER/action/compile"
     pub fn atelier_url(&self, path: &str) -> String {
-        format!("{}/api/atelier{}", self.base_url.trim_end_matches('/'), path)
+        format!(
+            "{}/api/atelier{}",
+            self.base_url.trim_end_matches('/'),
+            path
+        )
     }
 
     /// Build a versioned Atelier URL using the connection's detected API version.
@@ -81,9 +85,11 @@ impl IrisConnection {
     pub async fn detect_version(&mut self, client: &reqwest::Client) {
         // Try v8 first
         let v8_url = self.atelier_url(&format!("/v8/{}/", self.namespace));
-        if let Ok(resp) = client.get(&v8_url)
+        if let Ok(resp) = client
+            .get(&v8_url)
             .basic_auth(&self.username, Some(&self.password))
-            .send().await
+            .send()
+            .await
         {
             if resp.status().is_success() {
                 self.atelier_version = AtelierVersion::V8;
@@ -92,9 +98,11 @@ impl IrisConnection {
         }
         // Try v2
         let v2_url = self.atelier_url(&format!("/v2/{}/", self.namespace));
-        if let Ok(resp) = client.get(&v2_url)
+        if let Ok(resp) = client
+            .get(&v2_url)
             .basic_auth(&self.username, Some(&self.password))
-            .send().await
+            .send()
+            .await
         {
             if resp.status().is_success() {
                 self.atelier_version = AtelierVersion::V2;
@@ -106,7 +114,11 @@ impl IrisConnection {
     }
 
     /// Execute ObjectScript code via xecute endpoint. Returns the response body.
-    pub async fn xecute(&self, code: &str, client: &reqwest::Client) -> anyhow::Result<serde_json::Value> {
+    pub async fn xecute(
+        &self,
+        code: &str,
+        client: &reqwest::Client,
+    ) -> anyhow::Result<serde_json::Value> {
         let url = self.atelier_url(&format!("/v1/{}/action/xecute", self.namespace));
         let resp = client
             .post(&url)
@@ -118,7 +130,12 @@ impl IrisConnection {
     }
 
     /// Run a SQL query via the Atelier query endpoint. Returns the response body.
-    pub async fn query(&self, sql: &str, params: Vec<serde_json::Value>, client: &reqwest::Client) -> anyhow::Result<serde_json::Value> {
+    pub async fn query(
+        &self,
+        sql: &str,
+        params: Vec<serde_json::Value>,
+        client: &reqwest::Client,
+    ) -> anyhow::Result<serde_json::Value> {
         let url = self.atelier_url(&format!("/v1/{}/action/query", self.namespace));
         let resp = client
             .post(&url)

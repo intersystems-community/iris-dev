@@ -21,18 +21,24 @@ pub struct KbItem {
 
 impl SkillRegistry {
     pub fn new() -> Self {
-        Self { skills: vec![], kb_items: vec![] }
+        Self {
+            skills: vec![],
+            kb_items: vec![],
+        }
     }
 
-    pub fn list_skills(&self) -> &[Skill] { &self.skills }
-    pub fn list_kb_items(&self) -> &[KbItem] { &self.kb_items }
+    pub fn list_skills(&self) -> &[Skill] {
+        &self.skills
+    }
+    pub fn list_kb_items(&self) -> &[KbItem] {
+        &self.kb_items
+    }
 
     pub async fn load_from_github(&mut self, owner_repo: &str) -> Result<()> {
-        let client = Client::builder()
-            .user_agent("iris-dev/0.1")
-            .build()?;
+        let client = Client::builder().user_agent("iris-dev/0.1").build()?;
 
-        let (owner, repo) = owner_repo.split_once('/')
+        let (owner, repo) = owner_repo
+            .split_once('/')
             .with_context(|| format!("invalid owner/repo: {}", owner_repo))?;
 
         let manifest = self.fetch_manifest(owner, repo, &client).await?;
@@ -75,7 +81,9 @@ impl SkillRegistry {
 
         tracing::info!(
             "Loaded {} skills + {} KB items from {}",
-            self.skills.len(), self.kb_items.len(), owner_repo
+            self.skills.len(),
+            self.kb_items.len(),
+            owner_repo
         );
         Ok(())
     }
@@ -85,16 +93,19 @@ impl SkillRegistry {
             "https://raw.githubusercontent.com/{}/{}/HEAD/iris-dev.toml",
             owner, repo
         );
-        let text = fetch_text(&url, client).await
+        let text = fetch_text(&url, client)
+            .await
             .with_context(|| format!("no iris-dev.toml found in {}/{}", owner, repo))?;
         let manifest: TomlManifest = toml::from_str(&text)
             .with_context(|| format!("invalid iris-dev.toml in {}/{}", owner, repo))?;
         Ok(Manifest {
-            provides_skills: manifest.provides
+            provides_skills: manifest
+                .provides
                 .as_ref()
                 .map(|p| p.skills.clone())
                 .unwrap_or_default(),
-            provides_kb_items: manifest.provides
+            provides_kb_items: manifest
+                .provides
                 .as_ref()
                 .map(|p| p.kb_items.clone())
                 .unwrap_or_default(),
@@ -139,7 +150,8 @@ fn extract_frontmatter_field(content: &str, field: &str) -> Option<String> {
 }
 
 fn extract_h1_title(content: &str) -> Option<String> {
-    content.lines()
+    content
+        .lines()
         .find(|l| l.starts_with("# "))
         .map(|l| l.trim_start_matches("# ").to_string())
 }

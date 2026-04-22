@@ -15,15 +15,25 @@ fn write_toml(dir: &std::path::Path, content: &str) -> std::path::PathBuf {
 #[test]
 fn parse_minimal_manifest() {
     let dir = tempfile::tempdir().unwrap();
-    let path = write_toml(dir.path(), r#"
+    let path = write_toml(
+        dir.path(),
+        r#"
 [package]
 name = "my-skills"
 version = "0.1.0"
-"#);
+"#,
+    );
     let manifest = parse_manifest(&path).expect("should parse minimal manifest");
     assert_eq!(manifest.package.name, "my-skills");
     assert_eq!(manifest.package.version, "0.1.0");
-    assert!(manifest.provides.is_none() || manifest.provides.as_ref().map(|p| p.skills.is_empty()).unwrap_or(true));
+    assert!(
+        manifest.provides.is_none()
+            || manifest
+                .provides
+                .as_ref()
+                .map(|p| p.skills.is_empty())
+                .unwrap_or(true)
+    );
     assert!(manifest.dependencies.is_empty());
 }
 
@@ -31,7 +41,9 @@ version = "0.1.0"
 #[test]
 fn parse_full_manifest() {
     let dir = tempfile::tempdir().unwrap();
-    let path = write_toml(dir.path(), r#"
+    let path = write_toml(
+        dir.path(),
+        r#"
 [package]
 name = "objectscript-skills"
 version = "0.2.0"
@@ -46,31 +58,41 @@ plugins = []
 
 [dependencies]
 base-kb = { version = "^0.1", github = "intersystems-community/base-kb" }
-"#);
+"#,
+    );
     let manifest = parse_manifest(&path).expect("should parse full manifest");
     assert_eq!(manifest.package.name, "objectscript-skills");
     assert_eq!(manifest.package.version, "0.2.0");
-    
+
     let provides = manifest.provides.expect("provides should be present");
     assert_eq!(provides.skills.len(), 2);
     assert_eq!(provides.skills[0], "skills/iris-compile.md");
     assert_eq!(provides.kb_items.len(), 1);
-    
+
     assert_eq!(manifest.dependencies.len(), 1);
     let dep = &manifest.dependencies["base-kb"];
     assert_eq!(dep.version, "^0.1");
-    assert_eq!(dep.github.as_deref(), Some("intersystems-community/base-kb"));
+    assert_eq!(
+        dep.github.as_deref(),
+        Some("intersystems-community/base-kb")
+    );
 }
 
 /// Missing required field `name` causes a parse error.
 #[test]
 fn parse_manifest_missing_name_fails() {
     let dir = tempfile::tempdir().unwrap();
-    let path = write_toml(dir.path(), r#"
+    let path = write_toml(
+        dir.path(),
+        r#"
 [package]
 version = "0.1.0"
-"#);
-    assert!(parse_manifest(&path).is_err(), "manifest without name should fail");
+"#,
+    );
+    assert!(
+        parse_manifest(&path).is_err(),
+        "manifest without name should fail"
+    );
 }
 
 /// File not found returns an error.
@@ -92,13 +114,16 @@ fn parse_manifest_invalid_toml_fails() {
 #[test]
 fn parse_dependency_github() {
     let dir = tempfile::tempdir().unwrap();
-    let path = write_toml(dir.path(), r#"
+    let path = write_toml(
+        dir.path(),
+        r#"
 [package]
 name = "test"
 version = "0.1.0"
 [dependencies]
 mypkg = { version = "^1.0", github = "owner/repo" }
-"#);
+"#,
+    );
     let manifest = parse_manifest(&path).unwrap();
     let dep = &manifest.dependencies["mypkg"];
     assert_eq!(dep.version, "^1.0");
@@ -111,13 +136,16 @@ mypkg = { version = "^1.0", github = "owner/repo" }
 #[test]
 fn parse_dependency_local() {
     let dir = tempfile::tempdir().unwrap();
-    let path = write_toml(dir.path(), r#"
+    let path = write_toml(
+        dir.path(),
+        r#"
 [package]
 name = "test"
 version = "0.1.0"
 [dependencies]
 local-dep = { version = "^0.2", repository = "../local-path" }
-"#);
+"#,
+    );
     let manifest = parse_manifest(&path).unwrap();
     let dep = &manifest.dependencies["local-dep"];
     assert_eq!(dep.repository.as_deref(), Some("../local-path"));
@@ -131,11 +159,14 @@ use iris_dev_core::manifest::Resolve;
 #[test]
 fn resolve_no_deps_succeeds() {
     let dir = tempfile::tempdir().unwrap();
-    let path = write_toml(dir.path(), r#"
+    let path = write_toml(
+        dir.path(),
+        r#"
 [package]
 name = "standalone"
 version = "1.0.0"
-"#);
+"#,
+    );
     let manifest = parse_manifest(&path).unwrap();
     let resolve = Resolve::from_manifest(&manifest);
     assert!(resolve.is_ok(), "resolve with no deps should succeed");
@@ -145,13 +176,16 @@ version = "1.0.0"
 #[test]
 fn resolve_invalid_semver_detected() {
     let dir = tempfile::tempdir().unwrap();
-    let path = write_toml(dir.path(), r#"
+    let path = write_toml(
+        dir.path(),
+        r#"
 [package]
 name = "test"
 version = "0.1.0"
 [dependencies]
 bad-dep = { version = "not-a-semver-version!!", github = "owner/repo" }
-"#);
+"#,
+    );
     // Parse succeeds (version is just a string), but resolve should detect invalid semver
     let manifest = parse_manifest(&path).unwrap();
     let resolve = Resolve::from_manifest(&manifest);

@@ -14,30 +14,39 @@ fn iris_dev_bin() -> std::path::PathBuf {
 #[test]
 fn list_plugins_exits_zero() {
     let bin = iris_dev_bin();
-    if !bin.exists() { return; }
+    if !bin.exists() {
+        return;
+    }
 
     let output = Command::new(&bin)
         .arg("--list-plugins")
         .output()
         .expect("failed to run --list-plugins");
 
-    assert!(output.status.success(),
-        "iris-dev --list-plugins should exit 0, got: {}", output.status);
+    assert!(
+        output.status.success(),
+        "iris-dev --list-plugins should exit 0, got: {}",
+        output.status
+    );
 }
 
 /// Unknown command exits non-zero.
 #[test]
 fn unknown_command_exits_nonzero() {
     let bin = iris_dev_bin();
-    if !bin.exists() { return; }
+    if !bin.exists() {
+        return;
+    }
 
     let output = Command::new(&bin)
         .arg("totally-unknown-command-xyzzy")
         .output()
         .expect("failed to run iris-dev");
 
-    assert!(!output.status.success(),
-        "unknown command should exit non-zero");
+    assert!(
+        !output.status.success(),
+        "unknown command should exit non-zero"
+    );
 }
 
 /// iris-dev-* plugin on PATH is discovered and dispatched.
@@ -45,7 +54,9 @@ fn unknown_command_exits_nonzero() {
 #[cfg(unix)]
 fn plugin_on_path_is_dispatched() {
     let bin = iris_dev_bin();
-    if !bin.exists() { return; }
+    if !bin.exists() {
+        return;
+    }
 
     let dir = tempfile::tempdir().unwrap();
     let plugin = dir.path().join("iris-dev-testplugin");
@@ -66,12 +77,18 @@ fn plugin_on_path_is_dispatched() {
         .output()
         .expect("failed to dispatch plugin");
 
-    assert!(output.status.success(),
-        "plugin dispatch should exit 0, got: {}", output.status);
+    assert!(
+        output.status.success(),
+        "plugin dispatch should exit 0, got: {}",
+        output.status
+    );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("TESTPLUGIN_OK"),
-        "plugin output should contain marker, got: {}", stdout);
+    assert!(
+        stdout.contains("TESTPLUGIN_OK"),
+        "plugin output should contain marker, got: {}",
+        stdout
+    );
 }
 
 /// Plugin passes remaining args correctly.
@@ -79,7 +96,9 @@ fn plugin_on_path_is_dispatched() {
 #[cfg(unix)]
 fn plugin_receives_args() {
     let bin = iris_dev_bin();
-    if !bin.exists() { return; }
+    if !bin.exists() {
+        return;
+    }
 
     let dir = tempfile::tempdir().unwrap();
     let plugin = dir.path().join("iris-dev-argtest");
@@ -98,6 +117,9 @@ fn plugin_receives_args() {
         .expect("failed to dispatch plugin");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("--foo") && stdout.contains("bar"),
-        "plugin should receive all args, got: {}", stdout);
+    assert!(
+        stdout.contains("--foo") && stdout.contains("bar"),
+        "plugin should receive all args, got: {}",
+        stdout
+    );
 }

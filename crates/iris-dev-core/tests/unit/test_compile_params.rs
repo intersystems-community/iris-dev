@@ -15,7 +15,8 @@ mod tests {
 
     #[test]
     fn compile_params_wildcard() {
-        let p: CompileParams = serde_json::from_str(r#"{"target":"MyApp.*.cls","flags":"ck"}"#).unwrap();
+        let p: CompileParams =
+            serde_json::from_str(r#"{"target":"MyApp.*.cls","flags":"ck"}"#).unwrap();
         assert_eq!(p.target, "MyApp.*.cls");
         assert!(p.target.contains('*'), "wildcard target must contain *");
         assert_eq!(p.flags, "ck");
@@ -24,8 +25,9 @@ mod tests {
     #[test]
     fn compile_params_full() {
         let p: CompileParams = serde_json::from_str(
-            r#"{"target":"HS.FHIR.*.cls","flags":"cuk","namespace":"HSLIB","force_writable":true}"#
-        ).unwrap();
+            r#"{"target":"HS.FHIR.*.cls","flags":"cuk","namespace":"HSLIB","force_writable":true}"#,
+        )
+        .unwrap();
         assert_eq!(p.namespace, "HSLIB");
         assert!(p.force_writable);
     }

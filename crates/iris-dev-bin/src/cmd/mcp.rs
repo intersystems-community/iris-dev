@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Args;
-use rmcp::{ServiceExt, transport::stdio};
-use iris_dev_core::{iris::discovery::discover_iris, tools::IrisTools, skills::SkillRegistry};
+use iris_dev_core::{iris::discovery::discover_iris, skills::SkillRegistry, tools::IrisTools};
+use rmcp::{transport::stdio, ServiceExt};
 use tokio::sync::watch;
 
 #[derive(Args)]
@@ -37,7 +37,7 @@ impl McpCommand {
         tracing::info!("iris-dev mcp starting");
 
         let explicit = if let Some(host) = self.host.clone() {
-            use iris_dev_core::iris::connection::{IrisConnection, DiscoverySource};
+            use iris_dev_core::iris::connection::{DiscoverySource, IrisConnection};
             let port = self.web_port.unwrap_or(52773);
             let prefix = self.web_prefix.trim_matches('/');
             let base_url = if prefix.is_empty() {
@@ -47,20 +47,34 @@ impl McpCommand {
             };
             let username = self.username.as_deref().unwrap_or("_SYSTEM");
             let password = self.password.as_deref().unwrap_or("SYS");
-            Some(IrisConnection::new(base_url, &self.namespace, username, password, DiscoverySource::ExplicitFlag))
+            Some(IrisConnection::new(
+                base_url,
+                &self.namespace,
+                username,
+                password,
+                DiscoverySource::ExplicitFlag,
+            ))
         } else {
             None
         };
 
-        let (iris_tx, iris_rx) = watch::channel::<Option<iris_dev_core::iris::connection::IrisConnection>>(None);
+        let (iris_tx, iris_rx) =
+            watch::channel::<Option<iris_dev_core::iris::connection::IrisConnection>>(None);
 
         tokio::spawn(async move {
             let conn = match discover_iris(explicit).await {
                 Ok(c) => c,
-                Err(e) => { tracing::warn!("IRIS discovery error: {}", e); None }
+                Err(e) => {
+                    tracing::warn!("IRIS discovery error: {}", e);
+                    None
+                }
             };
             if let Some(ref c) = conn {
-                tracing::info!("IRIS connected: {} v{}", c.base_url, c.version.as_deref().unwrap_or("?"));
+                tracing::info!(
+                    "IRIS connected: {} v{}",
+                    c.base_url,
+                    c.version.as_deref().unwrap_or("?")
+                );
             } else {
                 tracing::warn!("No IRIS connection — tools return IRIS_UNREACHABLE");
             }
@@ -81,10 +95,13 @@ impl McpCommand {
         let _ = tokio::time::timeout(
             tokio::time::Duration::from_secs(5),
             iris_rx_wait.wait_for(|v| v.is_some()),
-        ).await;
+        )
+        .await;
         let iris = iris_rx.borrow().clone();
 
-        let service = IrisTools::with_registry(iris, registry).serve(stdio()).await
+        let service = IrisTools::with_registry(iris, registry)
+            .serve(stdio())
+            .await
             .inspect_err(|e| tracing::error!("MCP server error: {:?}", e))?;
         service.waiting().await?;
         Ok(())

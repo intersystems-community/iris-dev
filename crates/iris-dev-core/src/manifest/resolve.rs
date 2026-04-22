@@ -1,7 +1,7 @@
-use std::collections::HashSet;
+use crate::manifest::schema::{DependencySpec, Manifest};
 use anyhow::{anyhow, Result};
 use semver::{Version, VersionReq};
-use crate::manifest::schema::{Manifest, DependencySpec};
+use std::collections::HashSet;
 
 pub struct Resolve {
     pub packages: Vec<ResolvedPackage>,
@@ -27,16 +27,23 @@ impl Resolve {
         let mut seen: HashSet<String> = HashSet::new();
 
         for (name, dep) in &manifest.dependencies {
-            if seen.contains(name) { continue; }
+            if seen.contains(name) {
+                continue;
+            }
             seen.insert(name.clone());
 
-            let version_req = VersionReq::parse(&dep.version)
-                .map_err(|e| anyhow!("invalid semver '{}' for dep '{}': {}", dep.version, name, e))?;
+            let version_req = VersionReq::parse(&dep.version).map_err(|e| {
+                anyhow!("invalid semver '{}' for dep '{}': {}", dep.version, name, e)
+            })?;
 
             let source = dep_to_source(name, dep)?;
             let version = resolve_version(&version_req, &source)?;
 
-            packages.push(ResolvedPackage { name: name.clone(), version, source });
+            packages.push(ResolvedPackage {
+                name: name.clone(),
+                version,
+                source,
+            });
         }
 
         Ok(Self { packages })
@@ -44,12 +51,16 @@ impl Resolve {
 
     pub fn to_lock(&self) -> ResolveLock {
         ResolveLock {
-            packages: self.packages.iter().map(|p| PackageLock {
-                name: p.name.clone(),
-                version: p.version.to_string(),
-                repository: format!("{:?}", p.source),
-                checksum: None,
-            }).collect()
+            packages: self
+                .packages
+                .iter()
+                .map(|p| PackageLock {
+                    name: p.name.clone(),
+                    version: p.version.to_string(),
+                    repository: format!("{:?}", p.source),
+                    checksum: None,
+                })
+                .collect(),
         }
     }
 }
@@ -58,7 +69,10 @@ fn dep_to_source(name: &str, dep: &DependencySpec) -> Result<ResolvedSource> {
     if let Some(github) = &dep.github {
         let parts: Vec<_> = github.splitn(2, '/').collect();
         if parts.len() == 2 {
-            return Ok(ResolvedSource::GitHub { owner: parts[0].to_string(), repo: parts[1].to_string() });
+            return Ok(ResolvedSource::GitHub {
+                owner: parts[0].to_string(),
+                repo: parts[1].to_string(),
+            });
         }
     }
     if let Some(git) = &dep.git {
@@ -70,7 +84,10 @@ fn dep_to_source(name: &str, dep: &DependencySpec) -> Result<ResolvedSource> {
     if let Some(ox) = &dep.openexchange {
         return Ok(ResolvedSource::OpenExchange(ox.clone()));
     }
-    Err(anyhow!("dependency '{}' has no source (git, github, repository, or openexchange)", name))
+    Err(anyhow!(
+        "dependency '{}' has no source (git, github, repository, or openexchange)",
+        name
+    ))
 }
 
 fn resolve_version(req: &VersionReq, _source: &ResolvedSource) -> Result<Version> {
