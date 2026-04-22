@@ -192,7 +192,7 @@ async fn discover_via_docker() -> Option<IrisConnection> {
 
     candidates.sort_by(|a, b| b.0.cmp(&a.0));
 
-    for (score, container_name, web_port, port_ss) in candidates {
+    for (_score, container_name, web_port, port_ss) in candidates {
         if let Some(mut conn) = probe_atelier(
             "localhost", web_port, "_SYSTEM", "SYS", "USER", 500
         ).await {

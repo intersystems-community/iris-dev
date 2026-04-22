@@ -1,0 +1,56 @@
+Re: working against different instances and controlling namespace scope
+
+Both are straightforward with env vars:
+
+--- Working against different IRIS instances ---
+
+Set IRIS_HOST + IRIS_WEB_PORT per project/session.
+
+In VS Code: the extension reads these from your workspace's objectscript.conn
+automatically — just point objectscript.conn at the instance you want and
+iris-dev follows.
+
+In Claude Code (.claude/settings.json in your project root):
+
+  "mcpServers": {
+    "iris-dev": {
+      "command": "/path/to/iris-dev",
+      "env": {
+        "IRIS_HOST": "prod-iris.example.com",
+        "IRIS_WEB_PORT": "52773",
+        "IRIS_WEB_PREFIX": "myapp",        <- only if not at root path
+        "IRIS_USERNAME": "devuser",
+        "IRIS_PASSWORD": "devpass",
+        "IRIS_NAMESPACE": "MYAPP"
+      }
+    }
+  }
+
+Each project can have its own .claude/settings.json pointing at a different
+instance. Switching projects switches the IRIS connection automatically.
+
+
+--- Limiting to a specific namespace ---
+
+Set IRIS_NAMESPACE. All tools scope to this namespace by default:
+  - iris_symbols only searches that namespace
+  - iris_search only searches that namespace
+  - iris_compile, iris_execute, iris_query default to it
+  - iris_info(what=documents) only lists docs in that namespace
+
+Each tool also accepts an explicit "namespace" parameter to override per-call
+if you need to reach across namespaces for a specific operation.
+
+This is how you keep the context window small — with IRIS_NAMESPACE=MYAPP,
+iris_symbols returns only your classes, not the entire %SYS catalog.
+
+
+--- Summary of all connection env vars ---
+
+IRIS_HOST          IRIS hostname (default: localhost)
+IRIS_WEB_PORT      Atelier REST port (default: 52773)
+IRIS_WEB_PREFIX    Path prefix for non-root gateway (e.g. "irisaicore")
+IRIS_USERNAME      Username (default: _SYSTEM)
+IRIS_PASSWORD      Password (default: SYS)
+IRIS_NAMESPACE     Default namespace (default: USER)
+IRIS_HTTPS         Set to "true" for HTTPS (default: false)

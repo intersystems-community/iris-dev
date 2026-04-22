@@ -172,3 +172,66 @@ fn mcp_server_startup_latency_under_100ms() {
     assert!(p50 < Duration::from_millis(100),
         "p50 startup latency {}ms exceeds 100ms (SC-001)", p50.as_millis());
 }
+
+/// T009: discovery waits for IRIS — server returns tool list within 5s even with no env vars.
+/// Uses port 9 (discard) so discovery fails fast, but server still returns tool list.
+#[test]
+fn discovery_waits_for_iris() {
+    let bin = iris_dev_bin();
+    if !bin.exists() {
+        eprintln!("Skipping: iris-dev binary not found");
+        return;
+    }
+
+    let mut child = Command::new(&bin)
+        .arg("mcp")
+        .env("IRIS_WEB_PORT", "9") // instant fail — tests that server doesn't hang
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("failed to spawn iris-dev mcp");
+
+    let mut stdin = child.stdin.take().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let mut reader = BufReader::new(stdout);
+
+    let start = Instant::now();
+    send_jsonrpc(&mut stdin, 1, "initialize", r#"{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}"#);
+    let init = read_jsonrpc(&mut reader);
+    assert!(init.get("result").is_some(), "initialize failed: {}", init);
+
+    let init_notif = concat!(r#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#, "\n");
+    stdin.write_all(init_notif.as_bytes()).unwrap();
+    stdin.flush().unwrap();
+
+    send_jsonrpc(&mut stdin, 2, "tools/list", "{}");
+    let resp = read_jsonrpc(&mut reader);
+    let elapsed = start.elapsed();
+
+    assert!(elapsed < Duration::from_secs(5),
+        "tools/list took {}ms, expected <5000ms", elapsed.as_millis());
+
+    let tools = resp["result"]["tools"].as_array().expect("tools array missing");
+    assert!(!tools.is_empty(), "expected tools to be listed even without IRIS connection");
+
+    child.kill().ok();
+}
+
+/// T010: web prefix is included in Atelier request URL.
+/// Verifies that IRIS_WEB_PREFIX is correctly incorporated into the base URL.
+#[test]
+fn web_prefix_in_connection_url() {
+    use iris_dev_core::iris::connection::{IrisConnection, DiscoverySource};
+
+    // Construct a connection with a prefix in the base_url (as mcp.rs does)
+    let base_url = "http://localhost:80/irisaicore".to_string();
+    let conn = IrisConnection::new(base_url, "USER", "_SYSTEM", "SYS", DiscoverySource::ExplicitFlag);
+
+    let url = conn.atelier_url("/v8/USER/action/compile");
+    assert!(
+        url.contains("/irisaicore/api/atelier/"),
+        "prefix missing from URL: {}", url
+    );
+    assert_eq!(url, "http://localhost:80/irisaicore/api/atelier/v8/USER/action/compile");
+}
