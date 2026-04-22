@@ -141,8 +141,9 @@ pub struct ExecuteParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct QueryParams {
     pub query: String,
+    /// Query parameters as strings (e.g. ["Alice", "42"])
     #[serde(default)]
-    pub parameters: Vec<serde_json::Value>,
+    pub parameters: Vec<String>,
     #[serde(default = "default_namespace")]
     pub namespace: String,
 }
