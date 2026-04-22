@@ -1,8 +1,7 @@
-use rmcp::{model::*, tool, ErrorData as McpError, handler::server::wrapper::Parameters};
+use rmcp::{model::*, ErrorData as McpError};
 use serde::Deserialize;
 use schemars::JsonSchema;
 use crate::iris::connection::IrisConnection;
-use std::sync::Arc;
 
 fn ok_json(v: serde_json::Value) -> Result<CallToolResult, McpError> {
     Ok(CallToolResult::success(vec![Content::text(v.to_string())]))
@@ -95,7 +94,7 @@ pub fn parse_status_response(raw: &str) -> Result<(String, i64, String), String>
 
 pub async fn interop_production_status_impl(
     iris: Option<&IrisConnection>,
-    params: ProductionStatusParams,
+    _params: ProductionStatusParams,
 ) -> Result<CallToolResult, McpError> {
     let iris = match iris { Some(i) => i, None => return err_json("IRIS_UNREACHABLE", "No IRIS connection") };
     let client = IrisConnection::http_client().map_err(|_| iris_unreachable())?;

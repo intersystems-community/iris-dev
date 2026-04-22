@@ -14,6 +14,8 @@ pub struct McpCommand {
     pub host: Option<String>,
     #[arg(long, env = "IRIS_WEB_PORT")]
     pub web_port: Option<u16>,
+    #[arg(long, env = "IRIS_WEB_PREFIX", default_value = "")]
+    pub web_prefix: String,
     #[arg(long, env = "IRIS_USERNAME")]
     pub username: Option<String>,
     #[arg(long, env = "IRIS_PASSWORD")]
@@ -37,7 +39,12 @@ impl McpCommand {
         let explicit = if let Some(host) = self.host.clone() {
             use iris_dev_core::iris::connection::{IrisConnection, DiscoverySource};
             let port = self.web_port.unwrap_or(52773);
-            let base_url = format!("http://{}:{}", host, port);
+            let prefix = self.web_prefix.trim_matches('/');
+            let base_url = if prefix.is_empty() {
+                format!("http://{}:{}", host, port)
+            } else {
+                format!("http://{}:{}/{}", host, port, prefix)
+            };
             let username = self.username.as_deref().unwrap_or("_SYSTEM");
             let password = self.password.as_deref().unwrap_or("SYS");
             Some(IrisConnection::new(base_url, &self.namespace, username, password, DiscoverySource::ExplicitFlag))
@@ -68,7 +75,13 @@ impl McpCommand {
             }
         }
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        // Wait for discovery to complete (up to 5s) rather than a fixed sleep.
+        // Discovery makes an HTTP round-trip so 50ms was always a race.
+        let mut iris_rx_wait = iris_rx.clone();
+        let _ = tokio::time::timeout(
+            tokio::time::Duration::from_secs(5),
+            iris_rx_wait.wait_for(|v| v.is_some()),
+        ).await;
         let iris = iris_rx.borrow().clone();
 
         let service = IrisTools::with_registry(iris, registry).serve(stdio()).await
