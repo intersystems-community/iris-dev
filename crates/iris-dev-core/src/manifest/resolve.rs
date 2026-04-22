@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use anyhow::{anyhow, Result};
 use semver::{Version, VersionReq};
 use crate::manifest::schema::{Manifest, DependencySpec};

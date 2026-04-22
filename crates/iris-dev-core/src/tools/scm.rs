@@ -56,6 +56,21 @@ async fn xecute(
         .unwrap_or_default())
 }
 
+/// Escape a string for safe interpolation into an ObjectScript double-quoted literal.
+fn os_quote(s: &str) -> String {
+    s.replace('"', "\\\"")
+}
+
+/// Parse "code|msg" output from SCM xecute helpers. Returns (action_code, msg).
+fn parse_action_msg(out: &str) -> (u8, &str) {
+    let mut parts = out.splitn(2, '|');
+    let code = parts.next()
+        .and_then(|s| s.trim().parse::<u8>().ok())
+        .unwrap_or(0);
+    let msg = parts.next().map(str::trim).unwrap_or("");
+    (code, msg)
+}
+
 pub async fn handle_iris_source_control(
     iris: &IrisConnection,
     client: &reqwest::Client,
@@ -67,40 +82,39 @@ pub async fn handle_iris_source_control(
 
     // Handle elicitation resume
     if let (Some(eid), Some(answer)) = (&p.elicitation_id, &p.answer) {
-        if let Some(pending) = elicitation_store.lookup(eid) {
-            elicitation_store.clear(eid);
-            let action_id = pending.scm_action_id.as_deref().unwrap_or("");
-            let after_code = format!(
-                "set sc=##class(%Studio.SourceControl.Base).AfterUserAction(0,\"{}\",\"{}\",{},\"{}\") write $system.Status.GetErrorText(sc)",
-                action_id.replace('"', "\\\""),
-                pending.document.replace('"', "\\\""),
-                if answer == "yes" { "1" } else { "0" },
-                answer.replace('"', "\\\"")
-            );
-            let out = xecute(iris, client, &after_code, &pending.namespace).await.unwrap_or_default();
-            if out.is_empty() || out.starts_with("$") {
-                return ok_json(serde_json::json!({"success": true, "document": pending.document, "action_id": action_id}));
-            }
-            return err_json("SCM_ERROR", &out);
+        let Some(pending) = elicitation_store.lookup(eid) else {
+            return err_json("ELICITATION_EXPIRED", "Elicitation session expired or not found");
+        };
+        elicitation_store.clear(eid);
+        let action_id = pending.scm_action_id.as_deref().unwrap_or("");
+        let after_code = format!(
+            "set sc=##class(%Studio.SourceControl.Base).AfterUserAction(0,\"{}\",\"{}\",{},\"{}\") write $system.Status.GetErrorText(sc)",
+            os_quote(action_id),
+            os_quote(&pending.document),
+            if answer == "yes" { "1" } else { "0" },
+            os_quote(answer),
+        );
+        let out = xecute(iris, client, &after_code, &pending.namespace).await.unwrap_or_default();
+        if out.is_empty() || out.starts_with('$') {
+            return ok_json(serde_json::json!({"success": true, "document": pending.document, "action_id": action_id}));
         }
-        return err_json("ELICITATION_EXPIRED", "Elicitation session expired or not found");
+        return err_json("SCM_ERROR", &out);
     }
 
     match p.action.as_str() {
         "status" => {
             // Check if SCM is installed
+            let doc_q = os_quote(doc);
             let check_code = format!(
-                "set obj=##class(%Studio.SourceControl.Base).%GetImplementationObject(\"{}\") if '$IsObject(obj) {{ write \"UNCONTROLLED\" }} else {{ set editable=obj.IsEditable(\"{}\") write editable_\"|\"_$get(obj.Owner) }}",
-                doc.replace('"', "\\\""),
-                doc.replace('"', "\\\"")
+                "set obj=##class(%Studio.SourceControl.Base).%GetImplementationObject(\"{doc_q}\") if '$IsObject(obj) {{ write \"UNCONTROLLED\" }} else {{ set editable=obj.IsEditable(\"{doc_q}\") write editable_\"|\"_$get(obj.Owner) }}"
             );
-            let out = xecute(iris, client, &check_code, ns).await.unwrap_or("UNCONTROLLED".to_string());
+            let out = xecute(iris, client, &check_code, ns).await.unwrap_or_else(|_| "UNCONTROLLED".to_string());
             if out.trim() == "UNCONTROLLED" || out.is_empty() {
                 return ok_json(serde_json::json!({"success":true,"controlled":false,"editable":true,"locked":false,"owner":null}));
             }
-            let parts: Vec<&str> = out.splitn(2, '|').collect();
-            let editable = parts.first().map(|s| s.trim() == "1").unwrap_or(true);
-            let owner = parts.get(1).map(|s| s.trim()).filter(|s| !s.is_empty());
+            let (editable_flag, owner) = parse_action_msg(&out);
+            let editable = editable_flag == 1;
+            let owner = Some(owner).filter(|s| !s.is_empty());
             ok_json(serde_json::json!({
                 "success": true,
                 "controlled": true,
@@ -111,19 +125,16 @@ pub async fn handle_iris_source_control(
         }
 
         "menu" => {
+            let doc_q = os_quote(doc);
             let mut actions = vec![];
             for &item in KNOWN_MENU_ITEMS {
                 let code = format!(
-                    "set enabled=0 set displayName=\"{}\" set sc=##class(%Studio.SourceControl.Base).OnMenuItem(\"%SourceMenu,{}\",\"{}\",\"\",.enabled,.displayName) write enabled_\"|\"_displayName",
-                    item,
-                    item,
-                    doc.replace('"', "\\\"")
+                    "set enabled=0 set displayName=\"{item}\" set sc=##class(%Studio.SourceControl.Base).OnMenuItem(\"%SourceMenu,{item}\",\"{doc_q}\",\"\",.enabled,.displayName) write enabled_\"|\"_displayName"
                 );
                 let out = xecute(iris, client, &code, ns).await.unwrap_or_default();
-                let parts: Vec<&str> = out.splitn(2, '|').collect();
-                let enabled = parts.first().map(|s| s.trim() == "1").unwrap_or(false);
-                if enabled {
-                    let label = parts.get(1).map(|s| s.trim().to_string()).unwrap_or_else(|| item.to_string());
+                let (enabled_flag, label) = parse_action_msg(&out);
+                if enabled_flag == 1 {
+                    let label = if label.is_empty() { item.to_string() } else { label.to_string() };
                     actions.push(serde_json::json!({"id": item, "label": label, "enabled": true}));
                 }
             }
@@ -131,14 +142,9 @@ pub async fn handle_iris_source_control(
         }
 
         "checkout" => {
-            let code = format!(
-                "set action=0 set target=\"\" set msg=\"\" set reload=0 set sc=##class(%Studio.SourceControl.Base).UserAction(0,\"%SourceMenu,CheckOut\",\"{}\",\"\",.action,.target,.msg,.reload) write action_\"|\"_msg",
-                doc.replace('"', "\\\"")
-            );
+            let code = user_action_code("CheckOut", doc);
             let out = xecute(iris, client, &code, ns).await.unwrap_or_default();
-            let parts: Vec<&str> = out.splitn(2, '|').collect();
-            let action_code = parts.first().and_then(|s| s.trim().parse::<u8>().ok()).unwrap_or(0);
-            let msg = parts.get(1).map(|s| s.trim().to_string()).unwrap_or_default();
+            let (action_code, msg) = parse_action_msg(&out);
 
             if action_code == 0 {
                 return ok_json(serde_json::json!({"success": true, "document": doc, "editable": true}));
@@ -149,22 +155,16 @@ pub async fn handle_iris_source_control(
                 "success": false,
                 "elicitation_required": true,
                 "elicitation_id": eid,
-                "message": if msg.is_empty() { format!("Check out {} ?", doc) } else { msg },
+                "message": if msg.is_empty() { format!("Check out {} ?", doc) } else { msg.to_string() },
                 "options": ["yes", "no"],
             }))
         }
 
         "execute" => {
             let action_id = p.action_id.as_deref().unwrap_or("");
-            let code = format!(
-                "set action=0 set target=\"\" set msg=\"\" set reload=0 set sc=##class(%Studio.SourceControl.Base).UserAction(0,\"%SourceMenu,{}\",\"{}\",\"\",.action,.target,.msg,.reload) write action_\"|\"_msg",
-                action_id.replace('"', "\\\""),
-                doc.replace('"', "\\\"")
-            );
+            let code = user_action_code(action_id, doc);
             let out = xecute(iris, client, &code, ns).await.unwrap_or_default();
-            let parts: Vec<&str> = out.splitn(2, '|').collect();
-            let action_code = parts.first().and_then(|s| s.trim().parse::<u8>().ok()).unwrap_or(0);
-            let msg = parts.get(1).map(|s| s.trim().to_string()).unwrap_or_default();
+            let (action_code, msg) = parse_action_msg(&out);
 
             match action_code {
                 0 => ok_json(serde_json::json!({"success": true, "document": doc, "action_id": action_id})),
@@ -173,7 +173,7 @@ pub async fn handle_iris_source_control(
                     let eid = elicitation_store.insert(doc, ElicitationAction::ScmExecute, None, Some(action_id.to_string()), ns.clone());
                     ok_json(serde_json::json!({
                         "success": false, "elicitation_required": true, "elicitation_id": eid,
-                        "message": if msg.is_empty() { format!("Execute {} on {}?", action_id, doc) } else { msg },
+                        "message": if msg.is_empty() { format!("Execute {} on {}?", action_id, doc) } else { msg.to_string() },
                         "options": ["yes", "no"],
                     }))
                 }
@@ -182,7 +182,7 @@ pub async fn handle_iris_source_control(
                     let eid = elicitation_store.insert(doc, ElicitationAction::ScmExecute, None, Some(action_id.to_string()), ns.clone());
                     ok_json(serde_json::json!({
                         "success": false, "elicitation_required": true, "elicitation_id": eid,
-                        "message": if msg.is_empty() { format!("Enter value for {}:", action_id) } else { msg },
+                        "message": if msg.is_empty() { format!("Enter value for {}:", action_id) } else { msg.to_string() },
                         "input_type": "text",
                     }))
                 }
@@ -192,4 +192,14 @@ pub async fn handle_iris_source_control(
 
         other => err_json("INVALID_PARAM", &format!("Unknown action='{}'. Use: status, menu, checkout, execute", other)),
     }
+}
+
+/// Build the ObjectScript snippet that invokes `%Studio.SourceControl.Base:UserAction`
+/// for a given menu item id and document, writing "action|msg" to the output stream.
+fn user_action_code(action_id: &str, doc: &str) -> String {
+    format!(
+        "set action=0 set target=\"\" set msg=\"\" set reload=0 set sc=##class(%Studio.SourceControl.Base).UserAction(0,\"%SourceMenu,{}\",\"{}\",\"\",.action,.target,.msg,.reload) write action_\"|\"_msg",
+        os_quote(action_id),
+        os_quote(doc),
+    )
 }
