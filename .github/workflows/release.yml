@@ -83,17 +83,17 @@ jobs:
           body: |
             ## Installation
 
-            ### Binary
-            Download the binary for your platform and put it on your PATH:
-            | Platform | File |
-            |----------|------|
-            | macOS (Apple Silicon) | `iris-dev-macos-arm64` → rename to `iris-dev` |
-            | macOS (Intel) | `iris-dev-macos-x86_64` → rename to `iris-dev` |
-            | Linux x86_64 | `iris-dev-linux-x86_64` → rename to `iris-dev` |
-            | Windows x86_64 | `iris-dev-windows-x86_64.exe` → rename to `iris-dev.exe` |
+            ### macOS / Linux — one-liner
+            ```bash
+            curl -fsSL https://github.com/intersystems-community/iris-dev/releases/latest/download/iris-dev-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/x86_64/;s/arm64/arm64/;s/aarch64/arm64/') -o /usr/local/bin/iris-dev && chmod +x /usr/local/bin/iris-dev
+            ```
+
+            ### Windows
+            Download [`iris-dev-windows-x86_64.exe`](https://github.com/intersystems-community/iris-dev/releases/latest/download/iris-dev-windows-x86_64.exe), rename to `iris-dev.exe`, place on your PATH.
+            Or set `iris-dev.serverPath` in VS Code settings to the full path — no PATH required.
 
             ### VS Code Extension
-            Install `vscode-iris-dev-*.vsix` via **Extensions: Install from VSIX...** in VS Code 1.99+.
+            Download `vscode-iris-dev-*.vsix` and install via **Extensions: Install from VSIX...** in VS Code 1.99+.
 
             ### Quick start
             ```bash
