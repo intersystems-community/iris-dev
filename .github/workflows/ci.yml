@@ -19,7 +19,21 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test --all
+      # Unit + handshake tests — no live IRIS needed.
+      # Integration tests (test_mcp_iris, test_e2e_all_tools, test_scm, discovery_tests,
+      # interop_e2e_tests) require IRIS_HOST/IRIS_WEB_PORT; run them locally.
+      - run: cargo build -p iris-dev
+        name: Build binary (required for mcp_handshake test)
+      - run: |
+          cargo test -p iris-dev-core --lib \
+            --test test_compile_params \
+            --test test_doc_params \
+            --test test_elicitation \
+            --test interop_unit_tests \
+            --test manifest_tests \
+            --test skills_tests \
+            --test vscode_config_tests \
+            --test mcp_handshake
         env:
           RUST_LOG: warn
 
