@@ -22,11 +22,14 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 IRIS_HOST="${IRIS_HOST:-localhost}"
-IRIS_PORT="${IRIS_PORT:-52773}"
+IRIS_WEB_PORT="${IRIS_WEB_PORT:-52780}"   # iris-dev reads IRIS_WEB_PORT for Atelier HTTP
 IRIS_USERNAME="${IRIS_USERNAME:-_SYSTEM}"
 IRIS_PASSWORD="${IRIS_PASSWORD:-SYS}"
 IRIS_NAMESPACE="${IRIS_NAMESPACE:-USER}"
 BIN="./target/release/iris-dev"
+
+# Export so iris-dev mcp subprocess picks them up
+export IRIS_HOST IRIS_WEB_PORT IRIS_USERNAME IRIS_PASSWORD IRIS_NAMESPACE
 
 PASS=0
 FAIL=0
@@ -34,10 +37,27 @@ FAIL=0
 _pass() { echo "  ✓  $1"; PASS=$((PASS+1)); }
 _fail() { echo "  ✗  $1"; FAIL=$((FAIL+1)); }
 
-base_url="http://${IRIS_HOST}:${IRIS_PORT}/api/atelier"
+base_url="http://${IRIS_HOST}:${IRIS_WEB_PORT}/api/atelier"
 auth=(-u "${IRIS_USERNAME}:${IRIS_PASSWORD}")
 
 curl_quiet() { curl -sf "${auth[@]}" "$@"; }
+
+# Call one MCP tool via stdio — handles the initialize handshake automatically.
+# Sleeps are required: rmcp only reads the next message after processing the previous one.
+# Usage: mcp_call <tool_name> <json_arguments>
+# Prints only the tool result line (id=2).
+mcp_call() {
+    local tool="$1"
+    local args="$2"
+    (
+        echo '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}'
+        sleep 0.2
+        echo '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}'
+        sleep 0.2
+        echo "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"${tool}\",\"arguments\":${args}}}"
+        sleep 3
+    ) | "$BIN" mcp 2>/dev/null | grep '"id":2' || true
+}
 
 section() { echo; echo "━━━ $1 ━━━"; }
 
@@ -75,8 +95,7 @@ else
 fi
 
 # Compile via iris-dev iris_compile
-result=$(echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"iris_compile","arguments":{"documents":["Test.Smoke020.cls"],"namespace":"'"$IRIS_NAMESPACE"'"}}}' \
-    | "$BIN" 2>/dev/null || true)
+result=$(mcp_call "iris_compile" "{\"documents\":[\"Test.Smoke020.cls\"],\"namespace\":\"${IRIS_NAMESPACE}\"}")
 
 if echo "$result" | grep -q '"success":true'; then
     _pass "iris_compile Test.Smoke020.cls"
@@ -88,8 +107,7 @@ fi
 
 # ──────────────────────────────────────────────────────────────
 section "2. iris_doc read — round-trip the class we just wrote"
-result=$(echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"iris_doc","arguments":{"action":"get","document":"Test.Smoke020.cls","namespace":"'"$IRIS_NAMESPACE"'"}}}' \
-    | "$BIN" 2>/dev/null || true)
+result=$(mcp_call "iris_doc" "{\"action\":\"get\",\"document\":\"Test.Smoke020.cls\",\"namespace\":\"${IRIS_NAMESPACE}\"}")
 
 if echo "$result" | grep -q 'Smoke020'; then
     _pass "iris_doc get Test.Smoke020.cls"
@@ -99,10 +117,8 @@ fi
 
 # ──────────────────────────────────────────────────────────────
 section "3. iris_source_control status"
-result=$(echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"iris_source_control","arguments":{"action":"status","document":"Test.Smoke020.cls","namespace":"'"$IRIS_NAMESPACE"'"}}}' \
-    | "$BIN" 2>/dev/null || true)
+result=$(mcp_call "iris_source_control" "{\"action\":\"status\",\"document\":\"Test.Smoke020.cls\",\"namespace\":\"${IRIS_NAMESPACE}\"}")
 
-# Acceptable: JSON with success key OR "no source control" message
 if echo "$result" | grep -qiE '"success"|source.control|not active'; then
     _pass "iris_source_control status (got a response)"
 else
@@ -111,8 +127,7 @@ fi
 
 # ──────────────────────────────────────────────────────────────
 section "4. iris_source_control menu"
-result=$(echo '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"iris_source_control","arguments":{"action":"menu","document":"Test.Smoke020.cls","namespace":"'"$IRIS_NAMESPACE"'"}}}' \
-    | "$BIN" 2>/dev/null || true)
+result=$(mcp_call "iris_source_control" "{\"action\":\"menu\",\"document\":\"Test.Smoke020.cls\",\"namespace\":\"${IRIS_NAMESPACE}\"}")
 
 if echo "$result" | grep -qiE '"actions"|"items"|"menu"|not active|no source'; then
     _pass "iris_source_control menu"
@@ -122,16 +137,8 @@ fi
 
 # ──────────────────────────────────────────────────────────────
 section "5. iris_doc put with SCM — elicitation or SKIP_SOURCE_CONTROL path"
-# Write a small change to trigger OnBeforeSave
-CHANGED_CLS='Class Test.Smoke020 Extends %RegisteredObject { ClassMethod Hello() As %String { Return "hello-v2" } }'
-PUT_BODY2=$(python3 -c "
-import json, sys
-content = sys.argv[1]
-print(json.dumps({'enc': False, 'content': content.splitlines()}))
-" "$CHANGED_CLS")
-
-result=$(echo '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"iris_doc","arguments":{"action":"put","document":"Test.Smoke020.cls","content":"'"$(echo "$CHANGED_CLS" | sed 's/"/\\"/g')"'","namespace":"'"$IRIS_NAMESPACE"'"}}}' \
-    | "$BIN" 2>/dev/null || true)
+CHANGED_CLS='Class Test.Smoke020 Extends %RegisteredObject { ClassMethod Hello() As %String { Return \"hello-v2\" } }'
+result=$(mcp_call "iris_doc" "{\"action\":\"put\",\"document\":\"Test.Smoke020.cls\",\"content\":\"${CHANGED_CLS}\",\"namespace\":\"${IRIS_NAMESPACE}\"}")
 
 if echo "$result" | grep -qiE '"success"|"elicitation_id"|"question"'; then
     _pass "iris_doc put — got success or elicitation prompt"
@@ -170,8 +177,7 @@ echo "  If nothing opens, check: Extension Host log → 'iris-dev' → openHint"
 
 # ──────────────────────────────────────────────────────────────
 section "7. iris_generate — context provider (no LLM call)"
-result=$(echo '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"iris_generate","arguments":{"description":"A service class that stores patient records","namespace":"'"$IRIS_NAMESPACE"'"}}}' \
-    | "$BIN" 2>/dev/null || true)
+result=$(mcp_call "iris_generate" "{\"description\":\"A service class that stores patient records\",\"namespace\":\"${IRIS_NAMESPACE}\"}")
 
 if echo "$result" | grep -qiE '"prompt"|"context"|"system_prompt"'; then
     _pass "iris_generate returns prompt+context (no API key required)"
