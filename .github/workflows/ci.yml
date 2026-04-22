@@ -45,7 +45,7 @@ jobs:
         with:
           targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
       - uses: Swatinem/rust-cache@v2
-      - uses: cargo-bins/cargo-binstall@v1
+      - uses: cargo-bins/cargo-binstall@main
       - run: cargo binstall cargo-zigbuild --no-confirm
       - uses: mlugg/setup-zig@v2
       - run: cargo zigbuild --release --target x86_64-unknown-linux-musl -p iris-dev
