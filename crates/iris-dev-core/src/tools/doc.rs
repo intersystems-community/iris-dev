@@ -13,11 +13,15 @@ pub enum DocMode {
     Head,
 }
 
+fn default_mode() -> DocMode { DocMode::Get }
+
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct IrisDocParams {
-    /// Operation: get=fetch source, put=write, delete=remove, head=check existence
+    /// Operation: get=fetch source, put=write, delete=remove, head=check existence. Defaults to "get".
+    #[serde(default = "default_mode", alias = "action")]
     pub mode: DocMode,
-    /// Document name e.g. 'MyApp.Patient.cls' (required for single-doc ops)
+    /// Document name e.g. 'MyApp.Patient.cls'
+    #[serde(alias = "document")]
     pub name: Option<String>,
     /// Multiple document names for batch get/delete
     #[serde(default)]
@@ -33,7 +37,6 @@ pub struct IrisDocParams {
 }
 
 fn default_namespace() -> String { "USER".to_string() }
-
 use crate::iris::connection::IrisConnection;
 
 fn ok_json(v: serde_json::Value) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
