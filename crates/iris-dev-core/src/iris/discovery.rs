@@ -205,7 +205,7 @@ async fn discover_via_docker() -> Option<IrisConnection> {
         }
     }
 
-    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+    candidates.sort_by_key(|b| std::cmp::Reverse(b.0));
 
     for (_score, container_name, web_port, port_ss) in candidates {
         if let Some(mut conn) =
