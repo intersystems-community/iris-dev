@@ -29,10 +29,10 @@ Path B is labeled "legacy support" in docs. The benchmark exists to quantify the
 ## Harnesses Under Test
 
 1. Claude Code — driven via MCP stdio (primary, unattended)
-2. GitHub Copilot agent mode — driven via Playwright automating VS Code UI
+2. GitHub Copilot agent mode — driven via @vscode/test-electron + vscode.commands.executeCommand (Copilot Chat uses WebView/Canvas rendering with no stable DOM selectors; Playwright is not viable)
 3. Cursor (via MCP config — future, stretch goal)
 
-Harness automation: dual driver architecture. MCP stdio for Claude Code (no browser needed). Playwright for Copilot/VS Code harnesses. Both share the same task definitions, scoring interface, and result schema.
+Harness automation: dual driver architecture. MCP stdio for Claude Code (no browser needed). vscode-test-electron Extension Test Host for Copilot (TypeScript driver, Python runner orchestrates via subprocess). Both share the same task definitions, scoring interface, and result schema.
 
 
 ## Task Categories
@@ -53,7 +53,7 @@ Tasks involving checkout, checkin, SCM-aware writes. Only meaningful on Path B o
 
 ### LEG — Legacy Patterns
 Tasks involving .mac routines, globals, no-class code. Steve P's customer scenario.
-First task: GEN-LEG-01 — .mac routine with globals-only data model (no classes).
+First task: LEG-01 — .mac routine with globals-only data model (no classes).
 Expected to stress both paths differently.
 
 
@@ -89,7 +89,7 @@ README gets a "Path Comparison" section linking to latest results.
 - README updated with "Path Comparison" section
 - At least 5 tasks per category, both paths, Claude Code harness (minimum viable publish)
 - Copilot harness (Playwright) results included before public announcement
-- GEN-LEG-01 (.mac + globals) task implemented and scored on both paths
+- LEG-01 (.mac + globals) task implemented and scored on both paths
 
 
 ## Explicit Non-Goals
@@ -114,7 +114,7 @@ The benchmark results will inform which skills need path-specific variants vs. w
 
 ### Session 2026-04-22
 - Q: Who or what determines the 0-3 score? → A: LLM-as-judge with a fixed rubric prompt
-- Q: How do we handle harness automation given Copilot requires VS Code UI? → A: Dual driver — MCP stdio for Claude Code, Playwright for Copilot/VS Code harnesses, shared task runner and scorer
+- Q: How do we handle harness automation given Copilot requires VS Code UI? → A: Dual driver — MCP stdio for Claude Code, vscode-test-electron (@vscode/test-electron + vscode.commands) for Copilot. Playwright rejected: Copilot Chat is WebView/Canvas with no stable DOM selectors.
 - Q: Where does the benchmark live? → A: iris-dev repo, benchmark/021/ directory, first-class alongside the Rust code
 - Q: What format should the published report take? → A: JSON + generated HTML report
 - Q: What is the task isolation/cleanup mechanism? → A: Dedicated BENCHMARK namespace, wiped between tasks via IRIS namespace kill
