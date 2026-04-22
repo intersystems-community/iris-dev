@@ -4,6 +4,9 @@ on:
   push:
     tags: ['v*']
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   build:
     strategy:
@@ -31,7 +34,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      - uses: cargo-bins/cargo-binstall@main
+      - uses: cargo-bins/cargo-binstall@v1
       - run: cargo binstall cargo-zigbuild --no-confirm
       - run: cargo zigbuild --release --target ${{ matrix.target }} -p iris-dev
       - name: Stage artifact
@@ -76,3 +79,27 @@ jobs:
             iris-dev-windows-x86_64.exe
             vscode-iris-dev-*.vsix
           generate_release_notes: true
+          body: |
+            ## Installation
+
+            ### Binary
+            Download the binary for your platform and put it on your PATH:
+            | Platform | File |
+            |----------|------|
+            | macOS (Apple Silicon) | `iris-dev-macos-arm64` → rename to `iris-dev` |
+            | macOS (Intel) | `iris-dev-macos-x86_64` → rename to `iris-dev` |
+            | Linux x86_64 | `iris-dev-linux-x86_64` → rename to `iris-dev` |
+            | Windows x86_64 | `iris-dev-windows-x86_64.exe` → rename to `iris-dev.exe` |
+
+            ### VS Code Extension
+            Install `vscode-iris-dev-*.vsix` via **Extensions: Install from VSIX...** in VS Code 1.99+.
+
+            ### Quick start
+            ```bash
+            # Set your IRIS connection (or use objectscript.conn in VS Code)
+            export IRIS_HOST=localhost
+            export IRIS_WEB_PORT=52773
+            iris-dev mcp   # start MCP server
+            ```
+
+            See the [README](https://github.com/intersystems-community/iris-dev#readme) for full setup instructions.
