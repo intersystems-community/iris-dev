@@ -1,3 +1,4 @@
+#![allow(dead_code, clippy::zombie_processes)]
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 
@@ -41,7 +42,7 @@ fn mcp_exchange(messages: &[serde_json::Value]) -> Vec<serde_json::Value> {
     let mut reader = BufReader::new(stdout);
     let mut results = vec![];
 
-    for (i, msg) in messages.iter().enumerate() {
+    for msg in messages.iter() {
         stdin
             .write_all((serde_json::to_string(msg).unwrap() + "\n").as_bytes())
             .unwrap();

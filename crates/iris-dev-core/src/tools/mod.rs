@@ -635,7 +635,6 @@ impl IrisTools {
             .and_then(|l| {
                 l.split(':')
                     .nth(1)?
-                    .trim()
                     .split_whitespace()
                     .next()?
                     .parse::<u64>()
@@ -648,7 +647,6 @@ impl IrisTools {
             .and_then(|l| {
                 l.split(':')
                     .nth(1)?
-                    .trim()
                     .split_whitespace()
                     .next()?
                     .parse::<u64>()
@@ -985,7 +983,7 @@ impl IrisTools {
             .query(
                 &sql,
                 vec![serde_json::Value::String(format!("%{}%", p.query))],
-                &client,
+                client,
             )
             .await
         {
@@ -1023,7 +1021,7 @@ impl IrisTools {
         let iris = self.get_iris()?;
         let client = self.http_client();
         let cls = p.class_name.replace('\'', "''");
-        let methods = iris.query(&format!("SELECT Name,FormalSpec,ReturnType FROM %Dictionary.CompiledMethod WHERE parent='{}'", cls), vec![], &client).await.unwrap_or_default();
+        let methods = iris.query(&format!("SELECT Name,FormalSpec,ReturnType FROM %Dictionary.CompiledMethod WHERE parent='{}'", cls), vec![], client).await.unwrap_or_default();
         let props = iris
             .query(
                 &format!(
@@ -1031,7 +1029,7 @@ impl IrisTools {
                     cls
                 ),
                 vec![],
-                &client,
+                client,
             )
             .await
             .unwrap_or_default();
@@ -1060,7 +1058,7 @@ impl IrisTools {
             p.routine.replace('"', "\\\""),
             p.offset
         );
-        match iris.xecute(&code, &client).await {
+        match iris.xecute(&code, client).await {
             Ok(resp) => {
                 let raw = resp["result"]["content"][0]
                     .as_str()
@@ -1082,7 +1080,7 @@ impl IrisTools {
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
         let client = self.http_client();
-        match iris.query("SELECT TOP 20 ErrorCode,ErrorText,TimeStamp FROM %SYSTEM.Error ORDER BY TimeStamp DESC", vec![], &client).await {
+        match iris.query("SELECT TOP 20 ErrorCode,ErrorText,TimeStamp FROM %SYSTEM.Error ORDER BY TimeStamp DESC", vec![], client).await {
             Ok(resp) => ok_json(serde_json::json!({"success": true, "errors": resp["result"]["content"]})),
             Err(e) => err_json("IRIS_UNREACHABLE", &e.to_string()),
         }
@@ -1096,7 +1094,7 @@ impl IrisTools {
         let iris = self.get_iris()?;
         let client = self.http_client();
         let sql = format!("SELECT TOP {} ErrorCode,ErrorText,TimeStamp FROM %SYSTEM.Error ORDER BY TimeStamp DESC", p.max_entries);
-        match iris.query(&sql, vec![], &client).await {
+        match iris.query(&sql, vec![], client).await {
             Ok(resp) => {
                 ok_json(serde_json::json!({"success": true, "logs": resp["result"]["content"]}))
             }
@@ -1191,7 +1189,7 @@ impl IrisTools {
                 class_name
             );
             let compile_ok = iris
-                .xecute(&code, &client)
+                .xecute(&code, client)
                 .await
                 .map(|r| r["result"]["content"][0].as_str().unwrap_or("0").trim() == "1")
                 .unwrap_or(false);
@@ -1216,7 +1214,7 @@ Original: {}",
                         fixed_name
                     );
                     let ok2 = iris
-                        .xecute(&code2, &client)
+                        .xecute(&code2, client)
                         .await
                         .map(|r| r["result"]["content"][0].as_str().unwrap_or("0").trim() == "1")
                         .unwrap_or(false);
@@ -1255,7 +1253,7 @@ Original: {}",
             let client = self.http_client();
             let cls = p.class_name.replace("'", "''");
             let sql = format!("SELECT Name,FormalSpec,ReturnType FROM %Dictionary.CompiledMethod WHERE parent='{}' ORDER BY Name", cls);
-            iris.query(&sql, vec![], &client)
+            iris.query(&sql, vec![], client)
                 .await
                 .map(|r| {
                     format!(
@@ -1309,7 +1307,7 @@ Methods:
         if let Some(iris) = self.iris.as_deref() {
             let client = self.http_client();
             let code = "Set key=\"\" Set result=\"[\" For { Set key=$Order(^SKILLS(key)) Quit:key=\"\" Set skill=$Get(^SKILLS(key)) Set result=result_skill_\",\" } Set result=$Extract(result,1,$Length(result)-1)_\"]\" Write result";
-            if let Ok(resp) = iris.xecute(code, &client).await {
+            if let Ok(resp) = iris.xecute(code, client).await {
                 let raw = resp["result"]["content"][0].as_str().unwrap_or("[]");
                 if let Ok(skills) = serde_json::from_str::<serde_json::Value>(raw) {
                     let count = skills.as_array().map(|a| a.len()).unwrap_or(0);
@@ -1328,7 +1326,7 @@ Methods:
         if let Some(iris) = self.iris.as_deref() {
             let client = self.http_client();
             let code = format!("Write $Get(^SKILLS(\"{}\"))", p.name.replace('"', "\\\""));
-            if let Ok(resp) = iris.xecute(&code, &client).await {
+            if let Ok(resp) = iris.xecute(&code, client).await {
                 let raw = resp["result"]["content"][0].as_str().unwrap_or("{}");
                 if let Ok(skill) = serde_json::from_str::<serde_json::Value>(raw) {
                     return ok_json(serde_json::json!({"success": true, "skill": skill}));
@@ -1360,7 +1358,7 @@ Methods:
                 ),
                 q
             );
-            if let Ok(resp) = iris.xecute(&code, &client).await {
+            if let Ok(resp) = iris.xecute(&code, client).await {
                 let raw = resp["result"]["content"][0].as_str().unwrap_or("[]");
                 if let Ok(skills) = serde_json::from_str::<Vec<serde_json::Value>>(raw) {
                     let limited: Vec<_> = skills.into_iter().take(p.top_k).collect();
@@ -1385,7 +1383,7 @@ Methods:
                 "Kill ^SKILLS(\"{}\") Write \"OK\"",
                 p.name.replace('"', "\\\"")
             );
-            if iris.xecute(&code, &client).await.is_ok() {
+            if iris.xecute(&code, client).await.is_ok() {
                 return ok_json(serde_json::json!({"success": true, "name": p.name}));
             }
         }
@@ -1549,7 +1547,7 @@ Methods:
         if let Some(iris) = self.iris.as_deref() {
             let client = self.http_client();
             let code = "Set count=0,key=\"\" For { Set key=$Order(^SKILLS(key)) Quit:key=\"\" Set count=count+1 } Write count";
-            if let Ok(resp) = iris.xecute(code, &client).await {
+            if let Ok(resp) = iris.xecute(code, client).await {
                 if let Some(n) = resp["result"]["content"][0]
                     .as_str()
                     .and_then(|s| s.trim().parse::<u64>().ok())

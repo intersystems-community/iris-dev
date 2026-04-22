@@ -1,7 +1,7 @@
 //! T014: Unit tests for iris-dev.toml manifest parsing and semver resolver.
 //! Tests written FIRST — must fail before implementation is complete.
 
-use iris_dev_core::manifest::{parse_manifest, Manifest};
+use iris_dev_core::manifest::parse_manifest;
 
 // ── parse_manifest ───────────────────────────────────────────────────────────
 

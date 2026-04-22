@@ -1,7 +1,7 @@
 //! T007-T008: Unit tests for ElicitationStore.
 
 use iris_dev_core::elicitation::{ElicitationAction, ElicitationStore};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 #[test]
 fn elicitation_state_roundtrip() {

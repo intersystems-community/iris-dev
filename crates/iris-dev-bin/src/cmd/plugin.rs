@@ -9,8 +9,7 @@ pub fn list_plugins() {
         if let Ok(entries) = std::fs::read_dir(&dir) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with(prefix) {
-                    let cmd = &name[prefix.len()..];
+                if let Some(cmd) = name.strip_prefix(prefix) {
                     plugins.push((cmd.to_string(), entry.path()));
                 }
             }

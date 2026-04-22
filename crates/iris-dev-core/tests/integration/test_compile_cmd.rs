@@ -1,5 +1,6 @@
 //! T029: Integration tests for `iris-dev compile` subcommand.
 //! Spawns the binary as a subprocess, verifies exit codes and output.
+#![allow(dead_code, clippy::zombie_processes)]
 
 use std::process::Command;
 

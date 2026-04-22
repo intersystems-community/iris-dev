@@ -1,6 +1,7 @@
 //! T024: IRIS e2e tests for iris-dev mcp against a real IRIS container.
 //! Constitution Principle IV: dedicated live IRIS container, no reuse.
 //! Run: IRIS_HOST=localhost IRIS_WEB_PORT=52780 IRIS_USERNAME=_SYSTEM IRIS_PASSWORD=SYS cargo test
+#![allow(dead_code, clippy::zombie_processes)]
 
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -48,7 +49,7 @@ fn mcp_exchange(messages: &[serde_json::Value]) -> Vec<serde_json::Value> {
     let mut reader = BufReader::new(stdout);
     let mut results = vec![];
 
-    for (i, msg) in messages.iter().enumerate() {
+    for msg in messages.iter() {
         // Write message
         stdin
             .write_all((serde_json::to_string(msg).unwrap() + "\n").as_bytes())
