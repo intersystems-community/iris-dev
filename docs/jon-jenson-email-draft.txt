@@ -1,0 +1,22 @@
+To: Jon.Jensen@intersystems.com
+Subject: New EAP — iris-dev, please add to early-access-program page
+
+Hi Jon,
+
+I'd like to add a new Early Access Program to the external signup page at intersystems.com/early-access-program.
+
+Name: iris-dev
+
+Short description for the web page:
+iris-dev gives AI coding assistants (Copilot, Claude Code) a native interface to InterSystems IRIS — compile, test, search, and debug ObjectScript via a single binary with no Python or Node required, plus a built-in skills system that learns and improves with use.
+
+GitHub (where participants download and follow along): https://github.com/intersystems-community/iris-dev
+
+Status: Open to employees and selected customers. Launching at READY 2026.
+
+Primary contact: Thomas Dyar (thomas.dyar@intersystems.com)
+
+Let me know if you need anything else from my side.
+
+Thanks,
+Tom

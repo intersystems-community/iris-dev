@@ -1,0 +1,49 @@
+Tim, Nathan, Brett, Frank, Ovidiu,
+
+Pulling you all into one thread because we're clearly converging on the same problem from different angles and I'd rather debate it together than discover disagreements at READY.
+
+The question is: what is the right AI coding path for IRIS developers, and what do we build/support?
+
+
+WHERE WE ALL ARE
+----------------
+
+Nathan built a TypeScript Atelier MCP server (TC-519522). Key finding this week:
+- ISFS workspace + Atelier MCP = poor outcomes (3 competing edit paths)
+- Local files only + Atelier MCP = positive outcomes (1 edit path, good flexibility)
+
+Tim built isfs-mcp (bitbucket). Got stuck on SCM hooks, elicitation wasn't ready. Now elicitation is in the MCP spec and Claude Code/Copilot both support it.
+
+Tom built iris-dev (Rust, just went to GitHub: intersystems-community/iris-dev, v0.2.0). 20 tools via Atelier REST, no Python, single binary. Includes SCM elicitation (spec 020). Also has the Python objectscript-mcp on GitHub for existing users.
+
+Steve P customers: Python env conflicts (solved by Rust binary), one customer with remote-only legacy codebase (.mac, .int, globals) — no local file projection at all.
+
+Brett's position: remote-only code is an outdated anti-pattern we shouldn't encourage.
+
+
+THE OPEN QUESTIONS
+------------------
+
+1. SINGLE PATH OR MULTIPLE?
+Nathan's empirical result: one edit path wins. Brett says remote-only is the wrong direction anyway. But Steve's customer IS remote-only today with no migration path. Do we: (a) pick local+Atelier as the blessed path and document the tradeoffs clearly, (b) support both but make local the default recommendation, or (c) wait for more data?
+
+2. ONE CODEBASE OR SEPARATE?
+Three parallel implementations (Nathan's TS, Tim's isfs-mcp, Tom's Rust) all solving the same Atelier + SCM problem. iris-dev has absorbed most of this but Nathan's local-only finding and Tim's elicitation work are directly relevant. Proposal: iris-dev as the consolidation point. Nathan contributes local-file search patterns. Tim contributes SCM elicitation expertise (already in 020). We stop building the same thing in 3 places.
+
+3. LEGACY / REMOTE-ONLY CUSTOMERS
+Brett says don't encourage it. Steve has a real customer who's stuck there. What's the actual recommendation when a customer has no local projection and won't/can't set one up? Fall back to iris-dev with IRIS_ISFS=true and accept the 3-path problem, or actively block and tell them to migrate first?
+
+
+PROPOSAL
+--------
+
+30-minute working session at READY or the week after. Agenda:
+1. Nathan demos his local-file finding (10 min)
+2. Tom demos iris-dev + SCM elicitation + skills (10 min)
+3. Agree on: blessed path, legacy story, consolidation plan (10 min)
+
+Brett — as the manager of developer tools development you have the most to say about whether this consolidates under your team, stays community, or some hybrid. Would love your take before we finalize any of this publicly.
+
+Frank/Caza — you've seen both sides (Nathan's work and Steve's customers). Where do you come out?
+
+Tom
