@@ -8,7 +8,11 @@ function findIrisDev(): string | null {
   const cfg = vscode.workspace.getConfiguration('iris-dev');
   const override = cfg.get<string>('serverPath');
   if (override) { return override; }
-  try { return which.sync('iris-dev'); } catch { return null; }
+  // Try plain name first, then .exe for Windows
+  for (const name of ['iris-dev', 'iris-dev.exe']) {
+    try { return which.sync(name); } catch { /* try next */ }
+  }
+  return null;
 }
 
 interface ObjectScriptConn {
@@ -105,8 +109,6 @@ export class IrisDevMcpProvider
     const webPort = conn.port ?? 52773;
     const namespace = conn.ns ?? 'USER';
 
-    const mcpCfg = vscode.workspace.getConfiguration('iris-dev', null);
-    const nativePort = named?.superServer?.port ?? mcpCfg.get<number>('nativePort') ?? 1972;
 
     const resolvedHost = (named?.superServer?.host ?? named?.webServer?.host) ?? host;
     const webPrefix = named?.webServer?.pathPrefix ?? null;
@@ -122,18 +124,20 @@ export class IrisDevMcpProvider
       );
     }
 
-    const env: Record<string, string | number | null> = {
+    // Build env — omit undefined/null values so Windows process spawning doesn't choke
+    const envRaw: Record<string, string | number | undefined> = {
       IRIS_HOST: resolvedHost,
-      IRIS_PORT: nativePort,
       IRIS_WEB_PORT: named?.webServer?.port ?? webPort,
-      IRIS_WEB_PREFIX: webPrefix,
-      IRIS_USERNAME: named?.username ?? conn.username ?? null,
-      IRIS_PASSWORD: named?.password ?? conn.password ?? null,
+      IRIS_WEB_PREFIX: webPrefix ?? undefined,
+      IRIS_USERNAME: named?.username ?? conn.username ?? undefined,
+      IRIS_PASSWORD: named?.password ?? conn.password ?? undefined,
       IRIS_NAMESPACE: named?.ns ?? namespace,
-      IRIS_ISFS: isIsfs ? 'true' : null,
+      IRIS_ISFS: isIsfs ? 'true' : undefined,
       OBJECTSCRIPT_LEARNING: 'true',
-      OBJECTSCRIPT_SKILLMCP_NAMESPACE: 'USER',
     };
+    const env: Record<string, string | number> = Object.fromEntries(
+      Object.entries(envRaw).filter(([, v]) => v !== undefined && v !== null)
+    ) as Record<string, string | number>;
 
     const definition = new vscode.McpStdioServerDefinition(
       'iris-dev (IRIS)',
@@ -151,7 +155,7 @@ export class IrisDevMcpProvider
     if (token.isCancellationRequested || !(server instanceof vscode.McpStdioServerDefinition)) {
       return server;
     }
-    const env: Record<string, string | number | null> = { ...(server.env ?? {}) };
+    const env: Record<string, string | number> = { ...(server.env ?? {}) } as Record<string, string | number>;
     if (!env.IRIS_PASSWORD) {
       const pw = await vscode.window.showInputBox({ prompt: 'IRIS password', password: true });
       if (pw !== undefined) { env.IRIS_PASSWORD = pw; server.env = env; }
