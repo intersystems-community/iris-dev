@@ -19,6 +19,12 @@ pub struct KbItem {
     pub source_repo: String,
 }
 
+impl Default for SkillRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SkillRegistry {
     pub fn new() -> Self {
         Self {
@@ -140,7 +146,7 @@ async fn fetch_text(url: &str, client: &Client) -> Result<String> {
 }
 
 fn extract_frontmatter_field(content: &str, field: &str) -> Option<String> {
-    let inside = content.strip_prefix("---")?.splitn(2, "---").next()?;
+    let inside = content.strip_prefix("---")?.split("---").next()?;
     for line in inside.lines() {
         if let Some(val) = line.strip_prefix(&format!("{}:", field)) {
             return Some(val.trim().trim_matches('"').to_string());

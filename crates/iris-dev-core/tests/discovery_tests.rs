@@ -4,7 +4,6 @@
 //! These tests exercise: probe_atelier fingerprinting, cascade ordering,
 //! graceful fallthrough when localhost probe fails, env var resolution.
 
-use iris_dev_core::iris::connection::DiscoverySource;
 use iris_dev_core::iris::discovery::{discover_iris, probe_atelier};
 
 // ── probe_atelier ────────────────────────────────────────────────────────────

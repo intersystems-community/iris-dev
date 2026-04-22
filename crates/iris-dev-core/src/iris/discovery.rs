@@ -191,10 +191,10 @@ async fn discover_via_docker() -> Option<IrisConnection> {
         if let Some(ports) = container.ports {
             for port in &ports {
                 if port.private_port == 52773 {
-                    port_web = port.public_port.map(|p| p as u16);
+                    port_web = port.public_port;
                 }
                 if port.private_port == 1972 {
-                    port_superserver = port.public_port.map(|p| p as u16);
+                    port_superserver = port.public_port;
                 }
             }
         }

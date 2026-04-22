@@ -116,15 +116,13 @@ impl CompileCommand {
 fn output_result(result: &serde_json::Value, format: &str) {
     if format == "json" {
         println!("{}", result);
+    } else if result["success"] == true {
+        println!("✓ Compiled: {}", result["target"].as_str().unwrap_or(""));
     } else {
-        if result["success"] == true {
-            println!("✓ Compiled: {}", result["target"].as_str().unwrap_or(""));
-        } else {
-            eprintln!(
-                "✗ Error [{}]: {}",
-                result["error_code"].as_str().unwrap_or(""),
-                result["error"].as_str().unwrap_or("")
-            );
-        }
+        eprintln!(
+            "✗ Error [{}]: {}",
+            result["error_code"].as_str().unwrap_or(""),
+            result["error"].as_str().unwrap_or("")
+        );
     }
 }

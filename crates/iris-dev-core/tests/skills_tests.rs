@@ -50,7 +50,7 @@ async fn e2e_subscribe_to_iris_vector_rag() {
         "should have at least 2 skills"
     );
     assert!(
-        registry.list_kb_items().len() >= 1,
+        !registry.list_kb_items().is_empty(),
         "should have at least 1 KB item"
     );
     let names: Vec<_> = registry

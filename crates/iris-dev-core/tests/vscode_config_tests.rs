@@ -1,7 +1,7 @@
 //! T027: Unit tests for VS Code settings.json parsing.
 //! Tests the vscode_config module for named server resolution.
 
-use iris_dev_core::iris::vscode_config::{parse_vscode_settings, ObjectScriptConn};
+use iris_dev_core::iris::vscode_config::parse_vscode_settings;
 
 fn write_settings(dir: &std::path::Path, content: &str) -> std::path::PathBuf {
     let path = dir.join("settings.json");

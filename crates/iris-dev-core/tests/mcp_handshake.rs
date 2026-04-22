@@ -3,6 +3,7 @@
 //! asserts ≥23 tools returned and response within 500ms.
 //!
 //! Tests written FIRST — must fail until T015–T022 are implemented.
+#![allow(dead_code, clippy::zombie_processes)]
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};

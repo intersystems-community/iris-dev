@@ -186,7 +186,7 @@ mod parse_status {
 
     #[test]
     fn troubled() {
-        let (_, code, state) = parse_status_response("Demo.Prod:4").unwrap();
+        let (_, _code, state) = parse_status_response("Demo.Prod:4").unwrap();
         assert_eq!(state, "Troubled");
     }
 

@@ -1,5 +1,6 @@
 //! T016-T017, T025, T030: Integration tests for SCM tools and open_uri.
 //! Run: IRIS_HOST=localhost IRIS_WEB_PORT=52780 IRIS_USERNAME=SuperUser IRIS_PASSWORD=SYS cargo test --test test_scm
+#![allow(dead_code, clippy::zombie_processes)]
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
