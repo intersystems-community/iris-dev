@@ -14,7 +14,7 @@
 #
 # Each section prints PASS or FAIL.  Exit code = number of failures.
 
-set -euo pipefail
+set -uo pipefail
 
 # Always run from repo root regardless of where the script is invoked from
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,8 +31,8 @@ BIN="./target/release/iris-dev"
 PASS=0
 FAIL=0
 
-_pass() { echo "  ✓  $1"; ((PASS++)); }
-_fail() { echo "  ✗  $1"; ((FAIL++)); }
+_pass() { echo "  ✓  $1"; PASS=$((PASS+1)); }
+_fail() { echo "  ✗  $1"; FAIL=$((FAIL+1)); }
 
 base_url="http://${IRIS_HOST}:${IRIS_PORT}/api/atelier"
 auth=(-u "${IRIS_USERNAME}:${IRIS_PASSWORD}")
