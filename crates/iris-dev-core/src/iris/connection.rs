@@ -1,6 +1,6 @@
 //! IRIS connection types and Atelier REST API fingerprinting.
 
-use serde::{Deserialize, Serialize};
+// (serde imports removed — no types in this module derive Serialize/Deserialize)
 
 /// Which version of the Atelier REST API to use.
 #[derive(Debug, Clone, PartialEq)]

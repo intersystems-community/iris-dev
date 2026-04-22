@@ -1,13 +1,12 @@
 use rmcp::{
-    ServerHandler, RoleServer,
+    ServerHandler,
     model::*,
     tool, tool_handler, tool_router,
     handler::server::wrapper::Parameters,
-    service::RequestContext,
     ErrorData as McpError,
     handler::server::router::tool::ToolRouter,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use schemars::JsonSchema;
 use std::sync::Arc;
 use std::collections::VecDeque;
@@ -210,10 +209,6 @@ fn err_json_with_url(code: &str, msg: &str, attempted_url: &str) -> Result<CallT
         "hint": "Check IRIS_HOST and IRIS_WEB_PORT (and IRIS_WEB_PREFIX if using a non-root gateway)"
     }))
 }
-fn is_network_error(msg: &str) -> bool {
-    msg.contains("error sending request") || msg.contains("connection") || msg.contains("dns")
-}
-
 fn score_container(name: &str, workspace_basename: &str) -> i64 {
     if workspace_basename.is_empty() { return 0; }
     let cn = name.to_lowercase();
@@ -773,7 +768,7 @@ impl IrisTools {
     }
 
     #[tool(description = "Capture IRIS error state and recent error log entries for debugging.")]
-    async fn debug_capture_packet(&self, Parameters(p): Parameters<CapturePacketParams>) -> Result<CallToolResult, McpError> {
+    async fn debug_capture_packet(&self, Parameters(_p): Parameters<CapturePacketParams>) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
         let client = self.http_client();
         match iris.query("SELECT TOP 20 ErrorCode,ErrorText,TimeStamp FROM %SYSTEM.Error ORDER BY TimeStamp DESC", vec![], &client).await {
@@ -803,9 +798,8 @@ impl IrisTools {
             "set cls=\"{}\" set rtn=$translate(cls,\".\",\".\") set map=\"{{\" set first=1 set method=\"\" for {{ set method=$order(^rIndex(rtn,method)) quit:method=\"\"  set intline=$get(^rIndex(rtn,method)) if 'first {{ set map=map_\",\" }} set map=map_\"\\\"\"_method_\"\\\":\\\"\"_intline_\"\\\"\" set first=0 }} set map=map_\"}}\" write map",
             cls_name.replace('"', "\\\"")
         );
-        let xecute_url = iris.atelier_url(&format!("/v1/{}/action/xecute", &p.cls_name.split('.').next().unwrap_or("USER")));
-        let ns = "USER";
-        let xecute_url = iris.atelier_url(&format!("/v1/{}/action/xecute", ns));
+        // xecute runs in USER namespace; class resolution uses the full class name inline.
+        let xecute_url = iris.atelier_url("/v1/USER/action/xecute");
         match client.post(&xecute_url)
             .basic_auth(&iris.username, Some(&iris.password))
             .json(&serde_json::json!({"expression": code}))

@@ -130,21 +130,20 @@ async fn handle_put(
 
     // Inject ROUTINE header for .mac/.inc if missing
     let raw_content = p.content.as_deref().unwrap_or("");
-    let content_owned;
-    let content = {
-        let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
-        let routine_name = name.rsplit_once('.').map(|(n, _)| n).unwrap_or(name);
-        let upper = raw_content.trim_start().to_uppercase();
-        if ext == "mac" && !upper.starts_with("ROUTINE ") {
+    let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
+    let routine_name = name.rsplit_once('.').map(|(n, _)| n).unwrap_or(name);
+    let needs_header = !raw_content.trim_start().to_uppercase().starts_with("ROUTINE ");
+    let content_owned: String;
+    let content: &str = match ext.as_str() {
+        "mac" if needs_header => {
             content_owned = format!("ROUTINE {}\n{}", routine_name, raw_content);
-            content_owned.as_str()
-        } else if ext == "inc" && !upper.starts_with("ROUTINE ") {
-            content_owned = format!("ROUTINE {} [Type=INC]\n{}", routine_name, raw_content);
-            content_owned.as_str()
-        } else {
-            content_owned = String::new();
-            raw_content
+            &content_owned
         }
+        "inc" if needs_header => {
+            content_owned = format!("ROUTINE {} [Type=INC]\n{}", routine_name, raw_content);
+            &content_owned
+        }
+        _ => raw_content,
     };
 
     // SCM OnBeforeSave — check if write is allowed
