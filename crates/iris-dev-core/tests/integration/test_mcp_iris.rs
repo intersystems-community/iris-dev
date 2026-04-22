@@ -154,7 +154,8 @@ fn e2e_iris_compile_unreachable_returns_error_code() {
             if let Ok(result) = serde_json::from_str::<serde_json::Value>(text) {
                 assert!(
                     result.get("success").is_some() || result.get("error_code").is_some(),
-                    "must return structured response: {}", result
+                    "must return structured response: {}",
+                    result
                 );
             }
         }

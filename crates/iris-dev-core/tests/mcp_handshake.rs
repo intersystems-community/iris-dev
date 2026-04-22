@@ -58,20 +58,34 @@ fn mcp_server_starts_and_responds_to_initialize() {
     let mut reader = BufReader::new(stdout);
 
     let start = Instant::now();
-    send_jsonrpc(&mut stdin, 1, "initialize", r#"{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}"#);
+    send_jsonrpc(
+        &mut stdin,
+        1,
+        "initialize",
+        r#"{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}"#,
+    );
 
     let response = read_jsonrpc(&mut reader);
     let elapsed = start.elapsed();
     // Send required initialized notification
-    let init_notif = concat!(r#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#, "
-");
+    let init_notif = concat!(
+        r#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#,
+        "
+"
+    );
     stdin.write_all(init_notif.as_bytes()).unwrap();
     stdin.flush().unwrap();
 
-    assert!(elapsed < Duration::from_millis(500),
-        "initialize took {}ms, expected <500ms", elapsed.as_millis());
-    assert!(response.get("result").is_some(),
-        "initialize response missing 'result': {}", response);
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "initialize took {}ms, expected <500ms",
+        elapsed.as_millis()
+    );
+    assert!(
+        response.get("result").is_some(),
+        "initialize response missing 'result': {}",
+        response
+    );
 
     child.kill().ok();
 }
@@ -99,10 +113,18 @@ fn mcp_server_tools_list_returns_23_tools() {
     let stdout = child.stdout.take().unwrap();
     let mut reader = BufReader::new(stdout);
 
-    send_jsonrpc(&mut stdin, 1, "initialize", r#"{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}"#);
+    send_jsonrpc(
+        &mut stdin,
+        1,
+        "initialize",
+        r#"{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}"#,
+    );
     let _init = read_jsonrpc(&mut reader);
-    let init_notif = concat!(r#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#, "
-");
+    let init_notif = concat!(
+        r#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#,
+        "
+"
+    );
     stdin.write_all(init_notif.as_bytes()).unwrap();
     stdin.flush().unwrap();
     std::thread::sleep(std::time::Duration::from_millis(50));
@@ -110,28 +132,45 @@ fn mcp_server_tools_list_returns_23_tools() {
     send_jsonrpc(&mut stdin, 2, "tools/list", "{}");
     let response = read_jsonrpc(&mut reader);
 
-    let tools = response["result"]["tools"].as_array()
+    let tools = response["result"]["tools"]
+        .as_array()
         .expect("tools/list response missing tools array");
 
-    let tool_names: Vec<_> = tools.iter()
-        .filter_map(|t| t["name"].as_str())
-        .collect();
+    let tool_names: Vec<_> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
 
-    assert!(tool_names.len() >= 23,
-        "expected ≥23 tools, got {}: {:?}", tool_names.len(), tool_names);
+    assert!(
+        tool_names.len() >= 23,
+        "expected ≥23 tools, got {}: {:?}",
+        tool_names.len(),
+        tool_names
+    );
 
     // Assert all required tools are present (no dots — Bedrock compatible)
-    let required = ["iris_compile", "iris_test", "iris_symbols", "debug_map_int_to_cls",
-                    "docs_introspect", "skill_list", "kb_recall", "agent_stats"];
+    let required = [
+        "iris_compile",
+        "iris_test",
+        "iris_symbols",
+        "debug_map_int_to_cls",
+        "docs_introspect",
+        "skill_list",
+        "kb_recall",
+        "agent_stats",
+    ];
     for name in required {
-        assert!(tool_names.contains(&name),
-            "required tool '{}' missing from tools/list", name);
+        assert!(
+            tool_names.contains(&name),
+            "required tool '{}' missing from tools/list",
+            name
+        );
     }
 
     // Assert no tool has a dot in the name (Bedrock/VS Code requirement)
     for name in &tool_names {
-        assert!(!name.contains('.'),
-            "tool name '{}' contains dot — invalid for Bedrock/VS Code", name);
+        assert!(
+            !name.contains('.'),
+            "tool name '{}' contains dot — invalid for Bedrock/VS Code",
+            name
+        );
     }
 
     child.kill().ok();
@@ -161,7 +200,12 @@ fn mcp_server_startup_latency_under_100ms() {
         let mut reader = BufReader::new(stdout);
 
         let start = Instant::now();
-        send_jsonrpc(&mut stdin, 1, "initialize", r#"{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"bench","version":"0.1"}}"#);
+        send_jsonrpc(
+            &mut stdin,
+            1,
+            "initialize",
+            r#"{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"bench","version":"0.1"}}"#,
+        );
         let _resp = read_jsonrpc(&mut reader);
         latencies.push(start.elapsed());
         child.kill().ok();
@@ -169,8 +213,11 @@ fn mcp_server_startup_latency_under_100ms() {
 
     latencies.sort();
     let p50 = latencies[latencies.len() / 2];
-    assert!(p50 < Duration::from_millis(100),
-        "p50 startup latency {}ms exceeds 100ms (SC-001)", p50.as_millis());
+    assert!(
+        p50 < Duration::from_millis(100),
+        "p50 startup latency {}ms exceeds 100ms (SC-001)",
+        p50.as_millis()
+    );
 }
 
 /// T009: discovery waits for IRIS — server returns tool list within 5s even with no env vars.
@@ -197,11 +244,19 @@ fn discovery_waits_for_iris() {
     let mut reader = BufReader::new(stdout);
 
     let start = Instant::now();
-    send_jsonrpc(&mut stdin, 1, "initialize", r#"{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}"#);
+    send_jsonrpc(
+        &mut stdin,
+        1,
+        "initialize",
+        r#"{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}"#,
+    );
     let init = read_jsonrpc(&mut reader);
     assert!(init.get("result").is_some(), "initialize failed: {}", init);
 
-    let init_notif = concat!(r#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#, "\n");
+    let init_notif = concat!(
+        r#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#,
+        "\n"
+    );
     stdin.write_all(init_notif.as_bytes()).unwrap();
     stdin.flush().unwrap();
 
@@ -209,11 +264,19 @@ fn discovery_waits_for_iris() {
     let resp = read_jsonrpc(&mut reader);
     let elapsed = start.elapsed();
 
-    assert!(elapsed < Duration::from_secs(5),
-        "tools/list took {}ms, expected <5000ms", elapsed.as_millis());
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "tools/list took {}ms, expected <5000ms",
+        elapsed.as_millis()
+    );
 
-    let tools = resp["result"]["tools"].as_array().expect("tools array missing");
-    assert!(!tools.is_empty(), "expected tools to be listed even without IRIS connection");
+    let tools = resp["result"]["tools"]
+        .as_array()
+        .expect("tools array missing");
+    assert!(
+        !tools.is_empty(),
+        "expected tools to be listed even without IRIS connection"
+    );
 
     child.kill().ok();
 }
@@ -222,16 +285,26 @@ fn discovery_waits_for_iris() {
 /// Verifies that IRIS_WEB_PREFIX is correctly incorporated into the base URL.
 #[test]
 fn web_prefix_in_connection_url() {
-    use iris_dev_core::iris::connection::{IrisConnection, DiscoverySource};
+    use iris_dev_core::iris::connection::{DiscoverySource, IrisConnection};
 
     // Construct a connection with a prefix in the base_url (as mcp.rs does)
     let base_url = "http://localhost:80/irisaicore".to_string();
-    let conn = IrisConnection::new(base_url, "USER", "_SYSTEM", "SYS", DiscoverySource::ExplicitFlag);
+    let conn = IrisConnection::new(
+        base_url,
+        "USER",
+        "_SYSTEM",
+        "SYS",
+        DiscoverySource::ExplicitFlag,
+    );
 
     let url = conn.atelier_url("/v8/USER/action/compile");
     assert!(
         url.contains("/irisaicore/api/atelier/"),
-        "prefix missing from URL: {}", url
+        "prefix missing from URL: {}",
+        url
     );
-    assert_eq!(url, "http://localhost:80/irisaicore/api/atelier/v8/USER/action/compile");
+    assert_eq!(
+        url,
+        "http://localhost:80/irisaicore/api/atelier/v8/USER/action/compile"
+    );
 }

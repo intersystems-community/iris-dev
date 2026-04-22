@@ -39,14 +39,11 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::from_default_env()
-                .add_directive(if cli.verbose {
-                    tracing::Level::DEBUG.into()
-                } else {
-                    tracing::Level::WARN.into()
-                }),
-        )
+        .with_env_filter(EnvFilter::from_default_env().add_directive(if cli.verbose {
+            tracing::Level::DEBUG.into()
+        } else {
+            tracing::Level::WARN.into()
+        }))
         .with_writer(std::io::stderr)
         .with_ansi(false)
         .init();

@@ -4,8 +4,8 @@
 //! These tests exercise: probe_atelier fingerprinting, cascade ordering,
 //! graceful fallthrough when localhost probe fails, env var resolution.
 
-use iris_dev_core::iris::discovery::{probe_atelier, discover_iris};
 use iris_dev_core::iris::connection::DiscoverySource;
+use iris_dev_core::iris::discovery::{discover_iris, probe_atelier};
 
 // ── probe_atelier ────────────────────────────────────────────────────────────
 
@@ -44,11 +44,14 @@ async fn discover_iris_reads_env_vars() {
     std::env::set_var("IRIS_WEB_PORT", "52773");
     std::env::set_var("IRIS_USERNAME", "testuser");
     std::env::set_var("IRIS_PASSWORD", "testpass");
-    
+
     let result = discover_iris(None).await;
     // Env vars found but host unreachable — should still return Ok (not Err)
-    assert!(result.is_ok(), "discover_iris should not error on unreachable host");
-    
+    assert!(
+        result.is_ok(),
+        "discover_iris should not error on unreachable host"
+    );
+
     // Clean up
     std::env::remove_var("IRIS_HOST");
     std::env::remove_var("IRIS_WEB_PORT");
@@ -62,18 +65,21 @@ async fn discover_iris_returns_none_when_nothing_found() {
     // Ensure no env vars interfere
     std::env::remove_var("IRIS_HOST");
     std::env::remove_var("IRIS_WEB_PORT");
-    
+
     // With no IRIS running and no config, should return Ok(None)
     // (localhost scan will fail quickly, Docker scan returns nothing in unit context)
     let result = discover_iris(None).await;
-    assert!(result.is_ok(), "discover_iris should return Ok even when nothing found");
+    assert!(
+        result.is_ok(),
+        "discover_iris should return Ok even when nothing found"
+    );
 }
 
 /// Explicit connection passed to discover_iris is returned immediately without scanning.
 #[tokio::test]
 async fn discover_iris_explicit_wins_immediately() {
-    use iris_dev_core::iris::connection::{IrisConnection, DiscoverySource};
-    
+    use iris_dev_core::iris::connection::{DiscoverySource, IrisConnection};
+
     let explicit = IrisConnection::new(
         "http://explicit.example.com:52773",
         "MYNS",
@@ -81,7 +87,7 @@ async fn discover_iris_explicit_wins_immediately() {
         "secret",
         DiscoverySource::ExplicitFlag,
     );
-    
+
     let result = discover_iris(Some(explicit)).await.unwrap();
     let conn = result.expect("explicit connection should be returned");
     assert_eq!(conn.base_url, "http://explicit.example.com:52773");
@@ -93,8 +99,8 @@ async fn discover_iris_explicit_wins_immediately() {
 
 #[test]
 fn iris_connection_atelier_url_format() {
-    use iris_dev_core::iris::connection::{IrisConnection, DiscoverySource};
-    
+    use iris_dev_core::iris::connection::{DiscoverySource, IrisConnection};
+
     let conn = IrisConnection::new(
         "http://localhost:52773",
         "USER",
@@ -102,7 +108,10 @@ fn iris_connection_atelier_url_format() {
         "SYS",
         DiscoverySource::ExplicitFlag,
     );
-    
-    assert_eq!(conn.atelier_url("/v1/USER/action/query"), "http://localhost:52773/api/atelier/v1/USER/action/query");
+
+    assert_eq!(
+        conn.atelier_url("/v1/USER/action/query"),
+        "http://localhost:52773/api/atelier/v1/USER/action/query"
+    );
     assert_eq!(conn.atelier_url("/"), "http://localhost:52773/api/atelier/");
 }

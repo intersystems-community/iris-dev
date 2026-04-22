@@ -3,18 +3,24 @@
 //! iris_debug — debug tools via Atelier xecute + SQL.
 //! iris_generate — LLM-based class/test generation.
 
+use crate::iris::connection::IrisConnection;
 use schemars::JsonSchema;
 use serde::Deserialize;
-use crate::iris::connection::IrisConnection;
 
 fn ok_json(v: serde_json::Value) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-    Ok(rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(v.to_string())]))
+    Ok(rmcp::model::CallToolResult::success(vec![
+        rmcp::model::Content::text(v.to_string()),
+    ]))
 }
 fn err_json(code: &str, msg: &str) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     ok_json(serde_json::json!({"success": false, "error_code": code, "error": msg}))
 }
-fn default_namespace() -> String { "USER".to_string() }
-fn default_limit() -> usize { 20 }
+fn default_namespace() -> String {
+    "USER".to_string()
+}
+fn default_limit() -> usize {
+    20
+}
 
 // ── iris_info ────────────────────────────────────────────────────────────────
 
@@ -54,17 +60,24 @@ pub async fn handle_iris_info(
         other => return err_json("INVALID_PARAM", &format!("Unknown what='{}'. Use: documents, modified, namespace, metadata, jobs, csp_apps, csp_debug, sa_schema", other)),
     };
 
-    let resp = client.get(&url)
+    let resp = client
+        .get(&url)
         .basic_auth(&iris.username, Some(&iris.password))
-        .send().await
+        .send()
+        .await
         .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
 
     if !resp.status().is_success() {
-        return err_json("IRIS_UNREACHABLE", &format!("HTTP {} for {}", resp.status(), url));
+        return err_json(
+            "IRIS_UNREACHABLE",
+            &format!("HTTP {} for {}", resp.status(), url),
+        );
     }
 
     let body: serde_json::Value = resp.json().await.unwrap_or_default();
-    ok_json(serde_json::json!({"success": true, "what": p.what, "namespace": p.namespace, "result": body["result"]}))
+    ok_json(
+        serde_json::json!({"success": true, "what": p.what, "namespace": p.namespace, "result": body["result"]}),
+    )
 }
 
 // ── iris_macro ───────────────────────────────────────────────────────────────
@@ -88,7 +101,11 @@ pub async fn handle_iris_macro(
     match p.action.as_str() {
         "list" => {
             let url = iris.atelier_url(&format!("/v8/{}/macros", p.namespace));
-            let resp = client.get(&url).basic_auth(&iris.username, Some(&iris.password)).send().await
+            let resp = client
+                .get(&url)
+                .basic_auth(&iris.username, Some(&iris.password))
+                .send()
+                .await
                 .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             ok_json(serde_json::json!({"success": true, "macros": body["result"]["content"]}))
@@ -97,19 +114,29 @@ pub async fn handle_iris_macro(
             let name = p.name.as_deref().unwrap_or("");
             let url = iris.atelier_url(&format!("/v8/{}/action/getmacro", p.namespace));
             let arg_count = p.args.len();
-            let resp = client.post(&url)
+            let resp = client
+                .post(&url)
                 .basic_auth(&iris.username, Some(&iris.password))
                 .json(&serde_json::json!({
                     "macros": [{"name": name, "arguments": arg_count}],
                     "action": action,
                     "args": p.args,
                 }))
-                .send().await
+                .send()
+                .await
                 .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
-            ok_json(serde_json::json!({"success": true, "name": name, "action": action, "result": body["result"]}))
+            ok_json(
+                serde_json::json!({"success": true, "name": name, "action": action, "result": body["result"]}),
+            )
         }
-        other => err_json("INVALID_PARAM", &format!("Unknown action='{}'. Use: list, signature, location, definition, expand", other)),
+        other => err_json(
+            "INVALID_PARAM",
+            &format!(
+                "Unknown action='{}'. Use: list, signature, location, definition, expand",
+                other
+            ),
+        ),
     }
 }
 
@@ -145,37 +172,60 @@ pub async fn handle_iris_debug(
                 "set err=\"{}\" set routine=$piece($piece(err,\"^\",2),\".\",1) set offset=$piece(err,\"+\",2) set offset=$piece(offset,\"^\",1) write ##class(%Studio.Debugger).SourceLine(routine,+offset)",
                 err.replace('"', "\\\"")
             );
-            let resp = client.post(&xecute_url)
+            let resp = client
+                .post(&xecute_url)
                 .basic_auth(&iris.username, Some(&iris.password))
                 .json(&serde_json::json!({"expression": code}))
-                .send().await
+                .send()
+                .await
                 .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             let output = body["result"]["content"][0]["content"]
-                .as_array().map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("\n"))
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
                 .unwrap_or_default();
-            ok_json(serde_json::json!({"success": true, "error_string": err, "source_location": output}))
+            ok_json(
+                serde_json::json!({"success": true, "error_string": err, "source_location": output}),
+            )
         }
         "error_logs" => {
-            let sql = format!("SELECT TOP {} ID, Name, Location, Date, Time FROM %SYSTEM.Error ORDER BY ID DESC", p.limit);
-            let resp = client.post(&query_url)
+            let sql = format!(
+                "SELECT TOP {} ID, Name, Location, Date, Time FROM %SYSTEM.Error ORDER BY ID DESC",
+                p.limit
+            );
+            let resp = client
+                .post(&query_url)
                 .basic_auth(&iris.username, Some(&iris.password))
                 .json(&serde_json::json!({"query": sql}))
-                .send().await
+                .send()
+                .await
                 .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             ok_json(serde_json::json!({"success": true, "logs": body["result"]["content"]}))
         }
         "capture" => {
             let code = "set err=$ZERROR write \"error:\"_err,! set loc=$ZPOSITION write \"position:\"_loc,!";
-            let resp = client.post(&xecute_url)
+            let resp = client
+                .post(&xecute_url)
                 .basic_auth(&iris.username, Some(&iris.password))
                 .json(&serde_json::json!({"expression": code}))
-                .send().await
+                .send()
+                .await
                 .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             let output = body["result"]["content"][0]["content"]
-                .as_array().map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("\n"))
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
                 .unwrap_or_default();
             ok_json(serde_json::json!({"success": true, "capture": output}))
         }
@@ -185,18 +235,32 @@ pub async fn handle_iris_debug(
                 "set map=\"\" set line=1 do {{set int=##class(%Studio.Debugger).MapToINT(\"{cls}\",line,.intline) if int=\"\" quit set map=map_line_\"->\"_intline_\",\" set line=line+1 }} while 1 write map",
                 cls = cls.replace('"', "\\\"")
             );
-            let resp = client.post(&xecute_url)
+            let resp = client
+                .post(&xecute_url)
                 .basic_auth(&iris.username, Some(&iris.password))
                 .json(&serde_json::json!({"expression": code}))
-                .send().await
+                .send()
+                .await
                 .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             let output = body["result"]["content"][0]["content"]
-                .as_array().map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("\n"))
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
                 .unwrap_or_default();
             ok_json(serde_json::json!({"success": true, "class": cls, "mapping": output}))
         }
-        other => err_json("INVALID_PARAM", &format!("Unknown action='{}'. Use: map_int, error_logs, capture, source_map", other)),
+        other => err_json(
+            "INVALID_PARAM",
+            &format!(
+                "Unknown action='{}'. Use: map_int, error_logs, capture, source_map",
+                other
+            ),
+        ),
     }
 }
 
@@ -219,7 +283,9 @@ pub struct GenerateParams {
     pub namespace: String,
 }
 
-fn default_type() -> String { "class".to_string() }
+fn default_type() -> String {
+    "class".to_string()
+}
 
 pub async fn handle_iris_generate(
     iris: &IrisConnection,
@@ -239,10 +305,12 @@ pub async fn handle_iris_generate(
                  FROM %Dictionary.CompiledMethod WHERE parent = '{}' ORDER BY Name",
                 cls.replace('\'', "''")
             );
-            let resp = client.post(&query_url)
+            let resp = client
+                .post(&query_url)
                 .basic_auth(&iris.username, Some(&iris.password))
                 .json(&serde_json::json!({"query": sql}))
-                .send().await
+                .send()
+                .await
                 .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             let methods = body["result"]["content"].clone();
@@ -254,7 +322,8 @@ pub async fn handle_iris_generate(
                  Rules: extend %UnitTest.TestCase, prefix test methods with 'Test', \
                  use $$$AssertEquals/$$$AssertTrue macros, include ##class({}).%New() in setup. \
                  Write only valid ObjectScript — no explanations, no markdown fences.",
-                cls, p.description,
+                cls,
+                p.description,
                 serde_json::to_string(&methods).unwrap_or_default(),
                 cls
             );
@@ -277,20 +346,24 @@ pub async fn handle_iris_generate(
             // Fetch existing classes in the namespace as naming/style context
             let sql = "SELECT TOP 10 Name FROM %Dictionary.ClassDefinition \
                        WHERE Name NOT LIKE '%\\%%' ESCAPE '\\' ORDER BY Name";
-            let resp = client.post(&query_url)
+            let resp = client
+                .post(&query_url)
                 .basic_auth(&iris.username, Some(&iris.password))
                 .json(&serde_json::json!({"query": sql}))
-                .send().await
+                .send()
+                .await
                 .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             let existing: Vec<String> = body["result"]["content"]
-                .as_array().unwrap_or(&vec![])
+                .as_array()
+                .unwrap_or(&vec![])
                 .iter()
                 .filter_map(|r| r["Name"].as_str().map(|s| s.to_string()))
                 .collect();
 
             // Detect likely package prefix from existing classes
-            let package = existing.first()
+            let package = existing
+                .first()
                 .and_then(|n| n.split('.').next())
                 .unwrap_or("MyApp")
                 .to_string();

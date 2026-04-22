@@ -47,7 +47,10 @@ pub fn try_dispatch_plugin(cmd: &str, args: &[String]) -> Result<()> {
             }
         }
         Err(_) => {
-            eprintln!("iris-dev: unknown command '{}'\nRun `iris-dev --help` for available commands.", cmd);
+            eprintln!(
+                "iris-dev: unknown command '{}'\nRun `iris-dev --help` for available commands.",
+                cmd
+            );
             std::process::exit(1);
         }
     }

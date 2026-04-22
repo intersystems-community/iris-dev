@@ -18,7 +18,9 @@ fn mcp_exchange_with_env(
     messages: &[serde_json::Value],
 ) -> Vec<serde_json::Value> {
     let bin = iris_dev_bin();
-    if !bin.exists() { return vec![]; }
+    if !bin.exists() {
+        return vec![];
+    }
 
     let mut cmd = Command::new(&bin);
     cmd.args(["mcp"]);
@@ -39,7 +41,9 @@ fn mcp_exchange_with_env(
     let mut results = vec![];
 
     for msg in messages {
-        stdin.write_all((serde_json::to_string(msg).unwrap() + "\n").as_bytes()).unwrap();
+        stdin
+            .write_all((serde_json::to_string(msg).unwrap() + "\n").as_bytes())
+            .unwrap();
         stdin.flush().unwrap();
 
         if msg.get("id").is_some() {
@@ -53,7 +57,9 @@ fn mcp_exchange_with_env(
                         break;
                     }
                 }
-                if std::time::Instant::now() > deadline { break; }
+                if std::time::Instant::now() > deadline {
+                    break;
+                }
             }
         } else {
             std::thread::sleep(std::time::Duration::from_millis(100));
@@ -85,14 +91,22 @@ fn e2e_all_tools_respond() {
     ];
 
     // Get tool list
-    let list_responses = mcp_exchange_with_env(&env_vars, &[
-        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0.1"}}}),
-        serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
-        serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}),
-    ]);
+    let list_responses = mcp_exchange_with_env(
+        &env_vars,
+        &[
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0.1"}}}),
+            serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
+            serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}),
+        ],
+    );
 
-    let tools_resp = list_responses.iter().find(|r| r["id"] == 2).expect("no tools/list response");
-    let tools = tools_resp["result"]["tools"].as_array().expect("tools array missing");
+    let tools_resp = list_responses
+        .iter()
+        .find(|r| r["id"] == 2)
+        .expect("no tools/list response");
+    let tools = tools_resp["result"]["tools"]
+        .as_array()
+        .expect("tools array missing");
     let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
 
     eprintln!("tools returned: {:?}", tool_names);
@@ -121,11 +135,16 @@ fn e2e_all_tools_respond() {
     for resp in &responses {
         if let Some(id) = resp["id"].as_u64() {
             if id >= 10 {
-                let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("{}");
+                let text = resp["result"]["content"][0]["text"]
+                    .as_str()
+                    .unwrap_or("{}");
                 if let Ok(result) = serde_json::from_str::<serde_json::Value>(text) {
                     assert_ne!(
-                        result["error_code"].as_str(), Some("INTERNAL_ERROR"),
-                        "tool id={} returned INTERNAL_ERROR: {}", id, result
+                        result["error_code"].as_str(),
+                        Some("INTERNAL_ERROR"),
+                        "tool id={} returned INTERNAL_ERROR: {}",
+                        id,
+                        result
                     );
                 }
             }
@@ -136,19 +155,32 @@ fn e2e_all_tools_respond() {
 /// T080: Steve's web prefix scenario — compile + info work with IRIS_WEB_PREFIX set.
 #[test]
 fn e2e_web_prefix_route_correct() {
-    use iris_dev_core::iris::connection::{IrisConnection, DiscoverySource};
+    use iris_dev_core::iris::connection::{DiscoverySource, IrisConnection};
 
     // Verify that the URL construction includes the prefix
     let conn = IrisConnection::new(
         "http://localhost:80/irisaicore",
-        "USER", "_SYSTEM", "SYS",
+        "USER",
+        "_SYSTEM",
+        "SYS",
         DiscoverySource::ExplicitFlag,
     );
 
     let compile_url = conn.atelier_url("/v8/USER/action/compile");
     let info_url = conn.atelier_url("/v8/USER/docs");
 
-    assert!(compile_url.contains("/irisaicore/api/atelier/"), "compile URL missing prefix: {}", compile_url);
-    assert!(info_url.contains("/irisaicore/api/atelier/"), "info URL missing prefix: {}", info_url);
-    assert_eq!(compile_url, "http://localhost:80/irisaicore/api/atelier/v8/USER/action/compile");
+    assert!(
+        compile_url.contains("/irisaicore/api/atelier/"),
+        "compile URL missing prefix: {}",
+        compile_url
+    );
+    assert!(
+        info_url.contains("/irisaicore/api/atelier/"),
+        "info URL missing prefix: {}",
+        info_url
+    );
+    assert_eq!(
+        compile_url,
+        "http://localhost:80/irisaicore/api/atelier/v8/USER/action/compile"
+    );
 }

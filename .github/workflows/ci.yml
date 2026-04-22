@@ -19,11 +19,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets -- -D warnings
+      # Build binary first (required for mcp_handshake test which spawns it)
+      - run: cargo build -p iris-dev
       # Unit + handshake tests — no live IRIS needed.
       # Integration tests (test_mcp_iris, test_e2e_all_tools, test_scm, discovery_tests,
       # interop_e2e_tests) require IRIS_HOST/IRIS_WEB_PORT; run them locally.
-      - run: cargo build -p iris-dev
-        name: Build binary (required for mcp_handshake test)
       - run: |
           cargo test -p iris-dev-core --lib \
             --test test_compile_params \
@@ -45,8 +45,9 @@ jobs:
         with:
           targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
       - uses: Swatinem/rust-cache@v2
-      - uses: cargo-bins/cargo-binstall@main
+      - uses: cargo-bins/cargo-binstall@v1
       - run: cargo binstall cargo-zigbuild --no-confirm
+      - uses: mlugg/setup-zig@v2
       - run: cargo zigbuild --release --target x86_64-unknown-linux-musl -p iris-dev
       - run: file target/x86_64-unknown-linux-musl/release/iris-dev
       - run: |

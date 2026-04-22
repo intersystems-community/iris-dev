@@ -5,7 +5,8 @@ use std::process::Command;
 
 fn iris_dev_bin() -> std::path::PathBuf {
     let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.pop(); path.pop();
+    path.pop();
+    path.pop();
     path.push("target/debug/iris-dev");
     path
 }
@@ -27,21 +28,32 @@ fn write_fixture(dir: &std::path::Path, name: &str, content: &str) -> std::path:
 #[tokio::test]
 async fn compile_good_cls_exits_zero() {
     let bin = iris_dev_bin();
-    if !bin.exists() { return; }
+    if !bin.exists() {
+        return;
+    }
 
     let dir = tempfile::tempdir().unwrap();
-    let cls = write_fixture(dir.path(), "IrisDevTest.Good.cls",
-        "Class IrisDevTest.Good Extends %RegisteredObject { }");
+    let cls = write_fixture(
+        dir.path(),
+        "IrisDevTest.Good.cls",
+        "Class IrisDevTest.Good Extends %RegisteredObject { }",
+    );
 
     // Use opsreview-iris if running
     let output = Command::new(&bin)
         .args([
-            "compile", cls.to_str().unwrap(),
-            "--host", "localhost",
-            "--web-port", "52773",
-            "--username", "_SYSTEM",
-            "--password", "SYS",
-            "--format", "json",
+            "compile",
+            cls.to_str().unwrap(),
+            "--host",
+            "localhost",
+            "--web-port",
+            "52773",
+            "--username",
+            "_SYSTEM",
+            "--password",
+            "SYS",
+            "--format",
+            "json",
         ])
         .output()
         .expect("failed to run iris-dev compile");
@@ -52,13 +64,20 @@ async fn compile_good_cls_exits_zero() {
 
     if exit_code == 0 {
         // Should output JSON with success:true
-        let result: serde_json::Value = serde_json::from_str(&stdout)
-            .expect("--format json should produce valid JSON");
-        assert_eq!(result["success"], true, "good class should compile: {}", result);
+        let result: serde_json::Value =
+            serde_json::from_str(&stdout).expect("--format json should produce valid JSON");
+        assert_eq!(
+            result["success"], true,
+            "good class should compile: {}",
+            result
+        );
     } else {
         // IRIS unreachable — exit 2 is acceptable
-        assert!(exit_code == 2 || exit_code == 1,
-            "unexpected exit code {} for compile", exit_code);
+        assert!(
+            exit_code == 2 || exit_code == 1,
+            "unexpected exit code {} for compile",
+            exit_code
+        );
     }
 }
 
@@ -66,19 +85,29 @@ async fn compile_good_cls_exits_zero() {
 #[tokio::test]
 async fn compile_bad_cls_exits_nonzero() {
     let bin = iris_dev_bin();
-    if !bin.exists() { return; }
+    if !bin.exists() {
+        return;
+    }
 
     let dir = tempfile::tempdir().unwrap();
-    let cls = write_fixture(dir.path(), "IrisDevTest.Bad.cls",
-        "Class IrisDevTest.Bad { SYNTAX ERROR HERE !!!! }");
+    let cls = write_fixture(
+        dir.path(),
+        "IrisDevTest.Bad.cls",
+        "Class IrisDevTest.Bad { SYNTAX ERROR HERE !!!! }",
+    );
 
     let output = Command::new(&bin)
         .args([
-            "compile", cls.to_str().unwrap(),
-            "--host", "localhost",
-            "--web-port", "52773",
-            "--username", "_SYSTEM",
-            "--password", "SYS",
+            "compile",
+            cls.to_str().unwrap(),
+            "--host",
+            "localhost",
+            "--web-port",
+            "52773",
+            "--username",
+            "_SYSTEM",
+            "--password",
+            "SYS",
         ])
         .output()
         .expect("failed to run iris-dev compile");
@@ -92,18 +121,27 @@ async fn compile_bad_cls_exits_nonzero() {
 #[test]
 fn compile_format_json_produces_json() {
     let bin = iris_dev_bin();
-    if !bin.exists() { return; }
+    if !bin.exists() {
+        return;
+    }
 
     let dir = tempfile::tempdir().unwrap();
-    let cls = write_fixture(dir.path(), "Test.Json.cls",
-        "Class Test.Json Extends %RegisteredObject { }");
+    let cls = write_fixture(
+        dir.path(),
+        "Test.Json.cls",
+        "Class Test.Json Extends %RegisteredObject { }",
+    );
 
     let output = Command::new(&bin)
         .args([
-            "compile", cls.to_str().unwrap(),
-            "--host", "nonexistent.invalid",
-            "--web-port", "52773",
-            "--format", "json",
+            "compile",
+            cls.to_str().unwrap(),
+            "--host",
+            "nonexistent.invalid",
+            "--web-port",
+            "52773",
+            "--format",
+            "json",
         ])
         .output()
         .expect("failed to run iris-dev compile");

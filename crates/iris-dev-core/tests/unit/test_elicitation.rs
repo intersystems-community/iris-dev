@@ -25,9 +25,18 @@ fn elicitation_state_expires() {
     let store = ElicitationStore::new();
     // Insert with a past expiry by inserting normally then manually expiring via clear+reinsert trick
     // Since we can't set expiry directly, we test that clear works and missing id returns None
-    let id = store.insert("MyApp.Test.cls", ElicitationAction::ScmExecute, None, Some("CheckOut".into()), "USER");
+    let id = store.insert(
+        "MyApp.Test.cls",
+        ElicitationAction::ScmExecute,
+        None,
+        Some("CheckOut".into()),
+        "USER",
+    );
     store.clear(&id);
-    assert!(store.lookup(&id).is_none(), "cleared entry should return None");
+    assert!(
+        store.lookup(&id).is_none(),
+        "cleared entry should return None"
+    );
 }
 
 #[test]

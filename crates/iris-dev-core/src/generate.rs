@@ -44,7 +44,11 @@ impl LlmClient {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(60);
-        Some(Self { model, api_key, timeout_secs })
+        Some(Self {
+            model,
+            api_key,
+            timeout_secs,
+        })
     }
 
     pub async fn complete(&self, system: &str, user: &str) -> Result<String> {
@@ -65,11 +69,18 @@ impl LlmClient {
             .json(&ChatRequest {
                 model: self.model.clone(),
                 messages: vec![
-                    ChatMessage { role: "system".to_string(), content: system.to_string() },
-                    ChatMessage { role: "user".to_string(), content: user.to_string() },
+                    ChatMessage {
+                        role: "system".to_string(),
+                        content: system.to_string(),
+                    },
+                    ChatMessage {
+                        role: "user".to_string(),
+                        content: user.to_string(),
+                    },
                 ],
             })
-            .send().await
+            .send()
+            .await
             .context("LLM API request failed")?;
 
         if !resp.status().is_success() {
@@ -79,7 +90,10 @@ impl LlmClient {
         }
 
         let parsed: ChatResponse = resp.json().await.context("parsing LLM response")?;
-        parsed.choices.into_iter().next()
+        parsed
+            .choices
+            .into_iter()
+            .next()
             .map(|c| c.message.content)
             .context("empty LLM response")
     }
@@ -105,7 +119,9 @@ Rules:
 pub const RETRY_TEMPLATE: &str = "The generated class failed to compile with these errors:\n\n{errors}\n\nPlease fix the ObjectScript class. Return ONLY the corrected class definition.";
 
 pub fn validate_cls_syntax(text: &str) -> bool {
-    text.contains("Class ") && text.contains('{') && text.matches('{').count() == text.matches('}').count()
+    text.contains("Class ")
+        && text.contains('{')
+        && text.matches('{').count() == text.matches('}').count()
 }
 
 pub fn extract_class_name(text: &str) -> Option<String> {

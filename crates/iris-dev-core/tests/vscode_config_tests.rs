@@ -13,7 +13,9 @@ fn write_settings(dir: &std::path::Path, content: &str) -> std::path::PathBuf {
 #[test]
 fn parse_direct_connection() {
     let dir = tempfile::tempdir().unwrap();
-    let path = write_settings(dir.path(), r#"{
+    let path = write_settings(
+        dir.path(),
+        r#"{
         "objectscript.conn": {
             "active": true,
             "host": "localhost",
@@ -22,11 +24,14 @@ fn parse_direct_connection() {
             "password": "SYS",
             "ns": "USER"
         }
-    }"#);
+    }"#,
+    );
 
     let settings = parse_vscode_settings(&path).expect("should parse direct connection");
-    let conn = settings.objectscript_conn.expect("objectscript.conn should be present");
-    
+    let conn = settings
+        .objectscript_conn
+        .expect("objectscript.conn should be present");
+
     assert_eq!(conn.host.as_deref(), Some("localhost"));
     assert_eq!(conn.port, Some(52773));
     assert_eq!(conn.username.as_deref(), Some("_SYSTEM"));
@@ -38,7 +43,9 @@ fn parse_direct_connection() {
 #[test]
 fn parse_named_server_with_super_server_port() {
     let dir = tempfile::tempdir().unwrap();
-    let path = write_settings(dir.path(), r#"{
+    let path = write_settings(
+        dir.path(),
+        r#"{
         "objectscript.conn": {
             "active": true,
             "server": "opsreview-iris",
@@ -55,14 +62,21 @@ fn parse_named_server_with_super_server_port() {
                 "username": "_SYSTEM"
             }
         }
-    }"#);
+    }"#,
+    );
 
     let settings = parse_vscode_settings(&path).expect("should parse named server");
-    let conn = settings.objectscript_conn.expect("objectscript.conn present");
+    let conn = settings
+        .objectscript_conn
+        .expect("objectscript.conn present");
     assert_eq!(conn.server.as_deref(), Some("opsreview-iris"));
 
-    let servers = settings.intersystems_servers.expect("intersystems.servers present");
-    let server = servers.get("opsreview-iris").expect("opsreview-iris server present");
+    let servers = settings
+        .intersystems_servers
+        .expect("intersystems.servers present");
+    let server = servers
+        .get("opsreview-iris")
+        .expect("opsreview-iris server present");
     assert_eq!(server.web_server.host.as_deref(), Some("localhost"));
     assert_eq!(server.web_server.port, Some(52773));
     assert_eq!(server.super_server_port(), Some(1972));
@@ -72,7 +86,9 @@ fn parse_named_server_with_super_server_port() {
 #[test]
 fn named_server_without_super_server_port_returns_none() {
     let dir = tempfile::tempdir().unwrap();
-    let path = write_settings(dir.path(), r#"{
+    let path = write_settings(
+        dir.path(),
+        r#"{
         "objectscript.conn": {"active": true, "server": "myserver"},
         "intersystems.servers": {
             "myserver": {
@@ -80,26 +96,32 @@ fn named_server_without_super_server_port_returns_none() {
                 "username": "admin"
             }
         }
-    }"#);
+    }"#,
+    );
 
     let settings = parse_vscode_settings(&path).unwrap();
     let servers = settings.intersystems_servers.unwrap();
     let server = servers.get("myserver").unwrap();
-    assert!(server.super_server_port().is_none(),
-        "superServer absent should return None for super_server_port");
+    assert!(
+        server.super_server_port().is_none(),
+        "superServer absent should return None for super_server_port"
+    );
 }
 
 /// Active=false connection is respected.
 #[test]
 fn inactive_connection_is_parsed() {
     let dir = tempfile::tempdir().unwrap();
-    let path = write_settings(dir.path(), r#"{
+    let path = write_settings(
+        dir.path(),
+        r#"{
         "objectscript.conn": {
             "active": false,
             "host": "localhost",
             "port": 52773
         }
-    }"#);
+    }"#,
+    );
 
     let settings = parse_vscode_settings(&path).unwrap();
     let conn = settings.objectscript_conn.unwrap();

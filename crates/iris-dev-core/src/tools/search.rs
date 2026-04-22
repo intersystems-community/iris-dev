@@ -1,8 +1,8 @@
 //! iris_search — full-text search via Atelier REST v2 with sync→async fallback.
 
+use crate::iris::connection::IrisConnection;
 use schemars::JsonSchema;
 use serde::Deserialize;
-use crate::iris::connection::IrisConnection;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SearchParams {
@@ -20,10 +20,14 @@ pub struct SearchParams {
     pub namespace: String,
 }
 
-fn default_namespace() -> String { "USER".to_string() }
+fn default_namespace() -> String {
+    "USER".to_string()
+}
 
 fn ok_json(v: serde_json::Value) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-    Ok(rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(v.to_string())]))
+    Ok(rmcp::model::CallToolResult::success(vec![
+        rmcp::model::Content::text(v.to_string()),
+    ]))
 }
 
 pub async fn handle_iris_search(
@@ -42,7 +46,10 @@ pub async fn handle_iris_search(
         query_string.push_str("&case=1");
     }
 
-    let sync_url = iris.atelier_url(&format!("/v2/{}/action/search?{}", p.namespace, query_string));
+    let sync_url = iris.atelier_url(&format!(
+        "/v2/{}/action/search?{}",
+        p.namespace, query_string
+    ));
 
     // Try sync search with 2s timeout
     let sync_client = reqwest::Client::builder()
@@ -51,9 +58,11 @@ pub async fn handle_iris_search(
         .build()
         .unwrap_or_else(|_| client.clone());
 
-    let sync_result = sync_client.get(&sync_url)
+    let sync_result = sync_client
+        .get(&sync_url)
         .basic_auth(&iris.username, Some(&iris.password))
-        .send().await;
+        .send()
+        .await;
 
     match sync_result {
         Ok(resp) if resp.status().is_success() => {
@@ -74,11 +83,15 @@ pub async fn handle_iris_search(
                 "sys": false,
                 "category": category,
             });
-            let resp = client.post(&post_url)
+            let resp = client
+                .post(&post_url)
                 .basic_auth(&iris.username, Some(&iris.password))
                 .json(&post_body)
-                .send().await
-                .map_err(|e| rmcp::ErrorData::internal_error(format!("Search request failed: {e}"), None))?;
+                .send()
+                .await
+                .map_err(|e| {
+                    rmcp::ErrorData::internal_error(format!("Search request failed: {e}"), None)
+                })?;
 
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             if let Some(work_id) = body["result"]["workId"].as_str() {
@@ -116,9 +129,11 @@ async fn poll_async_search(
             }));
         }
 
-        let resp = client.get(&poll_url)
+        let resp = client
+            .get(&poll_url)
             .basic_auth(&iris.username, Some(&iris.password))
-            .send().await;
+            .send()
+            .await;
 
         match resp {
             Ok(r) if r.status().is_success() => {
@@ -137,17 +152,24 @@ fn parse_search_results(
     body: serde_json::Value,
     query: &str,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-    let content = body["result"]["content"].as_array().cloned().unwrap_or_default();
+    let content = body["result"]["content"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     let total = content.len();
     let truncated = total > 200;
-    let results: Vec<serde_json::Value> = content.into_iter().take(200).map(|item| {
-        serde_json::json!({
-            "document": item["doc"],
-            "line": item["atLine"],
-            "member": item["member"],
-            "content": item["text"],
+    let results: Vec<serde_json::Value> = content
+        .into_iter()
+        .take(200)
+        .map(|item| {
+            serde_json::json!({
+                "document": item["doc"],
+                "line": item["atLine"],
+                "member": item["member"],
+                "content": item["text"],
+            })
         })
-    }).collect();
+        .collect();
 
     ok_json(serde_json::json!({
         "success": true,

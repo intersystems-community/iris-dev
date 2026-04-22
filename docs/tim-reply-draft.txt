@@ -1,0 +1,58 @@
+Tim,
+
+Good timing to nail this down before READY.
+
+Here is where things stand and the plan:
+
+
+THE DIRECTION
+-------------
+
+Moving fully to Rust. The binary will be named iris-dev.
+No objectscript-mcp alias needed — the usage is not wide enough to worry about.
+
+Rust wins on distribution:
+  - Single static binary, no runtime, no pip, no Python env conflicts
+  - Cross-compile to Windows/Linux/Mac from one build
+  - Under 100ms cold start
+  - Steve P's entire problem was Python env conflicts — that class of issue disappears
+
+On your "uvx" point: I think download-a-binary is actually simpler for end users
+than uvx once you factor in env management. But more importantly I want iris-dev
+to grow beyond just MCP over time, so the generic name and Rust toolchain both make sense.
+
+
+WHAT THIS MEANS FOR YOUR PRESENTATIONS
+---------------------------------------
+
+The user story is:
+  1. Download iris-dev binary for your platform (one file, ~15MB)
+  2. Install the VS Code extension (vscode-iris-dev.vsix, ~7KB)
+  3. Done — Copilot / Claude Code can now compile, test, search, debug against live IRIS
+
+No Python. No pip. No node. The extension reads your existing objectscript.conn automatically.
+
+I will have a GitHub release on intersystems-community/iris-dev published
+with binaries for Windows / Mac / Linux before READY.
+Binaries + extension are already in OneDrive AI_Platform/iris-dev if you want to test now.
+
+
+ON THE PYTHON REPO
+------------------
+
+objectscript-mcp (Python, GitHub) stays published and functional.
+Anyone using it keeps using it. We just stop putting new features into it.
+The README will note that iris-dev is the current version going forward.
+
+
+ON YOUR PRs / CONTRIBUTIONS
+-----------------------------
+
+I would love your input on iris-dev directly — especially on the source control
+elicitation work (spec 020) and anything Nathan has been building.
+All three of us have been solving the same problems in parallel and it would be
+great to consolidate on one codebase.
+
+Happy to do a quick sync before READY. Let me know.
+
+Tom

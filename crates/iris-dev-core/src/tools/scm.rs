@@ -1,17 +1,21 @@
 //! iris_source_control — SCM status, menu, checkout, execute via Atelier xecute.
 
+use crate::elicitation::{ElicitationAction, ElicitationStore};
+use crate::iris::connection::IrisConnection;
 use schemars::JsonSchema;
 use serde::Deserialize;
-use crate::iris::connection::IrisConnection;
-use crate::elicitation::{ElicitationStore, ElicitationAction};
 
 fn ok_json(v: serde_json::Value) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-    Ok(rmcp::model::CallToolResult::success(vec![rmcp::model::Content::text(v.to_string())]))
+    Ok(rmcp::model::CallToolResult::success(vec![
+        rmcp::model::Content::text(v.to_string()),
+    ]))
 }
 fn err_json(code: &str, msg: &str) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     ok_json(serde_json::json!({"success": false, "error_code": code, "error": msg}))
 }
-fn default_namespace() -> String { "USER".to_string() }
+fn default_namespace() -> String {
+    "USER".to_string()
+}
 
 /// Known menu item names to probe via OnMenuItem.
 pub const KNOWN_MENU_ITEMS: &[&str] = &[
@@ -45,14 +49,21 @@ async fn xecute(
     namespace: &str,
 ) -> anyhow::Result<String> {
     let url = iris.atelier_url(&format!("/v1/{}/action/xecute", namespace));
-    let resp = client.post(&url)
+    let resp = client
+        .post(&url)
         .basic_auth(&iris.username, Some(&iris.password))
         .json(&serde_json::json!({"expression": code}))
-        .send().await?;
+        .send()
+        .await?;
     let body: serde_json::Value = resp.json().await?;
     Ok(body["result"]["content"][0]["content"]
         .as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("\n"))
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
         .unwrap_or_default())
 }
 
@@ -64,7 +75,8 @@ fn os_quote(s: &str) -> String {
 /// Parse "code|msg" output from SCM xecute helpers. Returns (action_code, msg).
 fn parse_action_msg(out: &str) -> (u8, &str) {
     let mut parts = out.splitn(2, '|');
-    let code = parts.next()
+    let code = parts
+        .next()
         .and_then(|s| s.trim().parse::<u8>().ok())
         .unwrap_or(0);
     let msg = parts.next().map(str::trim).unwrap_or("");
@@ -83,7 +95,10 @@ pub async fn handle_iris_source_control(
     // Handle elicitation resume
     if let (Some(eid), Some(answer)) = (&p.elicitation_id, &p.answer) {
         let Some(pending) = elicitation_store.lookup(eid) else {
-            return err_json("ELICITATION_EXPIRED", "Elicitation session expired or not found");
+            return err_json(
+                "ELICITATION_EXPIRED",
+                "Elicitation session expired or not found",
+            );
         };
         elicitation_store.clear(eid);
         let action_id = pending.scm_action_id.as_deref().unwrap_or("");
@@ -94,9 +109,13 @@ pub async fn handle_iris_source_control(
             if answer == "yes" { "1" } else { "0" },
             os_quote(answer),
         );
-        let out = xecute(iris, client, &after_code, &pending.namespace).await.unwrap_or_default();
+        let out = xecute(iris, client, &after_code, &pending.namespace)
+            .await
+            .unwrap_or_default();
         if out.is_empty() || out.starts_with('$') {
-            return ok_json(serde_json::json!({"success": true, "document": pending.document, "action_id": action_id}));
+            return ok_json(
+                serde_json::json!({"success": true, "document": pending.document, "action_id": action_id}),
+            );
         }
         return err_json("SCM_ERROR", &out);
     }
@@ -108,9 +127,13 @@ pub async fn handle_iris_source_control(
             let check_code = format!(
                 "set obj=##class(%Studio.SourceControl.Base).%GetImplementationObject(\"{doc_q}\") if '$IsObject(obj) {{ write \"UNCONTROLLED\" }} else {{ set editable=obj.IsEditable(\"{doc_q}\") write editable_\"|\"_$get(obj.Owner) }}"
             );
-            let out = xecute(iris, client, &check_code, ns).await.unwrap_or_else(|_| "UNCONTROLLED".to_string());
+            let out = xecute(iris, client, &check_code, ns)
+                .await
+                .unwrap_or_else(|_| "UNCONTROLLED".to_string());
             if out.trim() == "UNCONTROLLED" || out.is_empty() {
-                return ok_json(serde_json::json!({"success":true,"controlled":false,"editable":true,"locked":false,"owner":null}));
+                return ok_json(
+                    serde_json::json!({"success":true,"controlled":false,"editable":true,"locked":false,"owner":null}),
+                );
             }
             let (editable_flag, owner) = parse_action_msg(&out);
             let editable = editable_flag == 1;
@@ -134,7 +157,11 @@ pub async fn handle_iris_source_control(
                 let out = xecute(iris, client, &code, ns).await.unwrap_or_default();
                 let (enabled_flag, label) = parse_action_msg(&out);
                 if enabled_flag == 1 {
-                    let label = if label.is_empty() { item.to_string() } else { label.to_string() };
+                    let label = if label.is_empty() {
+                        item.to_string()
+                    } else {
+                        label.to_string()
+                    };
                     actions.push(serde_json::json!({"id": item, "label": label, "enabled": true}));
                 }
             }
@@ -147,10 +174,18 @@ pub async fn handle_iris_source_control(
             let (action_code, msg) = parse_action_msg(&out);
 
             if action_code == 0 {
-                return ok_json(serde_json::json!({"success": true, "document": doc, "editable": true}));
+                return ok_json(
+                    serde_json::json!({"success": true, "document": doc, "editable": true}),
+                );
             }
             // action=1: need user confirmation
-            let eid = elicitation_store.insert(doc, ElicitationAction::ScmExecute, None, Some("CheckOut".to_string()), ns.clone());
+            let eid = elicitation_store.insert(
+                doc,
+                ElicitationAction::ScmExecute,
+                None,
+                Some("CheckOut".to_string()),
+                ns.clone(),
+            );
             ok_json(serde_json::json!({
                 "success": false,
                 "elicitation_required": true,
@@ -167,10 +202,18 @@ pub async fn handle_iris_source_control(
             let (action_code, msg) = parse_action_msg(&out);
 
             match action_code {
-                0 => ok_json(serde_json::json!({"success": true, "document": doc, "action_id": action_id})),
+                0 => ok_json(
+                    serde_json::json!({"success": true, "document": doc, "action_id": action_id}),
+                ),
                 1 => {
                     // Yes/No confirmation
-                    let eid = elicitation_store.insert(doc, ElicitationAction::ScmExecute, None, Some(action_id.to_string()), ns.clone());
+                    let eid = elicitation_store.insert(
+                        doc,
+                        ElicitationAction::ScmExecute,
+                        None,
+                        Some(action_id.to_string()),
+                        ns.clone(),
+                    );
                     ok_json(serde_json::json!({
                         "success": false, "elicitation_required": true, "elicitation_id": eid,
                         "message": if msg.is_empty() { format!("Execute {} on {}?", action_id, doc) } else { msg.to_string() },
@@ -179,18 +222,33 @@ pub async fn handle_iris_source_control(
                 }
                 7 => {
                     // Text prompt
-                    let eid = elicitation_store.insert(doc, ElicitationAction::ScmExecute, None, Some(action_id.to_string()), ns.clone());
+                    let eid = elicitation_store.insert(
+                        doc,
+                        ElicitationAction::ScmExecute,
+                        None,
+                        Some(action_id.to_string()),
+                        ns.clone(),
+                    );
                     ok_json(serde_json::json!({
                         "success": false, "elicitation_required": true, "elicitation_id": eid,
                         "message": if msg.is_empty() { format!("Enter value for {}:", action_id) } else { msg.to_string() },
                         "input_type": "text",
                     }))
                 }
-                _ => err_json("SCM_ERROR", &format!("Unexpected action code {} from UserAction", action_code)),
+                _ => err_json(
+                    "SCM_ERROR",
+                    &format!("Unexpected action code {} from UserAction", action_code),
+                ),
             }
         }
 
-        other => err_json("INVALID_PARAM", &format!("Unknown action='{}'. Use: status, menu, checkout, execute", other)),
+        other => err_json(
+            "INVALID_PARAM",
+            &format!(
+                "Unknown action='{}'. Use: status, menu, checkout, execute",
+                other
+            ),
+        ),
     }
 }
 
