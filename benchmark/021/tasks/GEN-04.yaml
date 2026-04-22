@@ -1,0 +1,6 @@
+id: GEN-04
+category: GEN
+path: both
+description: "Write an ObjectScript class called Bench.Counter in the BENCHMARK namespace with a ClassMethod GetCount() As %Integer that uses embedded SQL to count rows in the Bench.Patient table and returns the result."
+expected_behavior: "Class Bench.Counter exists, compiles, and GetCount() contains an &sql(...) SELECT COUNT(*) FROM Bench_Patient block."
+tags: [embedded-sql]

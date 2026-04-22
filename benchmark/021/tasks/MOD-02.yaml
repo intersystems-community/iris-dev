@@ -1,0 +1,21 @@
+id: MOD-02
+category: MOD
+path: both
+description: "The class Bench.Store exists in BENCHMARK. Add a Delete(key As %String) method that kills ^BenchStore(key) and returns 1 on success."
+expected_behavior: "##class(Bench.Store).Delete('x') kills ^BenchStore('x') and returns 1. Existing Set() and Get() methods unchanged."
+fixtures:
+  - type: cls
+    name: Bench.Store
+    content: |
+      Class Bench.Store Extends %RegisteredObject
+      {
+      ClassMethod Set(key As %String, value As %String)
+      {
+          Set ^BenchStore(key)=value
+      }
+      ClassMethod Get(key As %String) As %String
+      {
+          Quit $Get(^BenchStore(key))
+      }
+      }
+tags: [modification, add-method, globals]

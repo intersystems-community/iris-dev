@@ -1,0 +1,17 @@
+id: SCM-03
+category: SCM
+path: B
+description: "List the source control menu items available for Bench.SCMExisting in BENCHMARK namespace. Report what actions are available (CheckOut, CheckIn, GetLatest, etc.)."
+expected_behavior: "iris_source_control menu was called with action=menu. Agent correctly reports the available menu items. No errors."
+fixtures:
+  - type: cls
+    name: Bench.SCMExisting
+    content: |
+      Class Bench.SCMExisting Extends %RegisteredObject
+      {
+      ClassMethod Hello() As %String
+      {
+          Quit "Original"
+      }
+      }
+tags: [scm, menu, read-only, path-b-only]

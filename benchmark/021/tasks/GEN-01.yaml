@@ -1,0 +1,6 @@
+id: GEN-01
+category: GEN
+path: both
+description: "Write an ObjectScript class called Bench.Greeter in the BENCHMARK namespace with a ClassMethod Hello() that returns the string 'Hello World'."
+expected_behavior: "Class Bench.Greeter exists in BENCHMARK namespace, compiles without errors, and ##class(Bench.Greeter).Hello() returns 'Hello World'."
+tags: [basic, no-context]
