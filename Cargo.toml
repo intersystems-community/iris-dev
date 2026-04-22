@@ -10,7 +10,7 @@ version = "0.2.0"
 edition = "2021"
 authors = ["Thomas Dyar <thomas.dyar@intersystems.com>"]
 license = "MIT"
-repository = "https://gitlab.iscinternal.com/devx/iris-dev"
+repository = "https://github.com/intersystems-community/iris-dev"
 
 [workspace.dependencies]
 # MCP server
