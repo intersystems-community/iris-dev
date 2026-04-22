@@ -34,9 +34,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      - uses: cargo-bins/cargo-binstall@main
-      - run: cargo binstall cargo-zigbuild --no-confirm
       - uses: mlugg/setup-zig@v2
+      - run: cargo install cargo-zigbuild
       - run: cargo zigbuild --release --target ${{ matrix.target }} -p iris-dev
       - name: Stage artifact
         shell: bash
