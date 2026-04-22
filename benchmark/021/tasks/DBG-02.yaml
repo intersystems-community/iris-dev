@@ -1,0 +1,17 @@
+id: DBG-02
+category: DBG
+path: both
+description: "Bench.Divider exists in BENCHMARK. It compiles but crashes at runtime when pDivisor is 0. Fix it to return -1 when pDivisor is 0 instead of crashing."
+expected_behavior: "##class(Bench.Divider).Divide(10,0) returns -1. ##class(Bench.Divider).Divide(10,2) returns 5."
+fixtures:
+  - type: cls
+    name: Bench.Divider
+    content: |
+      Class Bench.Divider Extends %RegisteredObject
+      {
+      ClassMethod Divide(pNum As %Integer, pDivisor As %Integer) As %Integer
+      {
+          Quit pNum / pDivisor
+      }
+      }
+tags: [debug, runtime-error, divide-by-zero]

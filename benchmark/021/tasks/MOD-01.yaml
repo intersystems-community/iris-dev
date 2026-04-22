@@ -1,0 +1,17 @@
+id: MOD-01
+category: MOD
+path: both
+description: "The class Bench.Greeter already exists in the BENCHMARK namespace. Modify its Hello() method to accept a parameter pName As %String and return 'Hello ' concatenated with pName instead of 'Hello World'."
+expected_behavior: "##class(Bench.Greeter).Hello('Tom') returns 'Hello Tom'. The signature changes from no parameters to accepting pName."
+fixtures:
+  - type: cls
+    name: Bench.Greeter
+    content: |
+      Class Bench.Greeter Extends %RegisteredObject
+      {
+      ClassMethod Hello() As %String
+      {
+          Quit "Hello World"
+      }
+      }
+tags: [modification, existing-class]

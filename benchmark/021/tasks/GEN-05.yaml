@@ -1,0 +1,6 @@
+id: GEN-05
+category: GEN
+path: both
+description: "Write an ObjectScript class called Bench.Store in the BENCHMARK namespace with two ClassMethods: Set(key As %String, value As %String) that stores the value in the global ^BenchStore(key), and Get(key As %String) As %String that retrieves it."
+expected_behavior: "Class Bench.Store exists, compiles, ##class(Bench.Store).Set('x','42') stores in ^BenchStore('x'), and ##class(Bench.Store).Get('x') returns '42'."
+tags: [globals]

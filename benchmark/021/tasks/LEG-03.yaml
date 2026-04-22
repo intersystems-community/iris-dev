@@ -1,0 +1,17 @@
+id: LEG-03
+category: LEG
+path: both
+description: "The MAC routine BenchLeg exists in BENCHMARK. Add a new label List() that iterates ^BenchPatients using $Order and writes each patientId and name on a separate line. No classes."
+expected_behavior: "After storing two patients, 'do List^BenchLeg' outputs both patient IDs and names, one per line. Existing Store and Get labels unchanged."
+fixtures:
+  - type: routine
+    name: BenchLeg
+    content: |
+      ROUTINE BenchLeg
+      Store(patientId,name)
+          Set ^BenchPatients(patientId)=name
+          Quit
+      Get(patientId)
+          Write $Get(^BenchPatients(patientId))
+          Quit
+tags: [legacy, mac-routine, globals, iteration, modification]

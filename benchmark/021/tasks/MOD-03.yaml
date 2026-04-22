@@ -1,0 +1,17 @@
+id: MOD-03
+category: MOD
+path: both
+description: "Bench.Validator exists in BENCHMARK. The IsValid() method currently only checks if pId > 0. Modify it to also check that pId < 10000. Return 1 only if 0 < pId < 10000."
+expected_behavior: "##class(Bench.Validator).IsValid(5000) returns 1. ##class(Bench.Validator).IsValid(99999) returns 0. ##class(Bench.Validator).IsValid(-1) returns 0."
+fixtures:
+  - type: cls
+    name: Bench.Validator
+    content: |
+      Class Bench.Validator Extends %RegisteredObject
+      {
+      ClassMethod IsValid(pId As %Integer) As %Boolean
+      {
+          Quit (pId > 0)
+      }
+      }
+tags: [modification, logic-change]

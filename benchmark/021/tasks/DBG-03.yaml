@@ -1,0 +1,21 @@
+id: DBG-03
+category: DBG
+path: both
+description: "Bench.Lookup exists in BENCHMARK. It should return the value from ^BenchData(key) but always returns an empty string. Find and fix the bug."
+expected_behavior: "After ##class(Bench.Store).Set('k','v') sets ^BenchStore, ##class(Bench.Lookup).Find('k') returns 'v'. The bug is a wrong global name."
+fixtures:
+  - type: cls
+    name: Bench.Lookup
+    content: |
+      Class Bench.Lookup Extends %RegisteredObject
+      {
+      ClassMethod Find(key As %String) As %String
+      {
+          Quit $Get(^BenchWrong(key))
+      }
+      }
+  - type: global
+    name: ^BenchData
+    subscript: "testkey"
+    value: "testvalue"
+tags: [debug, wrong-global-name]

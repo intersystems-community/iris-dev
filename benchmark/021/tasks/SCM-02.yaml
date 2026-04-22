@@ -1,0 +1,17 @@
+id: SCM-02
+category: SCM
+path: B
+description: "Bench.SCMExisting exists in BENCHMARK under source control. Check the source control status of the file, then modify the Hello() method to return 'SCM Hello', handling any checkout prompts."
+expected_behavior: "iris_source_control status was called. Class was checked out. Bench.SCMExisting.Hello() returns 'SCM Hello'. SCM elicitation handled."
+fixtures:
+  - type: cls
+    name: Bench.SCMExisting
+    content: |
+      Class Bench.SCMExisting Extends %RegisteredObject
+      {
+      ClassMethod Hello() As %String
+      {
+          Quit "Original"
+      }
+      }
+tags: [scm, status, modify, path-b-only]

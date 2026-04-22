@@ -1,0 +1,6 @@
+id: LEG-04
+category: LEG
+path: both
+description: "Write a MAC routine called BenchCounter in BENCHMARK that has a label Increment(counterName) which atomically increments ^BenchCounters(counterName) by 1 and returns the new value, and a label Reset(counterName) that kills ^BenchCounters(counterName)."
+expected_behavior: "$$Increment^BenchCounter('visits') returns 1 on first call, 2 on second. Reset^BenchCounter('visits') kills the global entry."
+tags: [legacy, mac-routine, globals, atomic-increment]

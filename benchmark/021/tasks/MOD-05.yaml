@@ -1,0 +1,30 @@
+id: MOD-05
+category: MOD
+path: both
+description: "Bench.OrderService exists in BENCHMARK. It calls Bench.Validator.IsValid(). Add error handling: if IsValid returns 0, also write a log entry to ^BenchLog('rejected', $H) = pOrderId before returning 'rejected'."
+expected_behavior: "##class(Bench.OrderService).ProcessOrder(-1) returns 'rejected' AND sets ^BenchLog('rejected', <timestamp>) = -1."
+fixtures:
+  - type: cls
+    name: Bench.Validator
+    content: |
+      Class Bench.Validator Extends %RegisteredObject
+      {
+      ClassMethod IsValid(pId As %Integer) As %Boolean
+      {
+          Quit (pId > 0)
+      }
+      }
+  - type: cls
+    name: Bench.OrderService
+    content: |
+      Class Bench.OrderService Extends %RegisteredObject
+      {
+      ClassMethod ProcessOrder(pOrderId As %Integer) As %String
+      {
+          if ##class(Bench.Validator).IsValid(pOrderId) {
+              Quit "processed"
+          }
+          Quit "rejected"
+      }
+      }
+tags: [modification, error-handling, globals, calls-existing-class]

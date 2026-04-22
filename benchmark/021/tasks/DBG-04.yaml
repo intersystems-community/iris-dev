@@ -1,0 +1,18 @@
+id: DBG-04
+category: DBG
+path: both
+description: "Bench.Parser exists in BENCHMARK. The method Parse(str) is supposed to return the first word (before the first space) but has a logic error. Fix it."
+expected_behavior: "##class(Bench.Parser).Parse('hello world') returns 'hello'. ##class(Bench.Parser).Parse('foo') returns 'foo'."
+fixtures:
+  - type: cls
+    name: Bench.Parser
+    content: |
+      Class Bench.Parser Extends %RegisteredObject
+      {
+      ClassMethod Parse(str As %String) As %String
+      {
+          Set pos = $Find(str, " ")
+          Quit $Extract(str, pos)
+      }
+      }
+tags: [debug, string-logic]

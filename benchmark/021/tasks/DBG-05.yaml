@@ -1,0 +1,18 @@
+id: DBG-05
+category: DBG
+path: both
+description: "Bench.Counter exists in BENCHMARK and compiles but GetCount() always returns 0 even after data is written. Diagnose why and fix it."
+expected_behavior: "After writing a Bench.Patient record, ##class(Bench.Counter).GetCount() returns a count > 0. The bug is the SQL uses wrong table name Bench.Patient instead of Bench_Patient."
+fixtures:
+  - type: cls
+    name: Bench.Counter
+    content: |
+      Class Bench.Counter Extends %RegisteredObject
+      {
+      ClassMethod GetCount() As %Integer
+      {
+          &sql(SELECT COUNT(*) INTO :cnt FROM Bench.Patient)
+          Quit cnt
+      }
+      }
+tags: [debug, sql-table-name]

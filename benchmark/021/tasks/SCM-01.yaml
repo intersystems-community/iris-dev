@@ -1,0 +1,6 @@
+id: SCM-01
+category: SCM
+path: B
+description: "Write a new class Bench.SCMTest in BENCHMARK namespace using iris_doc put. Expect source control elicitation to fire — respond appropriately to check out the file, then complete the write and compile."
+expected_behavior: "Class Bench.SCMTest exists in BENCHMARK and compiles. SCM elicitation was triggered and handled correctly (agent answered the checkout prompt)."
+tags: [scm, elicitation, path-b-only]

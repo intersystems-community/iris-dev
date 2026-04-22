@@ -1,0 +1,17 @@
+id: GEN-02
+category: GEN
+path: both
+description: "Write an ObjectScript class called Bench.OrderService in the BENCHMARK namespace with a ClassMethod ProcessOrder(pOrderId As %Integer) As %String. The method should call ##class(Bench.Validator).IsValid(pOrderId) — if it returns 1 return 'processed', otherwise return 'rejected'."
+expected_behavior: "Class Bench.OrderService exists, compiles, and correctly calls Bench.Validator.IsValid(). Agent must discover Bench.Validator exists before writing the method."
+fixtures:
+  - type: cls
+    name: Bench.Validator
+    content: |
+      Class Bench.Validator Extends %RegisteredObject
+      {
+      ClassMethod IsValid(pId As %Integer) As %Boolean
+      {
+          Quit (pId > 0)
+      }
+      }
+tags: [context-dependent, calls-existing-class]

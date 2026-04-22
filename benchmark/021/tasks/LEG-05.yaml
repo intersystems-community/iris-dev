@@ -1,0 +1,6 @@
+id: LEG-05
+category: LEG
+path: both
+description: "Write a MAC routine called BenchSearch in BENCHMARK with a label Find(searchName) that iterates ^BenchPatients using $Order and returns the patientId of the first patient whose name matches searchName, or -1 if not found."
+expected_behavior: "After storing patient 42='Jones', $$Find^BenchSearch('Jones') returns 42. $$Find^BenchSearch('Nobody') returns -1."
+tags: [legacy, mac-routine, globals, search-iteration]

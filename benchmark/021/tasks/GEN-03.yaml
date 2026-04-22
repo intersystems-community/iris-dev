@@ -1,0 +1,6 @@
+id: GEN-03
+category: GEN
+path: both
+description: "Write a persistent ObjectScript class called Bench.Patient in the BENCHMARK namespace with properties: PatientId (%Integer, required), Name (%String, required), DOB (%Date). Include a method SavePatient() that calls %Save() and returns the %Status."
+expected_behavior: "Class Bench.Patient exists, extends %Persistent, has the three properties, compiles without errors, and SavePatient() calls %Save()."
+tags: [persistent, properties]

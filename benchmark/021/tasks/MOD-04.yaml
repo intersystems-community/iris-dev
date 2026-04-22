@@ -1,0 +1,18 @@
+id: MOD-04
+category: MOD
+path: both
+description: "Bench.Counter exists in BENCHMARK. It currently counts rows in Bench_Patient. Change it to also return the count of rows in Bench_Order (use SELECT COUNT(*) FROM Bench_Order). Return a string in the format 'patients=N,orders=M'."
+expected_behavior: "##class(Bench.Counter).GetCount() returns a string like 'patients=0,orders=0'. Method uses two embedded SQL statements."
+fixtures:
+  - type: cls
+    name: Bench.Counter
+    content: |
+      Class Bench.Counter Extends %RegisteredObject
+      {
+      ClassMethod GetCount() As %Integer
+      {
+          &sql(SELECT COUNT(*) INTO :cnt FROM Bench_Patient)
+          Quit cnt
+      }
+      }
+tags: [modification, sql, multi-query]

@@ -37,6 +37,24 @@ jobs:
         env:
           RUST_LOG: warn
 
+  benchmark-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pyyaml
+      - name: Verify benchmark task YAML parses clean
+        run: |
+          python -c "
+          import sys, os
+          sys.path.insert(0, 'benchmark/021/runner')
+          from task_loader import load_tasks
+          tasks = load_tasks()
+          print(f'OK: {len(tasks)} tasks loaded and validated')
+          "
+
   cross-compile-check:
     runs-on: ubuntu-latest
     steps:

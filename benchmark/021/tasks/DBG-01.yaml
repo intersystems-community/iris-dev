@@ -1,0 +1,17 @@
+id: DBG-01
+category: DBG
+path: both
+description: "Bench.Buggy exists in BENCHMARK and has a compile error. Find the error and fix it so the class compiles successfully."
+expected_behavior: "Class Bench.Buggy compiles without errors. Method Double(n) returns n*2."
+fixtures:
+  - type: cls
+    name: Bench.Buggy
+    content: |
+      Class Bench.Buggy Extends %RegisteredObject
+      {
+      ClassMethod Double(n As %Integer) As %Integer
+      {
+          Quit n * 2
+          // missing closing brace
+      }
+tags: [debug, compile-error]
