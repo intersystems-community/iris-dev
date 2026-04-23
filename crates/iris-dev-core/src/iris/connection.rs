@@ -74,10 +74,16 @@ impl IrisConnection {
         )
     }
 
-    /// Build a versioned Atelier URL using the connection's detected API version.
+    /// Build a versioned Atelier URL using the detected API version and the connection namespace.
     pub fn atelier_url_versioned(&self, path: &str) -> String {
+        self.versioned_ns_url(&self.namespace.clone(), path)
+    }
+
+    /// Build a versioned Atelier URL for an explicit namespace.
+    /// Always uses the highest detected API version rather than hardcoding v1.
+    pub fn versioned_ns_url(&self, namespace: &str, path: &str) -> String {
         let v = self.atelier_version.version_str();
-        self.atelier_url(&format!("/{}/{}{}", v, self.namespace, path))
+        self.atelier_url(&format!("/{}/{}{}", v, namespace, path))
     }
 
     /// Probe this connection: fetch IRIS version and Atelier API level from `/api/atelier/`.
@@ -172,11 +178,10 @@ impl IrisConnection {
         let content = Self::build_exec_class(&class_name, &tmpfile, code);
 
         // 1. PUT the class document
-        let put_url = self.atelier_url(&format!(
-            "/v1/{}/doc/{}",
+        let put_url = self.versioned_ns_url(
             namespace,
-            urlencoding::encode(&doc_name)
-        ));
+            &format!("/doc/{}", urlencoding::encode(&doc_name)),
+        );
         let put_resp = client
             .put(&put_url)
             .basic_auth(&self.username, Some(&self.password))
@@ -188,8 +193,7 @@ impl IrisConnection {
         }
 
         // 2. Compile — triggers the generator, which runs user code and captures output
-        let compile_url =
-            self.atelier_url(&format!("/v1/{}/action/compile?flags=cuk", namespace));
+        let compile_url = self.versioned_ns_url(namespace, "/action/compile?flags=cuk");
         let compile_resp = client
             .post(&compile_url)
             .basic_auth(&self.username, Some(&self.password))
@@ -219,7 +223,7 @@ impl IrisConnection {
 
         // 3. Query via SQL — the generated method returns the captured output as a literal string
         let sql = format!("SELECT {}() AS output", sql_func);
-        let query_url = self.atelier_url(&format!("/v1/{}/action/query", namespace));
+        let query_url = self.versioned_ns_url(namespace, "/action/query");
         let query_resp = client
             .post(&query_url)
             .basic_auth(&self.username, Some(&self.password))
@@ -294,11 +298,10 @@ impl IrisConnection {
         namespace: &str,
         client: &reqwest::Client,
     ) -> anyhow::Result<()> {
-        let url = self.atelier_url(&format!(
-            "/v1/{}/doc/{}",
+        let url = self.versioned_ns_url(
             namespace,
-            urlencoding::encode(doc_name)
-        ));
+            &format!("/doc/{}", urlencoding::encode(doc_name)),
+        );
         client
             .delete(&url)
             .basic_auth(&self.username, Some(&self.password))
@@ -345,7 +348,7 @@ impl IrisConnection {
         params: Vec<serde_json::Value>,
         client: &reqwest::Client,
     ) -> anyhow::Result<serde_json::Value> {
-        let url = self.atelier_url(&format!("/v1/{}/action/query", self.namespace));
+        let url = self.versioned_ns_url(&self.namespace.clone(), "/action/query");
         let resp = client
             .post(&url)
             .basic_auth(&self.username, Some(&self.password))
