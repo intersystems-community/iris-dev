@@ -4,6 +4,18 @@ Single Rust binary that connects AI coding assistants (VS Code Copilot, Claude C
 
 **No Python. No npm. No API keys.** Drop the binary on your PATH, install the VS Code extension, and your AI assistant can compile, test, search, read, write, and manage ObjectScript — all without leaving the chat.
 
+## Why iris-dev
+
+AI coding assistants assume a local file system. IRIS developers don't always have one. iris-dev gives the AI a native IRIS interface so it can compile, test, and debug without guessing — it works against the real live system. The result is fewer compile-fail cycles, fewer hallucinated APIs, and an assistant that actually knows what's in your codebase.
+
+A built-in skills system learns from agent sessions and synthesizes reusable ObjectScript workflows. Skills can be shared across the community. A compile-on-save hook auto-compiles `.cls`, `.mac`, and `.inc` files every time the agent writes one — no manual "now compile it" step.
+
+## Early Access
+
+This is an Early Access Program. We're looking for feedback on real codebases — what breaks, what's missing, how it compares to your current workflow. File issues on GitHub or email thomas.dyar@intersystems.com.
+
+Bigger community and customer push is coming at READY 2026. Try it now and help shape what ships.
+
 ---
 
 ## Quick Start
