@@ -73,8 +73,9 @@ jobs:
           Write-Host "Binary exit code: $exitCode (expected non-zero — stdin closed)"
           if ($result -match '"capabilities"') {
             Write-Host "PASS: capabilities advertised on Windows"
+            exit 0
           } else {
-            Write-Error "FAIL: no capabilities in response. Got: $result"
+            Write-Host "FAIL: no capabilities in response. Got: $result"
             exit 1
           }
 
