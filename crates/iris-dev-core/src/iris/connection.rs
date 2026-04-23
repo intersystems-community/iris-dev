@@ -80,6 +80,38 @@ impl IrisConnection {
         self.atelier_url(&format!("/{}/{}{}", v, self.namespace, path))
     }
 
+    /// Probe this connection: fetch IRIS version and Atelier API level from `/api/atelier/`.
+    pub async fn probe(&mut self) {
+        let client = match Self::http_client() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+
+        let url = self.atelier_url("/");
+        if let Ok(resp) = client
+            .get(&url)
+            .basic_auth(&self.username, Some(&self.password))
+            .send()
+            .await
+        {
+            let status = resp.status();
+            if status.is_success() {
+                if let Ok(body) = resp.json::<serde_json::Value>().await {
+                    tracing::debug!("Atelier root response: {}", body);
+                    let content = &body["result"]["content"];
+                    self.version = content["version"].as_str().map(|v| v.to_string());
+                    self.atelier_version = match content["api"].as_u64() {
+                        Some(v) if v >= 8 => AtelierVersion::V8,
+                        Some(v) if v >= 2 => AtelierVersion::V2,
+                        _ => AtelierVersion::V1,
+                    };
+                }
+            } else {
+                tracing::debug!("Atelier root probe got HTTP {}", status);
+            }
+        }
+    }
+
     /// Detect the highest available Atelier API version by probing.
     /// Sets self.atelier_version in place.
     pub async fn detect_version(&mut self, client: &reqwest::Client) {
