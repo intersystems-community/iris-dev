@@ -1,0 +1,56 @@
+{
+  "name": "iris-dev",
+  "description": "MCP server and skills for InterSystems IRIS development — 20 tools for live IRIS interaction plus 21 validated coding skills. Single binary, no Python required.",
+  "version": "0.2.0",
+  "author": {
+    "name": "InterSystems Corporation"
+  },
+  "homepage": "https://github.com/intersystems-community/iris-dev",
+  "license": "MIT",
+  "keywords": [
+    "intersystems",
+    "iris",
+    "objectscript",
+    "mcp",
+    "skills",
+    "interoperability"
+  ],
+  "mcpServers": {
+    "iris-dev": {
+      "command": "iris-dev",
+      "args": ["mcp"],
+      "env": {
+        "IRIS_HOST": "${IRIS_HOST}",
+        "IRIS_WEB_PORT": "${IRIS_WEB_PORT}",
+        "IRIS_NAMESPACE": "${IRIS_NAMESPACE}",
+        "IRIS_USERNAME": "${IRIS_USERNAME}",
+        "IRIS_PASSWORD": "${IRIS_PASSWORD}",
+        "IRIS_WEB_PREFIX": "${IRIS_WEB_PREFIX}"
+      }
+    }
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/compile-hook.sh"
+          }
+        ]
+      }
+    ],
+    "FileChanged": [
+      {
+        "matcher": "*.cls|*.mac|*.inc",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/compile-hook.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
