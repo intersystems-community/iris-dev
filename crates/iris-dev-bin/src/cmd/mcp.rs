@@ -90,10 +90,16 @@ impl McpCommand {
             }
         }
 
-        // Do NOT wait for discovery here — start serving immediately so MCP clients
-        // (Claude Code, Copilot) get the initialize response within their timeout window.
-        // Tools read iris_rx dynamically; if discovery hasn't completed yet they return
-        // IRIS_UNREACHABLE, which is the correct behavior until IRIS is found.
+        // Wait briefly for discovery — env-var discovery (single HTTP probe) completes in <500ms.
+        // Cap at 2s so Claude Code / Copilot get the initialize response well within their timeout.
+        // Docker/localhost-scan discovery may still be running when tools are first called;
+        // those return IRIS_UNREACHABLE and the client can retry.
+        let mut iris_rx_wait = iris_rx.clone();
+        let _ = tokio::time::timeout(
+            tokio::time::Duration::from_secs(2),
+            iris_rx_wait.wait_for(|v| v.is_some()),
+        )
+        .await;
         let iris = iris_rx.borrow().clone();
 
         // On Windows, stdout opens in text mode which translates \n → \r\n.
