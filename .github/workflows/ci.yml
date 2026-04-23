@@ -79,6 +79,37 @@ jobs:
             exit 1
           }
 
+  e2e-tests:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
+    services:
+      iris:
+        image: intersystemsdc/iris-community:latest
+        ports:
+          - 52773:52773
+        options: >-
+          --health-cmd "curl -sf -u _SYSTEM:SYS http://localhost:52773/api/atelier/ || exit 1"
+          --health-interval 15s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p iris-dev
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install httpx pyyaml
+      - name: Run E2E tool tests against live IRIS
+        run: pytest tests/integration/test_022_all_tools.py --tb=short -q
+        env:
+          IRIS_HOST: localhost
+          IRIS_WEB_PORT: "52773"
+          IRIS_USERNAME: _SYSTEM
+          IRIS_PASSWORD: SYS
+          IRIS_NAMESPACE: USER
+
   cross-compile-check:
     runs-on: ubuntu-latest
     steps:

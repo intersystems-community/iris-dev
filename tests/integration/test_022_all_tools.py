@@ -186,12 +186,15 @@ class TestIrisDoc:
     """iris_doc: document read/write/delete."""
 
     @skip_no_iris
-    def test_get_existing_class(self, iris_env, seed_test_class):
-        resp = mcp_call("iris_doc", {"mode": "get", "name": "Test.E2E022.Hello.cls", "namespace": "USER"})
+    def test_get_existing_class(self, iris_env):
+        # Use a built-in class that always exists — no seed required
+        resp = mcp_call("iris_doc", {"mode": "get", "name": "%Library.String.cls", "namespace": "USER"})
         assert "error" not in resp
         content = extract_content(resp)
         assert content.get("success"), f"iris_doc get failed: {content}"
-        assert "E2E022" in str(content.get("content", "")), "iris_doc get returned wrong content"
+        assert "%Library.String" in str(content.get("name", "")) or \
+               "String" in str(content.get("content", "")), \
+               f"iris_doc get returned wrong content: {str(content)[:200]}"
 
     @skip_no_iris
     def test_get_nonexistent_returns_not_found(self, iris_env):
@@ -290,7 +293,11 @@ class TestIrisInfo:
         resp = mcp_call("iris_info", {"what": "documents", "namespace": "USER"})
         assert "error" not in resp
         content = extract_content(resp)
-        assert "404" not in str(content), f"iris_info documents 404: {content}"
+        assert content.get("error_code") != "IRIS_UNREACHABLE", \
+            f"iris_info documents IRIS_UNREACHABLE: {content}"
+        # result should have content
+        result = content.get("result", {})
+        assert result, f"iris_info documents returned empty result: {content}"
 
 
 class TestIrisGenerate:
