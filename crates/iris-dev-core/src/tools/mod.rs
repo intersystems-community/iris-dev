@@ -662,16 +662,50 @@ impl IrisTools {
     }
 
     #[tool(
-        description = "Execute arbitrary ObjectScript code on IRIS via docker exec and return stdout. Requires IRIS_CONTAINER=<container_name> env var. No Python required. Example: code='write $ZVERSION,!' returns the IRIS version string."
+        description = "Execute arbitrary ObjectScript code on IRIS and return stdout. Uses pure-HTTP execution via CodeMode=objectgenerator (write temp class, compile, query result, delete). Falls back to docker exec if IRIS_CONTAINER env var is set and HTTP fails. Example: code='write $ZVERSION,!' returns the IRIS version string."
     )]
     async fn iris_execute(
         &self,
         Parameters(p): Parameters<ExecuteParams>,
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
+        let client = self.http_client();
         let timeout = std::time::Duration::from_secs(p.timeout);
-        let result = tokio::time::timeout(timeout, iris.execute(&p.code, &p.namespace)).await;
-        match result {
+
+        // Try pure-HTTP execution first (write-compile-query via CodeMode=objectgenerator).
+        let gen_result = tokio::time::timeout(
+            timeout,
+            iris.execute_via_generator(&p.code, &p.namespace, client),
+        )
+        .await;
+
+        match gen_result {
+            Err(_) => {
+                self.record_call("iris_execute", false);
+                return ok_json(serde_json::json!({
+                    "success": false,
+                    "error_code": "TIMEOUT",
+                    "error": format!("execution timed out after {}s", p.timeout),
+                }));
+            }
+            Ok(Ok(output)) => {
+                self.record_call("iris_execute", true);
+                return ok_json(serde_json::json!({
+                    "success": true,
+                    "output": output.trim(),
+                    "namespace": p.namespace,
+                    "method": "http",
+                }));
+            }
+            Ok(Err(_)) => {
+                // HTTP path failed — fall through to docker exec.
+            }
+        }
+
+        // Fallback: docker exec (requires IRIS_CONTAINER env var).
+        let docker_result =
+            tokio::time::timeout(timeout, iris.execute(&p.code, &p.namespace)).await;
+        match docker_result {
             Err(_) => {
                 self.record_call("iris_execute", false);
                 ok_json(serde_json::json!({
@@ -687,7 +721,7 @@ impl IrisTools {
                     ok_json(serde_json::json!({
                         "success": false,
                         "error_code": "DOCKER_REQUIRED",
-                        "error": "iris_execute requires docker exec. Set IRIS_CONTAINER=<container_name>. The Atelier REST API has no ObjectScript execution endpoint (/action/xecute does not exist).",
+                        "error": "iris_execute: HTTP execution failed and IRIS_CONTAINER is not set for docker exec fallback.",
                     }))
                 } else {
                     ok_json(serde_json::json!({
@@ -703,6 +737,7 @@ impl IrisTools {
                     "success": true,
                     "output": output.trim(),
                     "namespace": p.namespace,
+                    "method": "docker",
                 }))
             }
         }
