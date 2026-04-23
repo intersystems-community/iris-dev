@@ -55,6 +55,26 @@ jobs:
           print(f'OK: {len(tasks)} tasks loaded and validated')
           "
 
+  windows-handshake:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p iris-dev
+      - name: MCP handshake smoke test on Windows
+        shell: pwsh
+        run: |
+          $init = '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}'
+          $result = $init | & "target\debug\iris-dev.exe" mcp 2>$null
+          Write-Host "Response: $result"
+          if ($result -match '"capabilities"') {
+            Write-Host "PASS: capabilities advertised"
+          } else {
+            Write-Error "FAIL: no capabilities in response"
+            exit 1
+          }
+
   cross-compile-check:
     runs-on: ubuntu-latest
     steps:
