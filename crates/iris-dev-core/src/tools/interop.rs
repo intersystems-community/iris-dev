@@ -115,6 +115,13 @@ pub fn parse_status_response(raw: &str) -> Result<(String, i64, String), String>
     Ok((name, code, state))
 }
 
+fn docker_required_interop() -> Result<CallToolResult, McpError> {
+    err_json(
+        "DOCKER_REQUIRED",
+        "Interoperability operations require docker exec. Set IRIS_CONTAINER=<container_name>.",
+    )
+}
+
 pub async fn interop_production_status_impl(
     iris: Option<&IrisConnection>,
     _params: ProductionStatusParams,
@@ -123,15 +130,10 @@ pub async fn interop_production_status_impl(
         Some(i) => i,
         None => return err_json("IRIS_UNREACHABLE", "No IRIS connection"),
     };
-    let client = IrisConnection::http_client().map_err(|_| iris_unreachable())?;
     let code = r#"Set sc=##class(Ens.Director).GetProductionStatus(.n,.s) If $$$ISERR(sc) { Write "ERROR:"_$System.Status.GetErrorText(sc) } Else { Write n_":"_s }"#;
-    match iris.xecute(code, &client).await {
-        Ok(resp) => {
-            let raw = resp["result"]["content"][0]
-                .as_str()
-                .unwrap_or("")
-                .trim()
-                .to_string();
+    match iris.execute(code, &iris.namespace).await {
+        Ok(output) => {
+            let raw = output.trim().to_string();
             match parse_status_response(&raw) {
                 Ok((name, code, state)) => ok_json(
                     serde_json::json!({"success": true, "production": name, "state": state, "state_code": code}),
@@ -140,6 +142,7 @@ pub async fn interop_production_status_impl(
                 Err(_) => err_json("NO_PRODUCTION", "No production is running"),
             }
         }
+        Err(e) if e.to_string() == "DOCKER_REQUIRED" => docker_required_interop(),
         Err(e) => err_json(
             if is_network_error(&e.to_string()) {
                 "IRIS_UNREACHABLE"
@@ -159,21 +162,21 @@ pub async fn interop_production_start_impl(
         Some(i) => i,
         None => return err_json("IRIS_UNREACHABLE", "No IRIS connection"),
     };
-    let client = IrisConnection::http_client().map_err(|_| iris_unreachable())?;
     let prod = params.production.as_deref().unwrap_or("");
     let code = format!(
         r#"Set sc=##class(Ens.Director).StartProduction("{}") If $$$ISERR(sc) {{ Write "ERROR:"_$System.Status.GetErrorText(sc) }} Else {{ Write "OK" }}"#,
         prod
     );
-    match iris.xecute(&code, &client).await {
-        Ok(resp) => {
-            let raw = resp["result"]["content"][0].as_str().unwrap_or("").trim();
+    match iris.execute(&code, &iris.namespace).await {
+        Ok(output) => {
+            let raw = output.trim();
             if raw == "OK" {
                 ok_json(serde_json::json!({"success": true, "state": "Running"}))
             } else {
                 err_json("INTEROP_ERROR", raw)
             }
         }
+        Err(e) if e.to_string() == "DOCKER_REQUIRED" => docker_required_interop(),
         Err(e) => err_json(
             if is_network_error(&e.to_string()) {
                 "IRIS_UNREACHABLE"
@@ -193,21 +196,21 @@ pub async fn interop_production_stop_impl(
         Some(i) => i,
         None => return err_json("IRIS_UNREACHABLE", "No IRIS connection"),
     };
-    let client = IrisConnection::http_client().map_err(|_| iris_unreachable())?;
     let code = format!(
         r#"Set sc=##class(Ens.Director).StopProduction({},{}) If $$$ISERR(sc) {{ Write "ERROR:"_$System.Status.GetErrorText(sc) }} Else {{ Write "OK" }}"#,
         params.timeout,
         if params.force { 1 } else { 0 }
     );
-    match iris.xecute(&code, &client).await {
-        Ok(resp) => {
-            let raw = resp["result"]["content"][0].as_str().unwrap_or("").trim();
+    match iris.execute(&code, &iris.namespace).await {
+        Ok(output) => {
+            let raw = output.trim();
             if raw == "OK" {
                 ok_json(serde_json::json!({"success": true, "state": "Stopped"}))
             } else {
                 err_json("INTEROP_ERROR", raw)
             }
         }
+        Err(e) if e.to_string() == "DOCKER_REQUIRED" => docker_required_interop(),
         Err(e) => err_json(
             if is_network_error(&e.to_string()) {
                 "IRIS_UNREACHABLE"
@@ -227,21 +230,21 @@ pub async fn interop_production_update_impl(
         Some(i) => i,
         None => return err_json("IRIS_UNREACHABLE", "No IRIS connection"),
     };
-    let client = IrisConnection::http_client().map_err(|_| iris_unreachable())?;
     let code = format!(
         r#"Set sc=##class(Ens.Director).UpdateProduction({},{}) If $$$ISERR(sc) {{ Write "ERROR:"_$System.Status.GetErrorText(sc) }} Else {{ Write "OK" }}"#,
         params.timeout,
         if params.force { 1 } else { 0 }
     );
-    match iris.xecute(&code, &client).await {
-        Ok(resp) => {
-            let raw = resp["result"]["content"][0].as_str().unwrap_or("").trim();
+    match iris.execute(&code, &iris.namespace).await {
+        Ok(output) => {
+            let raw = output.trim();
             if raw == "OK" {
                 ok_json(serde_json::json!({"success": true, "message": "Production updated"}))
             } else {
                 err_json("INTEROP_ERROR", raw)
             }
         }
+        Err(e) if e.to_string() == "DOCKER_REQUIRED" => docker_required_interop(),
         Err(e) => err_json(
             if is_network_error(&e.to_string()) {
                 "IRIS_UNREACHABLE"
@@ -260,13 +263,12 @@ pub async fn interop_production_needs_update_impl(
         Some(i) => i,
         None => return err_json("IRIS_UNREACHABLE", "No IRIS connection"),
     };
-    let client = IrisConnection::http_client().map_err(|_| iris_unreachable())?;
     let code = r#"Write ##class(Ens.Director).ProductionNeedsUpdate()"#;
-    match iris.xecute(code, &client).await {
-        Ok(resp) => {
-            let raw = resp["result"]["content"][0].as_str().unwrap_or("0").trim();
-            ok_json(serde_json::json!({"success": true, "needs_update": raw == "1"}))
+    match iris.execute(code, &iris.namespace).await {
+        Ok(output) => {
+            ok_json(serde_json::json!({"success": true, "needs_update": output.trim() == "1"}))
         }
+        Err(e) if e.to_string() == "DOCKER_REQUIRED" => docker_required_interop(),
         Err(e) => err_json(
             if is_network_error(&e.to_string()) {
                 "IRIS_UNREACHABLE"
@@ -285,17 +287,17 @@ pub async fn interop_production_recover_impl(
         Some(i) => i,
         None => return err_json("IRIS_UNREACHABLE", "No IRIS connection"),
     };
-    let client = IrisConnection::http_client().map_err(|_| iris_unreachable())?;
     let code = r#"Set sc=##class(Ens.Director).RecoverProduction() If $$$ISERR(sc) { Write "ERROR:"_$System.Status.GetErrorText(sc) } Else { Write "OK" }"#;
-    match iris.xecute(code, &client).await {
-        Ok(resp) => {
-            let raw = resp["result"]["content"][0].as_str().unwrap_or("").trim();
+    match iris.execute(code, &iris.namespace).await {
+        Ok(output) => {
+            let raw = output.trim();
             if raw == "OK" {
                 ok_json(serde_json::json!({"success": true, "state": "Running"}))
             } else {
                 err_json("INTEROP_ERROR", raw)
             }
         }
+        Err(e) if e.to_string() == "DOCKER_REQUIRED" => docker_required_interop(),
         Err(e) => err_json(
             if is_network_error(&e.to_string()) {
                 "IRIS_UNREACHABLE"

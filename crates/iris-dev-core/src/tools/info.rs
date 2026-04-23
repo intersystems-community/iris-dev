@@ -161,37 +161,25 @@ pub async fn handle_iris_debug(
     client: &reqwest::Client,
     p: DebugParams,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-    let xecute_url = iris.atelier_url(&format!("/v1/{}/action/xecute", p.namespace));
     let query_url = iris.atelier_url(&format!("/v1/{}/action/query", p.namespace));
 
     match p.action.as_str() {
         "map_int" => {
             let err = p.error_string.as_deref().unwrap_or("");
-            // Parse routine and offset from "<TYPE>offset^routine.N"
             let code = format!(
                 "set err=\"{}\" set routine=$piece($piece(err,\"^\",2),\".\",1) set offset=$piece(err,\"+\",2) set offset=$piece(offset,\"^\",1) write ##class(%Studio.Debugger).SourceLine(routine,+offset)",
                 err.replace('"', "\\\"")
             );
-            let resp = client
-                .post(&xecute_url)
-                .basic_auth(&iris.username, Some(&iris.password))
-                .json(&serde_json::json!({"expression": code}))
-                .send()
-                .await
-                .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
-            let body: serde_json::Value = resp.json().await.unwrap_or_default();
-            let output = body["result"]["content"][0]["content"]
-                .as_array()
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|v| v.as_str())
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                })
-                .unwrap_or_default();
-            ok_json(
-                serde_json::json!({"success": true, "error_string": err, "source_location": output}),
-            )
+            match iris.execute(&code, &p.namespace).await {
+                Ok(output) => ok_json(
+                    serde_json::json!({"success": true, "error_string": err, "source_location": output.trim()}),
+                ),
+                Err(e) if e.to_string() == "DOCKER_REQUIRED" => ok_json(serde_json::json!({
+                    "success": false, "error_code": "DOCKER_REQUIRED",
+                    "error": "iris_debug map_int requires docker exec. Set IRIS_CONTAINER=<container_name>.",
+                })),
+                Err(e) => err_json("EXECUTION_FAILED", &e.to_string()),
+            }
         }
         "error_logs" => {
             let sql = format!(
@@ -210,24 +198,16 @@ pub async fn handle_iris_debug(
         }
         "capture" => {
             let code = "set err=$ZERROR write \"error:\"_err,! set loc=$ZPOSITION write \"position:\"_loc,!";
-            let resp = client
-                .post(&xecute_url)
-                .basic_auth(&iris.username, Some(&iris.password))
-                .json(&serde_json::json!({"expression": code}))
-                .send()
-                .await
-                .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
-            let body: serde_json::Value = resp.json().await.unwrap_or_default();
-            let output = body["result"]["content"][0]["content"]
-                .as_array()
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|v| v.as_str())
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                })
-                .unwrap_or_default();
-            ok_json(serde_json::json!({"success": true, "capture": output}))
+            match iris.execute(code, &p.namespace).await {
+                Ok(output) => {
+                    ok_json(serde_json::json!({"success": true, "capture": output.trim()}))
+                }
+                Err(e) if e.to_string() == "DOCKER_REQUIRED" => ok_json(serde_json::json!({
+                    "success": false, "error_code": "DOCKER_REQUIRED",
+                    "error": "iris_debug capture requires docker exec. Set IRIS_CONTAINER=<container_name>.",
+                })),
+                Err(e) => err_json("EXECUTION_FAILED", &e.to_string()),
+            }
         }
         "source_map" => {
             let cls = p.class_name.as_deref().unwrap_or("");
@@ -235,24 +215,16 @@ pub async fn handle_iris_debug(
                 "set map=\"\" set line=1 do {{set int=##class(%Studio.Debugger).MapToINT(\"{cls}\",line,.intline) if int=\"\" quit set map=map_line_\"->\"_intline_\",\" set line=line+1 }} while 1 write map",
                 cls = cls.replace('"', "\\\"")
             );
-            let resp = client
-                .post(&xecute_url)
-                .basic_auth(&iris.username, Some(&iris.password))
-                .json(&serde_json::json!({"expression": code}))
-                .send()
-                .await
-                .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
-            let body: serde_json::Value = resp.json().await.unwrap_or_default();
-            let output = body["result"]["content"][0]["content"]
-                .as_array()
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|v| v.as_str())
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                })
-                .unwrap_or_default();
-            ok_json(serde_json::json!({"success": true, "class": cls, "mapping": output}))
+            match iris.execute(&code, &p.namespace).await {
+                Ok(output) => ok_json(
+                    serde_json::json!({"success": true, "class": cls, "mapping": output.trim()}),
+                ),
+                Err(e) if e.to_string() == "DOCKER_REQUIRED" => ok_json(serde_json::json!({
+                    "success": false, "error_code": "DOCKER_REQUIRED",
+                    "error": "iris_debug source_map requires docker exec. Set IRIS_CONTAINER=<container_name>.",
+                })),
+                Err(e) => err_json("EXECUTION_FAILED", &e.to_string()),
+            }
         }
         other => err_json(
             "INVALID_PARAM",

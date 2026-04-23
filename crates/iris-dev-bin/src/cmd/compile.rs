@@ -87,14 +87,10 @@ impl CompileCommand {
             )
         };
 
-        match iris.xecute(&code, &client).await {
-            Ok(resp) => {
-                let out = resp["result"]["content"][0]
-                    .as_str()
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                if out == "OK" || resp["result"]["content"][0]["status"] == "OK" {
+        match iris.execute(&code, &self.namespace).await {
+            Ok(out) => {
+                let out = out.trim().to_string();
+                if out == "OK" {
                     let result = serde_json::json!({"success": true, "target": target, "namespace": self.namespace, "stdout": "Compiled successfully"});
                     output_result(&result, &self.format);
                     Ok(())
@@ -105,7 +101,13 @@ impl CompileCommand {
                 }
             }
             Err(e) => {
-                let result = serde_json::json!({"success": false, "error_code": "IRIS_UNREACHABLE", "error": e.to_string()});
+                let msg = e.to_string();
+                let ec = if msg == "DOCKER_REQUIRED" {
+                    "DOCKER_REQUIRED"
+                } else {
+                    "IRIS_UNREACHABLE"
+                };
+                let result = serde_json::json!({"success": false, "error_code": ec, "error": msg});
                 output_result(&result, &self.format);
                 std::process::exit(2);
             }
