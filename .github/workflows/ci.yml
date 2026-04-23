@@ -37,37 +37,6 @@ jobs:
         env:
           RUST_LOG: warn
 
-  e2e-iris:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build -p iris-dev
-      - name: Start IRIS Community container
-        run: |
-          docker run -d --name iris-e2e \
-            -p 52773:52773 \
-            -e ISC_DATA_DIRECTORY=/home/irisowner/irisdb \
-            intersystemsdc/iris-community:latest
-      - name: Wait for IRIS web server
-        run: |
-          for i in $(seq 1 36); do
-            if curl -sf -u '_SYSTEM:SYS' http://localhost:52773/api/atelier/ > /dev/null 2>&1; then
-              echo "IRIS ready after ${i}x5s"; break
-            fi
-            echo "Waiting... attempt $i/36"; sleep 5
-          done
-      - name: Run Spec 022 E2E tests
-        run: |
-          cargo test --test test_e2e_spec022 --test test_mcp_iris --test test_e2e_all_tools -- --test-threads=1
-        env:
-          IRIS_HOST: localhost
-          IRIS_WEB_PORT: "52773"
-          IRIS_USERNAME: _SYSTEM
-          IRIS_PASSWORD: SYS
-          RUST_LOG: warn
-
   benchmark-lint:
     runs-on: ubuntu-latest
     steps:

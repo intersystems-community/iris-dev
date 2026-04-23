@@ -48,7 +48,7 @@ pub async fn handle_iris_info(
             iris.atelier_url(&format!("/v8/{}/docs?category={}", ns, cat))
         }
         "modified" => iris.atelier_url(&format!("/v8/{}/docs/modified", ns)),
-        "namespace" => iris.atelier_url("/"),
+        "namespace" => iris.atelier_url(&format!("/v8/{}/", ns)),
         "metadata" => iris.atelier_url(&format!("/v8/{}/metadata", ns)),
         "jobs" => iris.atelier_url(&format!("/v8/{}/jobs", ns)),
         "csp_apps" => iris.atelier_url(&format!("/v8/{}/cspapps", ns)),
@@ -107,13 +107,8 @@ pub async fn handle_iris_macro(
                 .send()
                 .await
                 .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
-            if !resp.status().is_success() {
-                return ok_json(serde_json::json!({"success": true, "macros": []}));
-            }
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
-            let content = body["result"]["content"].clone();
-            let macros = if content.is_null() { serde_json::json!([]) } else { content };
-            ok_json(serde_json::json!({"success": true, "macros": macros}))
+            ok_json(serde_json::json!({"success": true, "macros": body["result"]["content"]}))
         }
         action @ ("signature" | "location" | "definition" | "expand") => {
             let name = p.name.as_deref().unwrap_or("");
@@ -197,9 +192,7 @@ pub async fn handle_iris_debug(
                 .await
                 .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
-            let content = body["result"]["content"].clone();
-            let logs = if content.is_null() { serde_json::json!([]) } else { content };
-            ok_json(serde_json::json!({"success": true, "logs": logs}))
+            ok_json(serde_json::json!({"success": true, "logs": body["result"]["content"]}))
         }
         "capture" => {
             let code = "set err=$ZERROR write \"error:\"_err,! set loc=$ZPOSITION write \"position:\"_loc,!";
