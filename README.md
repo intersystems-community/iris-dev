@@ -8,20 +8,20 @@ Single Rust binary that connects AI coding assistants (VS Code Copilot, Claude C
 
 ## Quick Start
 
+Download binaries and `.vsix` from the [latest release](https://github.com/intersystems-community/iris-dev/releases/latest).
+
 **Mac / Linux:**
 ```bash
-# Download from OneDrive AI_Platform/iris-dev or build from source
-chmod +x iris-dev-macos-arm64
-mv iris-dev-macos-arm64 /usr/local/bin/iris-dev
+# macOS Apple Silicon:
+curl -fsSL https://github.com/intersystems-community/iris-dev/releases/latest/download/iris-dev-macos-arm64 -o /usr/local/bin/iris-dev && chmod +x /usr/local/bin/iris-dev
 
-code --install-extension vscode-iris-dev-0.2.0.vsix
+code --install-extension vscode-iris-dev-*.vsix
 ```
 
 **Windows:**
 ```powershell
-# Download iris-dev-windows-x86_64.exe and vscode-iris-dev-0.2.0.vsix
-Move-Item iris-dev-windows-x86_64.exe "$env:USERPROFILE\bin\iris-dev.exe"
-code --install-extension vscode-iris-dev-0.2.0.vsix
+# Download iris-dev-windows-x86_64.exe, place on PATH as iris-dev.exe
+code --install-extension vscode-iris-dev-*.vsix
 ```
 
 Reload VS Code. Open Copilot Chat → Agent mode → tools icon → **iris-dev (IRIS)** appears automatically, reading your existing `objectscript.conn`.
@@ -29,6 +29,33 @@ Reload VS Code. Open Copilot Chat → Agent mode → tools icon → **iris-dev (
 If the extension can't find the binary, set in VS Code settings:
 ```json
 "iris-dev.serverPath": "/full/path/to/iris-dev"
+```
+
+### Claude Code setup
+
+Add to `~/.claude/settings.json` (note: `"args": ["mcp"]` is required, use `env` not args for connection — Claude Code does not expand `${VAR}` in `args`):
+```json
+{
+  "mcpServers": {
+    "iris-dev": {
+      "type": "stdio",
+      "command": "iris-dev",
+      "args": ["mcp"],
+      "env": {
+        "IRIS_HOST": "localhost",
+        "IRIS_WEB_PORT": "52773",
+        "IRIS_USERNAME": "_SYSTEM",
+        "IRIS_PASSWORD": "SYS",
+        "IRIS_NAMESPACE": "USER"
+      }
+    }
+  }
+}
+```
+
+On Windows, use the full path to the binary:
+```json
+"command": "C:\\Users\\yourname\\bin\\iris-dev.exe"
 ```
 
 ---
@@ -122,7 +149,7 @@ After a successful `iris_doc(mode=put)` or `iris_compile`, the document opens au
 ## Build from source
 
 ```bash
-git clone https://gitlab.iscinternal.com/devx/iris-dev
+git clone https://github.com/intersystems-community/iris-dev
 cd iris-dev
 cargo build --release
 # Binary at: target/release/iris-dev
@@ -140,7 +167,9 @@ Requires Rust stable. No other dependencies.
 {
   "mcpServers": {
     "iris-dev": {
-      "command": "/path/to/iris-dev",
+      "type": "stdio",
+      "command": "iris-dev",
+      "args": ["mcp"],
       "env": {
         "IRIS_HOST": "prod-iris.example.com",
         "IRIS_WEB_PORT": "52773",
