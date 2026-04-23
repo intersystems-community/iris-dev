@@ -66,12 +66,15 @@ jobs:
         shell: pwsh
         run: |
           $init = '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}'
+          # Ignore exit code from iris-dev — it exits non-zero when stdin closes
           $result = $init | & "target\debug\iris-dev.exe" mcp 2>$null
+          $exitCode = $LASTEXITCODE
           Write-Host "Response: $result"
+          Write-Host "Binary exit code: $exitCode (expected non-zero — stdin closed)"
           if ($result -match '"capabilities"') {
-            Write-Host "PASS: capabilities advertised"
+            Write-Host "PASS: capabilities advertised on Windows"
           } else {
-            Write-Error "FAIL: no capabilities in response"
+            Write-Error "FAIL: no capabilities in response. Got: $result"
             exit 1
           }
 
