@@ -145,6 +145,168 @@ impl IrisConnection {
         self.atelier_version = AtelierVersion::V1;
     }
 
+    /// Execute ObjectScript code via the write-compile-query cycle (pure HTTP, no docker).
+    ///
+    /// Writes a temp class whose `CodeMode = objectgenerator` method runs the user's code at
+    /// compile time, captures its `Write` output to a temp file, and embeds the result as a
+    /// static return value in the generated method. The method is called via SQL to retrieve
+    /// the output, then the temp class is deleted.
+    pub async fn execute_via_generator(
+        &self,
+        code: &str,
+        namespace: &str,
+        client: &reqwest::Client,
+    ) -> anyhow::Result<String> {
+        let id: String = uuid::Uuid::new_v4()
+            .simple()
+            .to_string()
+            .chars()
+            .take(12)
+            .collect();
+        let class_name = format!("User.IrisDevRun{}", id);
+        let doc_name = format!("{}.cls", class_name);
+        // IRIS SQL stored procedure: schema "User", proc name "IrisDevRun{id}_Execute"
+        let sql_func = format!("User.IrisDevRun{}_Execute", id);
+        let tmpfile = format!("/tmp/irisd_{}.txt", id);
+
+        let content = Self::build_exec_class(&class_name, &tmpfile, code);
+
+        // 1. PUT the class document
+        let put_url = self.atelier_url(&format!(
+            "/v1/{}/doc/{}",
+            namespace,
+            urlencoding::encode(&doc_name)
+        ));
+        let put_resp = client
+            .put(&put_url)
+            .basic_auth(&self.username, Some(&self.password))
+            .json(&serde_json::json!({"content": content}))
+            .send()
+            .await?;
+        if !put_resp.status().is_success() {
+            anyhow::bail!("PUT doc failed: HTTP {}", put_resp.status());
+        }
+
+        // 2. Compile — triggers the generator, which runs user code and captures output
+        let compile_url =
+            self.atelier_url(&format!("/v1/{}/action/compile?flags=cuk", namespace));
+        let compile_resp = client
+            .post(&compile_url)
+            .basic_auth(&self.username, Some(&self.password))
+            .json(&serde_json::json!([doc_name]))
+            .send()
+            .await?;
+        if !compile_resp.status().is_success() {
+            let _ = self.delete_doc(&doc_name, namespace, client).await;
+            anyhow::bail!("compile HTTP {}", compile_resp.status());
+        }
+        let compile_body: serde_json::Value = compile_resp.json().await.unwrap_or_default();
+        let has_errors = compile_body["result"]["log"]
+            .as_array()
+            .map(|entries| {
+                entries.iter().any(|e| {
+                    e["type"]
+                        .as_str()
+                        .map(|t| t.eq_ignore_ascii_case("error"))
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false);
+        if has_errors {
+            let _ = self.delete_doc(&doc_name, namespace, client).await;
+            anyhow::bail!("compile errors: {:?}", compile_body["result"]["log"]);
+        }
+
+        // 3. Query via SQL — the generated method returns the captured output as a literal string
+        let sql = format!("SELECT {}() AS output", sql_func);
+        let query_url = self.atelier_url(&format!("/v1/{}/action/query", namespace));
+        let query_resp = client
+            .post(&query_url)
+            .basic_auth(&self.username, Some(&self.password))
+            .json(&serde_json::json!({"query": sql}))
+            .send()
+            .await?;
+        let query_body: serde_json::Value = query_resp.json().await.unwrap_or_default();
+        let output = query_body["result"]["content"][0]["output"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+
+        // 4. Delete the temp class (best-effort)
+        let _ = self.delete_doc(&doc_name, namespace, client).await;
+
+        Ok(output)
+    }
+
+    /// Build the `.cls` source lines for the temp executor class.
+    ///
+    /// The generated class has a `CodeMode = objectgenerator` method whose body runs at
+    /// compile time: it redirects Write output to a temp file, executes user code inside a
+    /// Try/Catch, reads back the captured output, then writes `Quit "output"` as the sole
+    /// line of the generated method body. SQL call retrieves that literal string.
+    fn build_exec_class(class_name: &str, tmpfile: &str, code: &str) -> Vec<String> {
+        let mut lines: Vec<String> = vec![
+            format!("Class {} [ Final ]", class_name),
+            "{".into(),
+            "".into(),
+            "ClassMethod Execute() As %String [ CodeMode = objectgenerator, SqlProc ]".into(),
+            "{".into(),
+            format!("  Set tmpfile = \"{}\"", tmpfile),
+            "  Set savedIO = $IO".into(),
+            "  Open tmpfile:(\"WNS\"):5".into(),
+            // ObjectScript: "" inside a string = one literal " — so ""ERROR..."" = "ERROR..."
+            "  If '$TEST { Do %code.WriteLine(\" Quit \"\"ERROR: output capture unavailable\"\"\") Quit }".into(),
+            "  Use tmpfile".into(),
+            "  Try {".into(),
+        ];
+        for line in code.lines() {
+            lines.push(format!("    {}", line));
+        }
+        lines.extend([
+            "  } Catch ex {".into(),
+            "    Write \"ERROR: \",ex.DisplayString(),!".into(),
+            "  }".into(),
+            "  Close tmpfile".into(),
+            "  Use savedIO".into(),
+            "  Set out = \"\"".into(),
+            "  Open tmpfile:(\"RNS\"):1".into(),
+            "  If $TEST {".into(),
+            "    Set line = \"\"".into(),
+            // Read line-by-line until EOF ($TEST=0 on timeout with :0)
+            "    For  { Read line:0  If '$TEST Quit  Set out = out_line_$Char(10) }".into(),
+            "    Close tmpfile".into(),
+            "  }".into(),
+            "  Do ##class(%Library.File).Delete(tmpfile)".into(),
+            "  Set qout = $Replace(out,$Char(34),$Char(34)_$Char(34))".into(),
+            // Generate: Quit "captured_output" — $Char(34) avoids nested quote escaping
+            "  Do %code.WriteLine(\" Quit \"_$Char(34)_qout_$Char(34))".into(),
+            "}".into(),
+            "".into(),
+            "}".into(),
+        ]);
+        lines
+    }
+
+    /// Delete an Atelier document (best-effort).
+    async fn delete_doc(
+        &self,
+        doc_name: &str,
+        namespace: &str,
+        client: &reqwest::Client,
+    ) -> anyhow::Result<()> {
+        let url = self.atelier_url(&format!(
+            "/v1/{}/doc/{}",
+            namespace,
+            urlencoding::encode(doc_name)
+        ));
+        client
+            .delete(&url)
+            .basic_auth(&self.username, Some(&self.password))
+            .send()
+            .await?;
+        Ok(())
+    }
+
     /// Execute ObjectScript code via docker exec (requires IRIS_CONTAINER env var).
     /// Returns stdout from the IRIS session. No Python required — pure Rust via tokio::process.
     pub async fn execute(&self, code: &str, namespace: &str) -> anyhow::Result<String> {
