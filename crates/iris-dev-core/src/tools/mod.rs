@@ -1302,10 +1302,7 @@ Methods:
     }
 
     #[tool(description = "List all synthesized skills in the registry.")]
-    async fn skill_list(
-        &self,
-        _: Parameters<NoParams>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn skill_list(&self, _: Parameters<NoParams>) -> Result<CallToolResult, McpError> {
         if let Some(iris) = self.iris.as_deref() {
             let client = self.http_client();
             let code = "Set key=\"\" Set result=\"[\" For { Set key=$Order(^SKILLS(key)) Quit:key=\"\" Set skill=$Get(^SKILLS(key)) Set result=result_skill_\",\" } Set result=$Extract(result,1,$Length(result)-1)_\"]\" Write result";
@@ -1395,10 +1392,7 @@ Methods:
     #[tool(
         description = "Trigger pattern miner to synthesize new skills from recorded tool calls."
     )]
-    async fn skill_propose(
-        &self,
-        _: Parameters<NoParams>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn skill_propose(&self, _: Parameters<NoParams>) -> Result<CallToolResult, McpError> {
         ok_json(
             serde_json::json!({"triggered": true, "note": "pattern mining pending full learning agent port"}),
         )
@@ -1541,10 +1535,7 @@ Methods:
     }
 
     #[tool(description = "Return learning agent status: skill count, pattern count, KB size.")]
-    async fn agent_stats(
-        &self,
-        _: Parameters<NoParams>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn agent_stats(&self, _: Parameters<NoParams>) -> Result<CallToolResult, McpError> {
         let mut skill_count = serde_json::Value::Null;
         if let Some(iris) = self.iris.as_deref() {
             let client = self.http_client();
@@ -1628,10 +1619,7 @@ Methods:
     }
 
     #[tool(description = "Get all current Interoperability message queues and their depths.")]
-    async fn interop_queues(
-        &self,
-        _: Parameters<NoParams>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn interop_queues(&self, _: Parameters<NoParams>) -> Result<CallToolResult, McpError> {
         interop::interop_queues_impl(self.iris.as_deref()).await
     }
 
