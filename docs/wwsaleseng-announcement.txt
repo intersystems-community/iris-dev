@@ -1,0 +1,20 @@
+Subject: Soft launch: iris-dev — AI coding tools for IRIS (EAP, feedback welcome)
+
+Team,
+
+Soft-launching iris-dev today for internal and early-access use. We'll make the bigger push for community and customer engagement after READY — but wanted to get it in your hands now so you can try it with customers and file issues before we go loud.
+
+iris-dev is a single binary that connects GitHub Copilot and Claude Code directly to a live IRIS instance — compile, test, search, debug, and write ObjectScript without leaving the chat. No Python, no pip, no npm.
+
+Three steps to get started:
+1. Download the binary for your platform: https://github.com/intersystems-community/iris-dev/releases/latest
+2. Install the VS Code extension (vscode-iris-dev-*.vsix) from the same page
+3. Reload VS Code — iris-dev appears automatically in Copilot agent mode
+
+Full setup guide in the README. Claude Code config documented there too.
+
+Feedback before READY is the whole point — file issues on GitHub or reply here. The more we hear from real customer scenarios now, the stronger the community launch will be.
+
+https://github.com/intersystems-community/iris-dev
+
+Tom
