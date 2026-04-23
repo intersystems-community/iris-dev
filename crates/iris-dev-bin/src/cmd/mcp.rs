@@ -89,14 +89,10 @@ impl McpCommand {
             }
         }
 
-        // Wait for discovery to complete (up to 5s) rather than a fixed sleep.
-        // Discovery makes an HTTP round-trip so 50ms was always a race.
-        let mut iris_rx_wait = iris_rx.clone();
-        let _ = tokio::time::timeout(
-            tokio::time::Duration::from_secs(5),
-            iris_rx_wait.wait_for(|v| v.is_some()),
-        )
-        .await;
+        // Do NOT wait for discovery here — start serving immediately so MCP clients
+        // (Claude Code, Copilot) get the initialize response within their timeout window.
+        // Tools read iris_rx dynamically; if discovery hasn't completed yet they return
+        // IRIS_UNREACHABLE, which is the correct behavior until IRIS is found.
         let iris = iris_rx.borrow().clone();
 
         // On Windows, stdout opens in text mode which translates \n → \r\n.
