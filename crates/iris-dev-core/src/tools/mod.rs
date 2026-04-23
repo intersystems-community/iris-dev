@@ -1020,7 +1020,7 @@ impl IrisTools {
             }
         }
         let iris = self.get_iris()?;
-        let client = self.http_client();
+        let _client = self.http_client();
         let code = format!(
             "Write ##class(%Studio.Debugger).SourceLine(\"{}\",{})",
             p.routine.replace('"', "\\\""),
@@ -1078,7 +1078,7 @@ impl IrisTools {
         Parameters(p): Parameters<SourceMapParams>,
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
-        let client = self.http_client();
+        let _client = self.http_client();
         let cls_name = p.cls_name.trim_end_matches(".cls");
         // Build source map by querying %Studio.Debugger for each .INT method
         let code = format!(
@@ -1135,7 +1135,7 @@ impl IrisTools {
             extract_class_name(&class_text).unwrap_or_else(|| "Generated.Class".to_string());
 
         if let Some(iris) = self.iris.as_deref() {
-            let client = self.http_client();
+            let _client = self.http_client();
             let code = format!(
                 "Set sc=$SYSTEM.OBJ.Compile(\"{}\",\"ck-d\") Write $System.Status.IsOK(sc)",
                 class_name
