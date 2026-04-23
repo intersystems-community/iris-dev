@@ -44,9 +44,10 @@ pub async fn probe_atelier(
     }
 
     let body: serde_json::Value = resp.json().await.ok()?;
+    let content = &body["result"]["content"];
 
-    // Fingerprint: result.content[0].version must contain "IRIS"
-    let version = body["result"]["content"][0]["version"]
+    // Fingerprint: result.content.version must contain "IRIS"
+    let version = content["version"]
         .as_str()
         .filter(|v| v.to_uppercase().contains("IRIS"))
         .map(|v| v.to_string())?;
@@ -59,13 +60,19 @@ pub async fn probe_atelier(
         DiscoverySource::LocalhostScan { port },
     );
     conn.version = Some(version);
+    conn.atelier_version = match content["api"].as_u64() {
+        Some(v) if v >= 8 => crate::iris::connection::AtelierVersion::V8,
+        Some(v) if v >= 2 => crate::iris::connection::AtelierVersion::V2,
+        _ => crate::iris::connection::AtelierVersion::V1,
+    };
     Some(conn)
 }
 
 /// Full discovery cascade. Returns Ok(Some(conn)) if IRIS found, Ok(None) if not.
 pub async fn discover_iris(explicit: Option<IrisConnection>) -> Result<Option<IrisConnection>> {
-    // 1. Explicit wins immediately
-    if let Some(conn) = explicit {
+    // 1. Explicit wins immediately — but probe for version + Atelier API level first
+    if let Some(mut conn) = explicit {
+        conn.probe().await;
         return Ok(Some(conn));
     }
 

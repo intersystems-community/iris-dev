@@ -71,8 +71,9 @@ impl McpCommand {
             };
             if let Some(ref c) = conn {
                 tracing::info!(
-                    "IRIS connected: {} v{}",
+                    "IRIS connected: {}/api/atelier/{} {}",
                     c.base_url,
+                    c.atelier_version.version_str(),
                     c.version.as_deref().unwrap_or("?")
                 );
             } else {
