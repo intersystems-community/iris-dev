@@ -1,0 +1,44 @@
+Hi Nathan,
+
+Thanks, I have fixed a bunch of stuff, but I do believe me being on Mac will make the transition to Rust a little bumpier than it should be 😊
+
+Here is what has changed since the first build I shared with you:
+
+TOOLS AND CAPABILITIES
+- 20 tools via Atelier REST — compile, execute, test, query, doc (read/write/delete), search, symbols, introspect, debug, SCM, generate, skills, KB, agent_info
+- iris_generate redesigned: returns prompt + IRIS context (existing classes, package structure) to the agent — no API key needed on the server side, the LLM call happens in the agent
+- iris_source_control tool added: status, menu, checkout, execute actions via Atelier xecute
+- SCM elicitation: when iris_doc put triggers OnBeforeSave, iris-dev pauses and asks the agent "should I check this out first?" using the MCP elicitation spec — agent can answer yes/no and the write proceeds or aborts accordingly
+- ROUTINE header auto-injection for .mac and .inc files in iris_doc put (your issue #11 equivalent)
+- iris_doc now accepts both "name" and "document" as the document field, and "mode" or "action" for the operation, with "get" as the default — makes Copilot much less likely to hit deserialization errors
+
+FIXES
+- Copilot schema validation: iris_query parameters changed from Vec<serde_json::Value> to Vec<String> — was blocking Copilot from loading the server at all
+- Named server lookup in VS Code extension: was using wrong configuration scope so intersystems.servers in .vscode/settings.json was silently ignored, causing fallback to port 52773. Fixed today (steve@customer found this one)
+- Windows: extension now tries iris-dev.exe explicitly on PATH, strips null env vars that caused process spawn failures
+- IRIS_WEB_PREFIX support throughout: all tool handlers now respect the path prefix for non-root web gateway installations
+
+VS CODE EXTENSION
+- Separate vscode-iris-dev.vsix — installs as its own extension, reads your existing objectscript.conn automatically
+- Wires up as an MCP server provider for VS Code 1.99+ Copilot agent mode
+- Watches ~/.iris-dev/open-hint.json: when iris-dev writes a document in an ISFS workspace it drops a hint file and the extension auto-opens it in the editor
+
+BENCHMARK
+- Path-aware agentic benchmark included: 23 tasks across GEN / MOD / DBG / SCM / LEG categories
+- Runs two paths head-to-head: Path A (local files + iris_compile) vs Path B (iris_doc put, ISFS-only)
+- LLM-as-judge scoring 0-3, produces JSON results + standalone HTML report
+- This is the empirical answer to your finding that ISFS+MCP = three competing edit paths. We run it, we publish the scores, we let the data make the case.
+
+DISTRIBUTION
+- Single static binary, cross-compiled: macOS ARM64/Intel, Linux x86_64, Windows x86_64
+- Available at: https://github.com/intersystems-community/iris-dev/releases/latest (private repo for now, you already have access)
+- No Python, no pip, no node_modules
+
+WHAT I WOULD LOVE YOUR HELP WITH
+- Try the Windows path — you are the best positioned to find issues there before we go public
+- Run the benchmark on your setup (--dry-run first to see the task list, then pick a category)
+- The local-file path (Path A) is the direction I want to push customers toward — your empirical finding about ISFS+MCP = chaos is exactly the evidence we need to back that up
+
+Repo goes public at READY. Happy to sync before then.
+
+Tom

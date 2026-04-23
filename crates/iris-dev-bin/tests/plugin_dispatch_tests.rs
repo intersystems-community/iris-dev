@@ -1,7 +1,9 @@
 //! T035: Unit tests for iris-dev plugin discovery and dispatch.
 
-use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 fn iris_dev_bin() -> std::path::PathBuf {
     let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));

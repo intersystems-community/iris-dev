@@ -1,0 +1,36 @@
+Steve,
+
+Good catch on all three — here's what's happening and what to do right now:
+
+THE QUICK FIX (use this today)
+
+Your env vars are correct and DO work. Keep them set:
+
+IRIS_HOST=localhost
+IRIS_WEB_PORT=80
+IRIS_WEB_PREFIX=irisaicore
+IRIS_USERNAME=superuser
+IRIS_PASSWORD=<your password>
+IRIS_NAMESPACE=USER
+
+With those set, iris-dev will connect correctly regardless of the extension bug. The 52773 you saw was from an auto-discovery scan that ran before your env vars took effect — not the actual tool calls.
+
+THE BUG (now fixed)
+
+The extension was looking up your "irisaicore" named server with the wrong VS Code configuration scope, so it couldn't find it in your .vscode/settings.json. It silently fell back to defaults (port 52773, no path prefix). I've fixed this and there is a new vsix on OneDrive at AI_Platform/iris-dev/vscode-iris-dev-0.2.0.vsix. After installing the new vsix, the env vars will no longer be needed.
+
+THE DOUBLE CLASS BODY
+
+That's the LLM generating two class definitions in one response — not an iris-dev bug. The ISFS path (no local files) gives the agent less context to anchor on, so it sometimes produces multiple variants. Try being more specific in the prompt:
+
+"Write a single ObjectScript class spDemoMC.Vehicle extending %Persistent with properties Make (%String), Model (%String), and Year (%Integer). Write it using iris_doc put to the USER namespace."
+
+Telling it which base class and which tool to use eliminates the ambiguity.
+
+DO YOU NEED THE ENV VARS?
+
+Correct — once the extension is working properly you should NOT need them. The extension reads your objectscript.conn and intersystems.servers config and passes the right values to iris-dev automatically. The env vars are a valid workaround for now.
+
+Let me know how it goes — I want this working for your customer demo.
+
+Tom
