@@ -659,50 +659,17 @@ impl IrisTools {
     }
 
     #[tool(
-        description = "Execute arbitrary ObjectScript code on IRIS and return stdout. Tries pure-HTTP execution first (write-compile-query via CodeMode=objectgenerator), then falls back to docker exec if IRIS_CONTAINER env var is set. Example: code='write $ZVERSION,!' returns the IRIS version string."
+        description = "Execute arbitrary ObjectScript code on IRIS via docker exec and return stdout. Requires IRIS_CONTAINER=<container_name> env var. No Python required. Example: code='write $ZVERSION,!' returns the IRIS version string."
     )]
     async fn iris_execute(
         &self,
         Parameters(p): Parameters<ExecuteParams>,
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
-        let client = self.http_client();
-
-        // Try pure-HTTP execution via the write-compile-query cycle first.
         let timeout = std::time::Duration::from_secs(p.timeout);
-        let gen_result = tokio::time::timeout(
-            timeout,
-            iris.execute_via_generator(&p.code, &p.namespace, client),
-        )
-        .await;
-
-        match gen_result {
-            Ok(Ok(output)) => {
-                self.record_call("iris_execute", true);
-                return ok_json(serde_json::json!({
-                    "success": true,
-                    "output": output.trim(),
-                    "namespace": p.namespace,
-                    "method": "http",
-                }));
-            }
-            Err(_) => {
-                self.record_call("iris_execute", false);
-                return ok_json(serde_json::json!({
-                    "success": false,
-                    "error_code": "TIMEOUT",
-                    "error": format!("execution timed out after {}s", p.timeout),
-                }));
-            }
-            Ok(Err(_)) => {
-                // HTTP path failed — fall through to docker exec below.
-            }
-        }
-
-        // Fallback: docker exec (requires IRIS_CONTAINER env var).
-        let docker_result =
+        let result =
             tokio::time::timeout(timeout, iris.execute(&p.code, &p.namespace)).await;
-        match docker_result {
+        match result {
             Err(_) => {
                 self.record_call("iris_execute", false);
                 ok_json(serde_json::json!({
@@ -718,7 +685,7 @@ impl IrisTools {
                     ok_json(serde_json::json!({
                         "success": false,
                         "error_code": "DOCKER_REQUIRED",
-                        "error": "iris_execute: HTTP execution failed and IRIS_CONTAINER is not set for docker exec fallback.",
+                        "error": "iris_execute requires docker exec. Set IRIS_CONTAINER=<container_name>. The Atelier REST API has no ObjectScript execution endpoint (/action/xecute does not exist).",
                     }))
                 } else {
                     ok_json(serde_json::json!({
@@ -734,7 +701,6 @@ impl IrisTools {
                     "success": true,
                     "output": output.trim(),
                     "namespace": p.namespace,
-                    "method": "docker",
                 }))
             }
         }
@@ -1054,7 +1020,7 @@ impl IrisTools {
             }
         }
         let iris = self.get_iris()?;
-        let _client = self.http_client();
+        let client = self.http_client();
         let code = format!(
             "Write ##class(%Studio.Debugger).SourceLine(\"{}\",{})",
             p.routine.replace('"', "\\\""),
@@ -1112,7 +1078,7 @@ impl IrisTools {
         Parameters(p): Parameters<SourceMapParams>,
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
-        let _client = self.http_client();
+        let client = self.http_client();
         let cls_name = p.cls_name.trim_end_matches(".cls");
         // Build source map by querying %Studio.Debugger for each .INT method
         let code = format!(
@@ -1169,7 +1135,7 @@ impl IrisTools {
             extract_class_name(&class_text).unwrap_or_else(|| "Generated.Class".to_string());
 
         if let Some(iris) = self.iris.as_deref() {
-            let _client = self.http_client();
+            let client = self.http_client();
             let code = format!(
                 "Set sc=$SYSTEM.OBJ.Compile(\"{}\",\"ck-d\") Write $System.Status.IsOK(sc)",
                 class_name
