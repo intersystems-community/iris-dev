@@ -99,6 +99,18 @@ impl McpCommand {
         .await;
         let iris = iris_rx.borrow().clone();
 
+        // On Windows, stdout opens in text mode which translates \n → \r\n.
+        // MCP clients expect bare \n-terminated JSON lines — set stdout/stdin to binary mode.
+        #[cfg(windows)]
+        unsafe {
+            extern "C" {
+                fn _setmode(fd: i32, mode: i32) -> i32;
+            }
+            const O_BINARY: i32 = 0x8000;
+            _setmode(0, O_BINARY); // stdin
+            _setmode(1, O_BINARY); // stdout
+        }
+
         let service = IrisTools::with_registry(iris, registry)
             .serve(stdio())
             .await
