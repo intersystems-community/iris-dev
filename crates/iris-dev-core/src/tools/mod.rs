@@ -462,13 +462,10 @@ impl IrisTools {
             );
         }
 
-        // Optional force_writable: unlock read-only databases
+        // force_writable: attempt to enable namespace via docker exec if available
         if p.force_writable {
-            let xecute_url = iris.atelier_url(&format!("/v1/{}/action/xecute", p.namespace));
-            let _ = client.post(&xecute_url)
-                .basic_auth(&iris.username, Some(&iris.password))
-                .json(&serde_json::json!({"expression": format!("do ##class(%Library.EnsembleMgr).EnableNamespace(\"{}\",1)", p.namespace)}))
-                .send().await;
+            let code = format!("do ##class(%Library.EnsembleMgr).EnableNamespace(\"{}\",1)", p.namespace);
+            let _ = iris.execute(&code, &p.namespace).await;
         }
 
         // Atelier compile: POST with JSON array of document names (with extensions)
@@ -591,148 +588,122 @@ impl IrisTools {
     }
 
     #[tool(
-        description = "Run %UnitTest.Manager tests on IRIS via Atelier REST. Pass a class pattern like 'MyApp.Tests' or 'MyApp.Tests.Order'. Returns structured pass/fail counts and full trace output. No Python required."
+        description = "Run %UnitTest.Manager tests on IRIS via docker exec. Set IRIS_CONTAINER=<container_name> to enable. Pass a class pattern like 'MyApp.Tests' or 'MyApp.Tests.Order'. Returns structured pass/fail counts and full trace output. No Python required."
     )]
     async fn iris_test(
         &self,
         Parameters(p): Parameters<TestParams>,
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
-        let client = self.http_client();
         let code = format!(
             "do ##class(%UnitTest.Manager).RunTest(\"{}\",\"/noload/run\")",
             p.pattern.replace('"', "\\\"")
         );
-        let xecute_url = iris.atelier_url(&format!("/v1/{}/action/xecute", p.namespace));
-        let resp = client
-            .post(&xecute_url)
-            .basic_auth(&iris.username, Some(&iris.password))
-            .json(&serde_json::json!({"expression": code}))
-            .send()
-            .await
-            .map_err(|e| McpError::internal_error(format!("HTTP error: {e}"), None))?;
-
-        if !resp.status().is_success() {
-            return err_json_with_url(
-                "IRIS_UNREACHABLE",
-                &format!("HTTP {}", resp.status()),
-                &xecute_url,
-            );
+        match iris.execute(&code, &p.namespace).await {
+            Err(e) => {
+                let msg = e.to_string();
+                self.record_call("iris_test", false);
+                if msg == "DOCKER_REQUIRED" {
+                    ok_json(serde_json::json!({
+                        "success": false,
+                        "error_code": "DOCKER_REQUIRED",
+                        "error": "iris_test requires docker exec. Set IRIS_CONTAINER=<container_name>. The Atelier REST API has no ObjectScript execution endpoint.",
+                    }))
+                } else {
+                    ok_json(serde_json::json!({
+                        "success": false,
+                        "error_code": "EXECUTION_FAILED",
+                        "error": msg,
+                    }))
+                }
+            }
+            Ok(output_lines) => {
+                let passed = output_lines
+                    .lines()
+                    .find(|l| l.to_lowercase().contains("passed:"))
+                    .and_then(|l| {
+                        l.split(':')
+                            .nth(1)?
+                            .split_whitespace()
+                            .next()?
+                            .parse::<u64>()
+                            .ok()
+                    })
+                    .unwrap_or(0);
+                let failed = output_lines
+                    .lines()
+                    .find(|l| l.to_lowercase().contains("failed:"))
+                    .and_then(|l| {
+                        l.split(':')
+                            .nth(1)?
+                            .split_whitespace()
+                            .next()?
+                            .parse::<u64>()
+                            .ok()
+                    })
+                    .unwrap_or(0);
+                let total = passed + failed;
+                let success = failed == 0 && total > 0;
+                self.record_call("iris_test", success);
+                ok_json(serde_json::json!({
+                    "success": success,
+                    "pattern": p.pattern,
+                    "namespace": p.namespace,
+                    "passed": passed,
+                    "failed": failed,
+                    "total": total,
+                    "output": output_lines.trim(),
+                }))
+            }
         }
-
-        let body: serde_json::Value = resp.json().await.unwrap_or_default();
-        let output_lines = body["result"]["content"][0]["content"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_str())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
-            .unwrap_or_default();
-
-        let passed = output_lines
-            .lines()
-            .find(|l| l.to_lowercase().contains("passed:"))
-            .and_then(|l| {
-                l.split(':')
-                    .nth(1)?
-                    .split_whitespace()
-                    .next()?
-                    .parse::<u64>()
-                    .ok()
-            })
-            .unwrap_or(0);
-        let failed = output_lines
-            .lines()
-            .find(|l| l.to_lowercase().contains("failed:"))
-            .and_then(|l| {
-                l.split(':')
-                    .nth(1)?
-                    .split_whitespace()
-                    .next()?
-                    .parse::<u64>()
-                    .ok()
-            })
-            .unwrap_or(0);
-        let total = passed + failed;
-        let success = failed == 0 && total > 0;
-        self.record_call("iris_test", success);
-        ok_json(serde_json::json!({
-            "success": success,
-            "pattern": p.pattern,
-            "namespace": p.namespace,
-            "passed": passed,
-            "failed": failed,
-            "total": total,
-            "output": output_lines,
-        }))
     }
 
     #[tool(
-        description = "Execute arbitrary ObjectScript code on IRIS via Atelier REST and return stdout output. No Python required. Example: 'write $ZVERSION,!' returns the IRIS version."
+        description = "Execute arbitrary ObjectScript code on IRIS via docker exec and return stdout. Requires IRIS_CONTAINER=<container_name> env var. No Python required. Example: code='write $ZVERSION,!' returns the IRIS version string."
     )]
     async fn iris_execute(
         &self,
         Parameters(p): Parameters<ExecuteParams>,
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
-        let client = self.http_client();
-        let xecute_url = iris.atelier_url(&format!("/v1/{}/action/xecute", p.namespace));
-        let resp = client
-            .post(&xecute_url)
-            .basic_auth(&iris.username, Some(&iris.password))
-            .json(&serde_json::json!({"expression": p.code}))
-            .send()
-            .await
-            .map_err(|e| McpError::internal_error(format!("HTTP error: {e}"), None))?;
-
-        if !resp.status().is_success() {
-            return err_json_with_url(
-                "IRIS_UNREACHABLE",
-                &format!("HTTP {}", resp.status()),
-                &xecute_url,
-            );
-        }
-
-        let body: serde_json::Value = resp.json().await.unwrap_or_default();
-
-        // Check for IRIS-level errors in response
-        if let Some(errors) = body["status"]["errors"].as_array() {
-            if !errors.is_empty() {
-                let first = &errors[0];
-                let iris_err = serde_json::json!({
-                    "code": first["code"],
-                    "domain": first["domain"].as_str().unwrap_or(""),
-                    "id": first["id"].as_str().unwrap_or(""),
-                    "params": first["params"],
-                });
+        let timeout = std::time::Duration::from_secs(p.timeout);
+        let result =
+            tokio::time::timeout(timeout, iris.execute(&p.code, &p.namespace)).await;
+        match result {
+            Err(_) => {
                 self.record_call("iris_execute", false);
-                return ok_json(serde_json::json!({
+                ok_json(serde_json::json!({
                     "success": false,
-                    "error_code": "IRIS_ERROR",
-                    "error": first["error"].as_str().unwrap_or("ObjectScript error"),
-                    "iris_error": iris_err,
-                }));
+                    "error_code": "TIMEOUT",
+                    "error": format!("execution timed out after {}s", p.timeout),
+                }))
+            }
+            Ok(Err(e)) => {
+                let msg = e.to_string();
+                self.record_call("iris_execute", false);
+                if msg == "DOCKER_REQUIRED" {
+                    ok_json(serde_json::json!({
+                        "success": false,
+                        "error_code": "DOCKER_REQUIRED",
+                        "error": "iris_execute requires docker exec. Set IRIS_CONTAINER=<container_name>. The Atelier REST API has no ObjectScript execution endpoint (/action/xecute does not exist).",
+                    }))
+                } else {
+                    ok_json(serde_json::json!({
+                        "success": false,
+                        "error_code": "EXECUTION_FAILED",
+                        "error": msg,
+                    }))
+                }
+            }
+            Ok(Ok(output)) => {
+                self.record_call("iris_execute", true);
+                ok_json(serde_json::json!({
+                    "success": true,
+                    "output": output.trim(),
+                    "namespace": p.namespace,
+                }))
             }
         }
-
-        let output = body["result"]["content"][0]["content"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_str())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
-            .unwrap_or_default();
-
-        self.record_call("iris_execute", true);
-        ok_json(serde_json::json!({
-            "success": true,
-            "output": output,
-            "namespace": p.namespace,
-        }))
     }
 
     #[tool(
@@ -874,12 +845,7 @@ impl IrisTools {
         );
         new_conn.port_superserver = Some(port_superserver);
 
-        let client = IrisConnection::http_client().unwrap_or_default();
-        let version = new_conn
-            .xecute("Write $ZVERSION", &client)
-            .await
-            .ok()
-            .and_then(|v| v["result"]["content"].as_str().map(|s| s.to_string()));
+        let version: Option<String> = None; // requires docker exec to probe version
 
         ok_json(serde_json::json!({
             "status": "ok",
@@ -1060,17 +1026,17 @@ impl IrisTools {
             p.routine.replace('"', "\\\""),
             p.offset
         );
-        match iris.xecute(&code, client).await {
-            Ok(resp) => {
-                let raw = resp["result"]["content"][0]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string();
-                let (cls_name, cls_line) = parse_source_line(&raw);
+        match iris.execute(&code, &p.namespace).await {
+            Ok(raw) => {
+                let (cls_name, cls_line) = parse_source_line(raw.trim());
                 ok_json(
                     serde_json::json!({"success": true, "mapping_available": cls_name.is_some(), "cls_name": cls_name, "cls_line": cls_line, "routine": p.routine, "offset": p.offset, "raw_error": if p.error_string.is_empty() { serde_json::Value::Null } else { p.error_string.into() }}),
                 )
             }
+            Err(e) if e.to_string() == "DOCKER_REQUIRED" => ok_json(serde_json::json!({
+                "success": false, "error_code": "DOCKER_REQUIRED",
+                "error": "debug_map_int requires docker exec. Set IRIS_CONTAINER=<container_name>.",
+            })),
             Err(e) => err_json("IRIS_UNREACHABLE", &e.to_string()),
         }
     }
@@ -1119,32 +1085,16 @@ impl IrisTools {
             "set cls=\"{}\" set rtn=$translate(cls,\".\",\".\") set map=\"{{\" set first=1 set method=\"\" for {{ set method=$order(^rIndex(rtn,method)) quit:method=\"\"  set intline=$get(^rIndex(rtn,method)) if 'first {{ set map=map_\",\" }} set map=map_\"\\\"\"_method_\"\\\":\\\"\"_intline_\"\\\"\" set first=0 }} set map=map_\"}}\" write map",
             cls_name.replace('"', "\\\"")
         );
-        // xecute runs in USER namespace; class resolution uses the full class name inline.
-        let xecute_url = iris.atelier_url("/v1/USER/action/xecute");
-        match client
-            .post(&xecute_url)
-            .basic_auth(&iris.username, Some(&iris.password))
-            .json(&serde_json::json!({"expression": code}))
-            .send()
-            .await
-        {
-            Ok(resp) => {
-                let body: serde_json::Value = resp.json().await.unwrap_or_default();
-                let output = body["result"]["content"][0]["content"]
-                    .as_array()
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|v| v.as_str())
-                            .collect::<Vec<_>>()
-                            .join("")
-                    })
-                    .unwrap_or_default();
+        match iris.execute(&code, "USER").await {
+            Ok(output) => {
                 let map: serde_json::Value =
-                    serde_json::from_str(&output).unwrap_or(serde_json::json!({}));
-                ok_json(
-                    serde_json::json!({"success": true, "cls_name": cls_name, "source_map": map}),
-                )
+                    serde_json::from_str(output.trim()).unwrap_or(serde_json::json!({}));
+                ok_json(serde_json::json!({"success": true, "cls_name": cls_name, "source_map": map}))
             }
+            Err(e) if e.to_string() == "DOCKER_REQUIRED" => ok_json(serde_json::json!({
+                "success": false, "error_code": "DOCKER_REQUIRED",
+                "error": "debug_source_map requires docker exec. Set IRIS_CONTAINER=<container_name>.",
+            })),
             Err(e) => err_json("IRIS_UNREACHABLE", &e.to_string()),
         }
     }
@@ -1191,9 +1141,9 @@ impl IrisTools {
                 class_name
             );
             let compile_ok = iris
-                .xecute(&code, client)
+                .execute(&code, &iris.namespace)
                 .await
-                .map(|r| r["result"]["content"][0].as_str().unwrap_or("0").trim() == "1")
+                .map(|o| o.trim() == "1")
                 .unwrap_or(false);
 
             if !compile_ok {
@@ -1216,9 +1166,9 @@ Original: {}",
                         fixed_name
                     );
                     let ok2 = iris
-                        .xecute(&code2, client)
+                        .execute(&code2, &iris.namespace)
                         .await
-                        .map(|r| r["result"]["content"][0].as_str().unwrap_or("0").trim() == "1")
+                        .map(|o| o.trim() == "1")
                         .unwrap_or(false);
                     return ok_json(
                         serde_json::json!({"success": true, "class_name": fixed_name, "class_text": fixed, "compiled": ok2, "retried": true}),
@@ -1304,11 +1254,9 @@ Methods:
     #[tool(description = "List all synthesized skills in the registry.")]
     async fn skill_list(&self, _: Parameters<NoParams>) -> Result<CallToolResult, McpError> {
         if let Some(iris) = self.iris.as_deref() {
-            let client = self.http_client();
             let code = "Set key=\"\" Set result=\"[\" For { Set key=$Order(^SKILLS(key)) Quit:key=\"\" Set skill=$Get(^SKILLS(key)) Set result=result_skill_\",\" } Set result=$Extract(result,1,$Length(result)-1)_\"]\" Write result";
-            if let Ok(resp) = iris.xecute(code, client).await {
-                let raw = resp["result"]["content"][0].as_str().unwrap_or("[]");
-                if let Ok(skills) = serde_json::from_str::<serde_json::Value>(raw) {
+            if let Ok(output) = iris.execute(code, &iris.namespace).await {
+                if let Ok(skills) = serde_json::from_str::<serde_json::Value>(output.trim()) {
                     let count = skills.as_array().map(|a| a.len()).unwrap_or(0);
                     return ok_json(serde_json::json!({"skills": skills, "count": count}));
                 }
@@ -1323,11 +1271,9 @@ Methods:
         Parameters(p): Parameters<SkillNameParams>,
     ) -> Result<CallToolResult, McpError> {
         if let Some(iris) = self.iris.as_deref() {
-            let client = self.http_client();
             let code = format!("Write $Get(^SKILLS(\"{}\"))", p.name.replace('"', "\\\""));
-            if let Ok(resp) = iris.xecute(&code, client).await {
-                let raw = resp["result"]["content"][0].as_str().unwrap_or("{}");
-                if let Ok(skill) = serde_json::from_str::<serde_json::Value>(raw) {
+            if let Ok(output) = iris.execute(&code, &iris.namespace).await {
+                if let Ok(skill) = serde_json::from_str::<serde_json::Value>(output.trim()) {
                     return ok_json(serde_json::json!({"success": true, "skill": skill}));
                 }
             }
@@ -1343,7 +1289,6 @@ Methods:
         Parameters(p): Parameters<SkillSearchParams>,
     ) -> Result<CallToolResult, McpError> {
         if let Some(iris) = self.iris.as_deref() {
-            let client = self.http_client();
             let query_lower = p.query.to_lowercase();
             let q = query_lower.replace('"', "");
             let code = format!(
@@ -1357,14 +1302,11 @@ Methods:
                 ),
                 q
             );
-            if let Ok(resp) = iris.xecute(&code, client).await {
-                let raw = resp["result"]["content"][0].as_str().unwrap_or("[]");
-                if let Ok(skills) = serde_json::from_str::<Vec<serde_json::Value>>(raw) {
+            if let Ok(output) = iris.execute(&code, &iris.namespace).await {
+                if let Ok(skills) = serde_json::from_str::<Vec<serde_json::Value>>(output.trim()) {
                     let limited: Vec<_> = skills.into_iter().take(p.top_k).collect();
                     let count = limited.len();
-                    return ok_json(
-                        serde_json::json!({"query": p.query, "results": limited, "count": count}),
-                    );
+                    return ok_json(serde_json::json!({"query": p.query, "results": limited, "count": count}));
                 }
             }
         }
@@ -1377,16 +1319,12 @@ Methods:
         Parameters(p): Parameters<SkillNameParams>,
     ) -> Result<CallToolResult, McpError> {
         if let Some(iris) = self.iris.as_deref() {
-            let client = self.http_client();
-            let code = format!(
-                "Kill ^SKILLS(\"{}\") Write \"OK\"",
-                p.name.replace('"', "\\\"")
-            );
-            if iris.xecute(&code, client).await.is_ok() {
+            let code = format!("Kill ^SKILLS(\"{}\") Write \"OK\"", p.name.replace('"', "\\\""));
+            if iris.execute(&code, &iris.namespace).await.is_ok() {
                 return ok_json(serde_json::json!({"success": true, "name": p.name}));
             }
         }
-        err_json("IRIS_UNREACHABLE", "Cannot reach IRIS to delete skill")
+        err_json("DOCKER_REQUIRED", "skill_forget requires docker exec. Set IRIS_CONTAINER=<container_name>.")
     }
 
     #[tool(
@@ -1536,19 +1474,7 @@ Methods:
 
     #[tool(description = "Return learning agent status: skill count, pattern count, KB size.")]
     async fn agent_stats(&self, _: Parameters<NoParams>) -> Result<CallToolResult, McpError> {
-        let mut skill_count = serde_json::Value::Null;
-        if let Some(iris) = self.iris.as_deref() {
-            let client = self.http_client();
-            let code = "Set count=0,key=\"\" For { Set key=$Order(^SKILLS(key)) Quit:key=\"\" Set count=count+1 } Write count";
-            if let Ok(resp) = iris.xecute(code, client).await {
-                if let Some(n) = resp["result"]["content"][0]
-                    .as_str()
-                    .and_then(|s| s.trim().parse::<u64>().ok())
-                {
-                    skill_count = serde_json::Value::Number(n.into());
-                }
-            }
-        }
+        let skill_count = serde_json::Value::Null; // requires docker exec; see iris_execute
         ok_json(
             serde_json::json!({"status": "ok", "skill_count": skill_count, "pattern_count": null, "learning_enabled": false}),
         )

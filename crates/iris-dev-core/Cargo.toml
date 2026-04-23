@@ -86,3 +86,7 @@ path = "tests/integration/test_scm.rs"
 [[test]]
 name = "test_doc_params"
 path = "tests/unit/test_doc_params.rs"
+
+[[test]]
+name = "test_e2e_spec022"
+path = "tests/integration/test_e2e_spec022.rs"

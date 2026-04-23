@@ -44,27 +44,11 @@ pub struct ScmParams {
 
 async fn xecute(
     iris: &IrisConnection,
-    client: &reqwest::Client,
+    _client: &reqwest::Client,
     code: &str,
     namespace: &str,
 ) -> anyhow::Result<String> {
-    let url = iris.atelier_url(&format!("/v1/{}/action/xecute", namespace));
-    let resp = client
-        .post(&url)
-        .basic_auth(&iris.username, Some(&iris.password))
-        .json(&serde_json::json!({"expression": code}))
-        .send()
-        .await?;
-    let body: serde_json::Value = resp.json().await?;
-    Ok(body["result"]["content"][0]["content"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str())
-                .collect::<Vec<_>>()
-                .join("\n")
-        })
-        .unwrap_or_default())
+    iris.execute(code, namespace).await
 }
 
 /// Escape a string for safe interpolation into an ObjectScript double-quoted literal.
@@ -109,9 +93,18 @@ pub async fn handle_iris_source_control(
             if answer == "yes" { "1" } else { "0" },
             os_quote(answer),
         );
-        let out = xecute(iris, client, &after_code, &pending.namespace)
-            .await
-            .unwrap_or_default();
+        let out = match xecute(iris, client, &after_code, &pending.namespace).await {
+            Ok(o) => o,
+            Err(e) => {
+                let msg = e.to_string();
+                let (ec, emsg) = if msg == "DOCKER_REQUIRED" {
+                    ("DOCKER_REQUIRED", "SCM operations require docker exec. Set IRIS_CONTAINER=<container_name>.".to_string())
+                } else {
+                    ("SCM_UNAVAILABLE", msg)
+                };
+                return ok_json(serde_json::json!({"success": false, "error_code": ec, "error": emsg}));
+            }
+        };
         if out.is_empty() || out.starts_with('$') {
             return ok_json(
                 serde_json::json!({"success": true, "document": pending.document, "action_id": action_id}),
@@ -170,7 +163,18 @@ pub async fn handle_iris_source_control(
 
         "checkout" => {
             let code = user_action_code("CheckOut", doc);
-            let out = xecute(iris, client, &code, ns).await.unwrap_or_default();
+            let out = match xecute(iris, client, &code, ns).await {
+                Ok(o) => o,
+                Err(e) => {
+                    let msg = e.to_string();
+                    let (ec, emsg) = if msg == "DOCKER_REQUIRED" {
+                        ("DOCKER_REQUIRED", "SCM checkout requires docker exec. Set IRIS_CONTAINER=<container_name>.".to_string())
+                    } else {
+                        ("SCM_UNAVAILABLE", msg)
+                    };
+                    return ok_json(serde_json::json!({"success": false, "error_code": ec, "error": emsg}));
+                }
+            };
             let (action_code, msg) = parse_action_msg(&out);
 
             if action_code == 0 {
@@ -198,7 +202,18 @@ pub async fn handle_iris_source_control(
         "execute" => {
             let action_id = p.action_id.as_deref().unwrap_or("");
             let code = user_action_code(action_id, doc);
-            let out = xecute(iris, client, &code, ns).await.unwrap_or_default();
+            let out = match xecute(iris, client, &code, ns).await {
+                Ok(o) => o,
+                Err(e) => {
+                    let msg = e.to_string();
+                    let (ec, emsg) = if msg == "DOCKER_REQUIRED" {
+                        ("DOCKER_REQUIRED", "SCM execute requires docker exec. Set IRIS_CONTAINER=<container_name>.".to_string())
+                    } else {
+                        ("SCM_UNAVAILABLE", msg)
+                    };
+                    return ok_json(serde_json::json!({"success": false, "error_code": ec, "error": emsg}));
+                }
+            };
             let (action_code, msg) = parse_action_msg(&out);
 
             match action_code {

@@ -145,20 +145,35 @@ impl IrisConnection {
         self.atelier_version = AtelierVersion::V1;
     }
 
-    /// Execute ObjectScript code via xecute endpoint. Returns the response body.
-    pub async fn xecute(
-        &self,
-        code: &str,
-        client: &reqwest::Client,
-    ) -> anyhow::Result<serde_json::Value> {
-        let url = self.atelier_url(&format!("/v1/{}/action/xecute", self.namespace));
-        let resp = client
-            .post(&url)
-            .basic_auth(&self.username, Some(&self.password))
-            .json(&serde_json::json!({"expression": code}))
-            .send()
-            .await?;
-        Ok(resp.json().await?)
+    /// Execute ObjectScript code via docker exec (requires IRIS_CONTAINER env var).
+    /// Returns stdout from the IRIS session. No Python required — pure Rust via tokio::process.
+    pub async fn execute(&self, code: &str, namespace: &str) -> anyhow::Result<String> {
+        let container = std::env::var("IRIS_CONTAINER")
+            .map_err(|_| anyhow::anyhow!("DOCKER_REQUIRED"))?;
+
+        use tokio::io::AsyncWriteExt;
+
+        let mut child = tokio::process::Command::new("docker")
+            .args(["exec", "-i", &container, "iris", "session", "IRIS", "-U", namespace])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| anyhow::anyhow!("docker not available: {e}"))?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(code.as_bytes()).await;
+            let _ = stdin.write_all(b"\nhalt\n").await;
+        }
+
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            child.wait_with_output(),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("docker exec timed out after 30s"))??;
+
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
     /// Run a SQL query via the Atelier query endpoint. Returns the response body.
