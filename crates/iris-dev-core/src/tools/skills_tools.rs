@@ -1,4 +1,4 @@
-//! skill, skill_community, kb, agent_info tools via Atelier xecute + ^SKILLS global.
+//! skill, skill_community, kb, agent_info tools via docker exec + ^SKILLS global.
 
 use crate::iris::connection::IrisConnection;
 use crate::tools::ToolCallEntry;
@@ -27,28 +27,12 @@ fn skills_namespace() -> String {
 
 async fn xecute(
     iris: &IrisConnection,
-    client: &reqwest::Client,
+    _client: &reqwest::Client,
     code: &str,
     namespace: &str,
 ) -> anyhow::Result<String> {
-    let url = iris.atelier_url(&format!("/v1/{}/action/xecute", namespace));
-    let resp = client
-        .post(&url)
-        .basic_auth(&iris.username, Some(&iris.password))
-        .json(&serde_json::json!({"expression": code}))
-        .send()
-        .await?;
-    let body: serde_json::Value = resp.json().await?;
-    let output = body["result"]["content"][0]["content"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str())
-                .collect::<Vec<_>>()
-                .join("\n")
-        })
-        .unwrap_or_default();
-    Ok(output)
+    // /action/xecute does not exist in Atelier REST — use docker exec path
+    iris.execute(code, namespace).await
 }
 
 // ── skill ─────────────────────────────────────────────────────────────────────

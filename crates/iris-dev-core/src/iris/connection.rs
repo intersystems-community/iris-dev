@@ -185,7 +185,7 @@ impl IrisConnection {
         let put_resp = client
             .put(&put_url)
             .basic_auth(&self.username, Some(&self.password))
-            .json(&serde_json::json!({"content": content}))
+            .json(&serde_json::json!({"enc": false, "content": content}))
             .send()
             .await?;
         if !put_resp.status().is_success() {

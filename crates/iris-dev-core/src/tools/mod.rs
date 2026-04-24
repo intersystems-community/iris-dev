@@ -428,7 +428,7 @@ impl IrisTools {
 
         // Expand wildcards: resolve "MyApp.*.cls" to a list of matching class names
         let targets: Vec<String> = if p.target.contains('*') {
-            let list_url = iris.atelier_url(&format!("/v8/{}/docs?category=CLS", iris.namespace));
+            let list_url = iris.versioned_ns_url(&iris.namespace, "/docs?category=CLS");
             match client
                 .get(&list_url)
                 .basic_auth(&iris.username, Some(&iris.password))
@@ -473,11 +473,10 @@ impl IrisTools {
 
         // Atelier compile: POST with JSON array of document names (with extensions)
         // e.g. ["MyApp.Patient.cls", "MyApp.Utils.cls"]
-        let compile_url = iris.atelier_url(&format!(
-            "/v1/{}/action/compile?flags={}",
-            p.namespace,
-            urlencoding::encode(&p.flags)
-        ));
+        let compile_url = iris.versioned_ns_url(
+            &p.namespace,
+            &format!("/action/compile?flags={}", urlencoding::encode(&p.flags)),
+        );
 
         // Ensure targets have extensions
         let targets_with_ext: Vec<String> = targets
@@ -766,7 +765,7 @@ impl IrisTools {
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
         let client = self.http_client();
-        let query_url = iris.atelier_url(&format!("/v1/{}/action/query", p.namespace));
+        let query_url = iris.versioned_ns_url(&p.namespace, "/action/query");
         let resp = client
             .post(&query_url)
             .basic_auth(&iris.username, Some(&iris.password))

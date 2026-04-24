@@ -76,11 +76,8 @@ async fn handle_get(
         let mut results = vec![];
         let mut futs = vec![];
         for name in &p.names {
-            let url = iris.atelier_url(&format!(
-                "/v8/{}/doc/{}",
-                p.namespace,
-                urlencoding::encode(name)
-            ));
+            let url =
+                iris.versioned_ns_url(&p.namespace, &format!("/doc/{}", urlencoding::encode(name)));
             let req = client
                 .get(&url)
                 .basic_auth(&iris.username, Some(&iris.password))
@@ -104,11 +101,7 @@ async fn handle_get(
     }
 
     let name = p.name.as_deref().unwrap_or("");
-    let url = iris.atelier_url(&format!(
-        "/v8/{}/doc/{}",
-        p.namespace,
-        urlencoding::encode(name)
-    ));
+    let url = iris.versioned_ns_url(&p.namespace, &format!("/doc/{}", urlencoding::encode(name)));
     let resp = client
         .get(&url)
         .basic_auth(&iris.username, Some(&iris.password))
@@ -188,30 +181,14 @@ async fn handle_put(
         _ => raw_content,
     };
 
-    // SCM OnBeforeSave — check if write is allowed
-    let xecute_url = iris.atelier_url(&format!("/v1/{}/action/xecute", ns));
+    // SCM OnBeforeSave check — uses iris.execute() (docker exec or objectgenerator HTTP path)
     let scm_check = format!(
         "set scmObj=##class(%Studio.SourceControl.Base).%GetImplementationObject(\"{n}\") if '$IsObject(scmObj) {{ write \"NO_SCM\" }} else {{ set action=0 set msg=\"\" set target=\"\" set reload=0 set sc=scmObj.UserAction(0,\"%SourceMenu,CheckOut\",\"{n}\",\"\",.action,.target,.msg,.reload) write action_\"|\"_msg }}",
         n = name.replace('"', "\\\"")
     );
-    if let Ok(resp) = client
-        .post(&xecute_url)
-        .basic_auth(&iris.username, Some(&iris.password))
-        .json(&serde_json::json!({"expression": scm_check}))
-        .send()
-        .await
-    {
-        if let Ok(body) = resp.json::<serde_json::Value>().await {
-            let out = body["result"]["content"][0]["content"]
-                .as_array()
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|v| v.as_str())
-                        .collect::<Vec<_>>()
-                        .join("")
-                })
-                .unwrap_or_default();
-
+    if let Ok(out) = iris.execute(&scm_check, ns).await {
+        let out = out.trim().to_string();
+        {
             if out != "NO_SCM" && !out.is_empty() {
                 let parts: Vec<&str> = out.splitn(2, '|').collect();
                 let action_code = parts
@@ -255,11 +232,7 @@ async fn do_write(
     namespace: &str,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     let lines: Vec<&str> = content.lines().collect();
-    let url = iris.atelier_url(&format!(
-        "/v8/{}/doc/{}",
-        namespace,
-        urlencoding::encode(name)
-    ));
+    let url = iris.versioned_ns_url(namespace, &format!("/doc/{}", urlencoding::encode(name)));
 
     let resp = client
         .put(&url)
@@ -270,11 +243,8 @@ async fn do_write(
         .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
 
     if resp.status().as_u16() == 409 {
-        let head_url = iris.atelier_url(&format!(
-            "/v8/{}/doc/{}",
-            namespace,
-            urlencoding::encode(name)
-        ));
+        let head_url =
+            iris.versioned_ns_url(namespace, &format!("/doc/{}", urlencoding::encode(name)));
         let etag = client
             .head(&head_url)
             .basic_auth(&iris.username, Some(&iris.password))
@@ -324,11 +294,8 @@ async fn handle_delete(
         let mut deleted = vec![];
         let mut errors = vec![];
         for name in &p.names {
-            let url = iris.atelier_url(&format!(
-                "/v8/{}/doc/{}",
-                p.namespace,
-                urlencoding::encode(name)
-            ));
+            let url =
+                iris.versioned_ns_url(&p.namespace, &format!("/doc/{}", urlencoding::encode(name)));
             match client
                 .delete(&url)
                 .basic_auth(&iris.username, Some(&iris.password))
@@ -348,11 +315,7 @@ async fn handle_delete(
     }
 
     let name = p.name.as_deref().unwrap_or("");
-    let url = iris.atelier_url(&format!(
-        "/v8/{}/doc/{}",
-        p.namespace,
-        urlencoding::encode(name)
-    ));
+    let url = iris.versioned_ns_url(&p.namespace, &format!("/doc/{}", urlencoding::encode(name)));
     let resp = client
         .delete(&url)
         .basic_auth(&iris.username, Some(&iris.password))
@@ -375,11 +338,7 @@ async fn handle_head(
     p: IrisDocParams,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     let name = p.name.as_deref().unwrap_or("");
-    let url = iris.atelier_url(&format!(
-        "/v8/{}/doc/{}",
-        p.namespace,
-        urlencoding::encode(name)
-    ));
+    let url = iris.versioned_ns_url(&p.namespace, &format!("/doc/{}", urlencoding::encode(name)));
     let resp = client
         .head(&url)
         .basic_auth(&iris.username, Some(&iris.password))

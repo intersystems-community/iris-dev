@@ -76,6 +76,7 @@ pub async fn handle_iris_search(
         }
         _ => {
             // Timeout or error — fall back to async POST
+            // Search API requires minimum v2; intentionally using v2 not detected version
             let post_url = iris.atelier_url(&format!("/v2/{}/action/search", p.namespace));
             let post_body = serde_json::json!({
                 "query": p.query,
