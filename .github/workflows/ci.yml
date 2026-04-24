@@ -128,20 +128,18 @@ jobs:
       - name: Configure IRIS credentials for testing
         run: |
           HOST=${{ env.IRIS_HOST }}
-          # Try to use the community image's initial _SYSTEM/SYS credentials
-          # If that fails, use the iris management portal to reset
+          # Set password to SYS via iris session regardless of current state
+          docker exec iris-e2e bash -c \
+            'echo "set sc=##class(Security.Users).ChangePassword(\"_SYSTEM\",\"SYS\",\"SYS\") write sc halt" | iris session IRIS -U "%SYS" 2>/dev/null' \
+            || true
+          docker exec iris-e2e bash -c \
+            'echo "set sc=##class(Security.Users).Unlock(\"_SYSTEM\") write sc halt" | iris session IRIS -U "%SYS" 2>/dev/null' \
+            || true
+          sleep 2
           echo "IRIS_USERNAME=_SYSTEM" >> $GITHUB_ENV
           echo "IRIS_PASSWORD=SYS" >> $GITHUB_ENV
-          # The community image may have password expiry — try to reset via iris session
-          docker exec iris-e2e bash -c \
-            'echo "do ##class(Security.Users).UnExpireUserPasswords() halt" | iris session IRIS -U "%SYS"' \
-            2>/dev/null || true
-          sleep 2
           status=$(curl -s -o /dev/null -w "%{http_code}" -u _SYSTEM:SYS "http://$HOST:52773/api/atelier/" 2>/dev/null)
-          echo "Auth check: HTTP $status"
-          if [ "$status" != "200" ]; then
-            echo "WARNING: _SYSTEM:SYS returned $status — tests may fail with 401"
-          fi
+          echo "Auth check after credential setup: HTTP $status"
       - name: Run E2E tool tests against live IRIS
         run: python -m pytest tests/integration/test_022_all_tools.py --tb=short -q
         env:
