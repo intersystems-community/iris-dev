@@ -45,7 +45,7 @@ If the extension can't find the binary, set in VS Code settings:
 
 ### Claude Code setup
 
-Add to `~/.claude/settings.json` (note: `"args": ["mcp"]` is required, use `env` not args for connection — Claude Code does not expand `${VAR}` in `args`):
+**Single project** — add to `~/.claude/settings.json`:
 ```json
 {
   "mcpServers": {
@@ -65,10 +65,29 @@ Add to `~/.claude/settings.json` (note: `"args": ["mcp"]` is required, use `env`
 }
 ```
 
+**Multiple projects** — use `.iris-dev.toml` in each project root (`iris-dev init` to generate). Then a single MCP entry covers all projects via `OBJECTSCRIPT_WORKSPACE`:
+```json
+{
+  "mcpServers": {
+    "iris-dev": {
+      "type": "stdio",
+      "command": "iris-dev",
+      "args": ["mcp"],
+      "env": {
+        "OBJECTSCRIPT_WORKSPACE": "/path/to/current/project"
+      }
+    }
+  }
+}
+```
+The VS Code extension sets `OBJECTSCRIPT_WORKSPACE` automatically to the current workspace folder.
+
 On Windows, use the full path to the binary:
 ```json
 "command": "C:\\Users\\yourname\\bin\\iris-dev.exe"
 ```
+
+> **Note**: `"args": ["mcp"]` is required. Use `env` not `args` for connection settings — Claude Code does not expand `${VAR}` in `args`.
 
 ---
 
@@ -137,11 +156,47 @@ On Windows, use the full path to the binary:
 
 IRIS connection auto-discovered in this order:
 1. Explicit flags (`--host`, `--web-port`)
-2. Env vars: `IRIS_HOST`, `IRIS_WEB_PORT`, `IRIS_USERNAME`, `IRIS_PASSWORD`, `IRIS_NAMESPACE`
-3. `IRIS_WEB_PREFIX` — set this if your IRIS is behind a non-root web gateway (e.g. `irisaicore` for `http://host:80/irisaicore/api/atelier`)
-4. VS Code `settings.json` (`objectscript.conn` / `intersystems.servers` including `pathPrefix`)
-5. Docker containers (scored by workspace name similarity)
-6. Localhost port scan (52773, 41773, 51773, 8080)
+2. **`.iris-dev.toml`** in the workspace root (see [Per-workspace config](#per-workspace-config) below)
+3. Env vars: `IRIS_HOST`, `IRIS_WEB_PORT`, `IRIS_USERNAME`, `IRIS_PASSWORD`, `IRIS_NAMESPACE`
+4. `IRIS_WEB_PREFIX` — set this if your IRIS is behind a non-root web gateway (e.g. `irisaicore` for `http://host:80/irisaicore/api/atelier`)
+5. VS Code `settings.json` (`objectscript.conn` / `intersystems.servers` including `pathPrefix`)
+6. Docker containers (scored by workspace name similarity)
+7. Localhost port scan (52773, 41773, 51773, 8080)
+
+### Per-workspace config
+
+Drop an `.iris-dev.toml` in your project root to declare which IRIS container or host that project uses. This file is committed to version control so teammates get the same connection automatically — no per-machine env var setup.
+
+```toml
+# .iris-dev.toml
+container = "myapp-iris"   # Docker container name
+namespace = "USER"          # Default namespace
+
+# Or for remote/CI IRIS:
+# host = "iris.example.com"
+# web_port = 52773
+```
+
+Generate a starter file from running containers:
+```bash
+iris-dev init
+```
+
+The generated file includes inline comments and intentionally omits the `password` field (use `IRIS_PASSWORD` env var instead). With this in place, your IDE MCP config can use a single generic entry for all projects:
+
+```json
+{
+  "mcpServers": {
+    "iris-dev": {
+      "command": "iris-dev",
+      "args": ["mcp"],
+      "env": { "OBJECTSCRIPT_WORKSPACE": "${workspaceFolder}" }
+    }
+  }
+}
+```
+
+iris-dev reads `.iris-dev.toml` from `OBJECTSCRIPT_WORKSPACE` (set automatically by the VS Code extension) or the current directory. The `iris_list_containers` tool shows which container your config selects and whether it is running.
 
 ### Source Control
 
@@ -173,12 +228,26 @@ Requires Rust stable. No other dependencies.
 
 ## Working with multiple IRIS instances or namespaces
 
-**Different instances** — set `IRIS_HOST` + `IRIS_WEB_PORT` per project. The VS Code extension reads these from your workspace's `objectscript.conn` automatically. For Claude Code, set them in `.claude/settings.json`:
+**Recommended: `.iris-dev.toml` per project** — the simplest approach. Add an `.iris-dev.toml` to each project root (see [Per-workspace config](#per-workspace-config) above). One generic MCP entry covers all projects:
 
 ```json
 {
   "mcpServers": {
     "iris-dev": {
+      "command": "iris-dev",
+      "args": ["mcp"],
+      "env": { "OBJECTSCRIPT_WORKSPACE": "${workspaceFolder}" }
+    }
+  }
+}
+```
+
+**Alternative: env vars per project** — set `IRIS_HOST` + `IRIS_WEB_PORT` per project in `.claude/settings.json` or your IDE workspace settings:
+
+```json
+{
+  "mcpServers": {
+    "iris-dev-myapp": {
       "type": "stdio",
       "command": "iris-dev",
       "args": ["mcp"],
@@ -205,4 +274,5 @@ Requires Rust stable. No other dependencies.
 
 - `iris-dev mcp` — Start the MCP server
 - `iris-dev compile [target]` — Compile ObjectScript directly from terminal
+- `iris-dev init` — Generate `.iris-dev.toml` in the current directory from running containers
 - `iris-dev --list-plugins` — List iris-dev-* plugins on PATH
