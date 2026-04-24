@@ -99,27 +99,30 @@ jobs:
           # Wait for container to be running
           sleep 10
           docker ps | grep iris-e2e
-      - name: Wait for IRIS Atelier API to be ready (up to 6 minutes)
+      - name: Wait for IRIS Atelier API to be ready (up to 7 minutes)
         run: |
           IRIS_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' iris-e2e)
           echo "IRIS container IP: $IRIS_IP"
-          for i in $(seq 1 72); do
-            # Try both container IP and localhost
-            for host in localhost $IRIS_IP; do
-              status=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 3 \
+          # Wait for IRIS process to start first
+          echo "Waiting 90s for IRIS to initialize..."
+          sleep 90
+          # Then poll for the web server
+          for i in $(seq 1 60); do
+            for host in $IRIS_IP localhost; do
+              status=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 \
                 -u _SYSTEM:SYS "http://$host:52773/api/atelier/" 2>/dev/null || echo "000")
               if [ "$status" = "200" ]; then
-                echo "IRIS Atelier API ready at $host:52773 after $((i * 5))s"
+                echo "IRIS Atelier API ready at $host:52773 (HTTP $status)"
                 echo "IRIS_HOST=$host" >> $GITHUB_ENV
                 exit 0
               fi
+              echo "  $host: HTTP $status"
             done
-            echo "Waiting... ($((i * 5))s)"
+            echo "Waiting... (attempt $i/60)"
             sleep 5
           done
-          echo "IRIS did not become ready in 6 minutes"
-          docker logs iris-e2e 2>&1 | tail -30
-          docker inspect iris-e2e | python3 -c "import json,sys; c=json.load(sys.stdin)[0]; print('Ports:', c['NetworkSettings']['Ports'])"
+          echo "IRIS did not become ready in 7 minutes"
+          docker logs iris-e2e 2>&1 | tail -20
           exit 1
       - name: Run E2E tool tests against live IRIS
         run: pytest tests/integration/test_022_all_tools.py --tb=short -q
