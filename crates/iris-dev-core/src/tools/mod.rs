@@ -1874,7 +1874,11 @@ impl ServerHandler for IrisTools {
 }
 
 fn parse_iris_error_string(s: &str) -> Option<(String, i64)> {
-    let re = regex::Regex::new(r"<[A-Z]+>\s*[^+\s]+\+(\d+)\^([\w.%]+)").ok()?;
+    use std::sync::OnceLock;
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        regex::Regex::new(r"<[A-Z]+>\s*[^+\s]+\+(\d+)\^([\w.%]+)").expect("valid regex")
+    });
     let caps = re.captures(s)?;
     Some((caps[2].to_string(), caps[1].parse().ok()?))
 }

@@ -130,6 +130,25 @@ pub fn workspace_config_to_connection(
     None
 }
 
+/// Apply workspace config to an existing explicit connection override.
+///
+/// If `explicit` is already set (from CLI flags), returns it unchanged.
+/// Otherwise loads `.iris-dev.toml` from `workspace_path` and applies it:
+/// - `host` config → returns `Some(IrisConnection)`
+/// - `container` config → sets `IRIS_CONTAINER` env var, returns `None`
+/// - no config / no relevant fields → returns `None`
+pub fn apply_workspace_config(
+    explicit: Option<IrisConnection>,
+    workspace_path: Option<&str>,
+    namespace: &str,
+) -> Option<IrisConnection> {
+    if explicit.is_some() {
+        return explicit;
+    }
+    let cfg = load_workspace_config(workspace_path)?;
+    explicit.or_else(|| workspace_config_to_connection(&cfg, namespace))
+}
+
 /// Generate starter `.iris-dev.toml` content with inline comments.
 /// Used by `iris-dev init`.
 pub fn generate_toml_content(container: &str, namespace: &str) -> String {

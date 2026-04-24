@@ -243,20 +243,8 @@ async fn do_write(
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     // I-3: strip Storage blocks — IRIS 2025.1 UDL parser (#5559) fails on Storage XML.
     // IRIS will auto-generate correct storage on first compile.
-    let content_for_write: String;
-    let storage_stripped = if content.lines().any(|l| l.trim().starts_with("Storage ")) {
-        let (stripped, was_stripped) = strip_storage_blocks(content);
-        if was_stripped {
-            content_for_write = stripped;
-            true
-        } else {
-            content_for_write = content.to_string();
-            false
-        }
-    } else {
-        content_for_write = content.to_string();
-        false
-    };
+    // strip_storage_blocks handles the no-block case cheaply (single pass, no alloc).
+    let (content_for_write, storage_stripped) = strip_storage_blocks(content);
     let lines: Vec<&str> = content_for_write.lines().collect();
 
     // I-4: use ?ignoreConflict=1 — IRIS accepts the write unconditionally, never returns 409.

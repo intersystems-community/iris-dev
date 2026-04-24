@@ -42,29 +42,12 @@ impl CompileCommand {
         });
 
         // Load .iris-dev.toml — takes precedence over env vars but not CLI flags (FR-006, FR-007).
-        let explicit = {
-            let ws_path = std::env::var("OBJECTSCRIPT_WORKSPACE").ok();
-            let ws_cfg =
-                iris_dev_core::iris::workspace_config::load_workspace_config(ws_path.as_deref());
-            if let Some(ref cfg) = ws_cfg {
-                if explicit.is_none() {
-                    if let Some(conn) =
-                        iris_dev_core::iris::workspace_config::workspace_config_to_connection(
-                            cfg,
-                            &self.namespace,
-                        )
-                    {
-                        Some(conn)
-                    } else {
-                        explicit
-                    }
-                } else {
-                    explicit
-                }
-            } else {
-                explicit
-            }
-        };
+        let ws_path = std::env::var("OBJECTSCRIPT_WORKSPACE").ok();
+        let explicit = iris_dev_core::iris::workspace_config::apply_workspace_config(
+            explicit,
+            ws_path.as_deref(),
+            &self.namespace,
+        );
 
         let iris = discover_iris(explicit).await?.context(
             "No IRIS connection found — set IRIS_HOST or run iris-dev mcp for auto-discovery",
