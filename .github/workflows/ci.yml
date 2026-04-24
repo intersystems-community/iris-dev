@@ -111,7 +111,7 @@ jobs:
             for host in $IRIS_IP localhost; do
               status=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 \
                 -u _SYSTEM:SYS "http://$host:52773/api/atelier/" 2>/dev/null || echo "000")
-              if [ "$status" = "200" ]; then
+              if [ "$status" = "200" ] || [ "$status" = "401" ]; then
                 echo "IRIS Atelier API ready at $host:52773 (HTTP $status)"
                 echo "IRIS_HOST=$host" >> $GITHUB_ENV
                 exit 0
@@ -124,13 +124,35 @@ jobs:
           echo "IRIS did not become ready in 7 minutes"
           docker logs iris-e2e 2>&1 | tail -20
           exit 1
+      - name: Detect IRIS credentials
+        run: |
+          HOST=${{ env.IRIS_HOST }}
+          # Try _SYSTEM/SYS first (older community images)
+          status=$(curl -s -o /dev/null -w "%{http_code}" -u _SYSTEM:SYS "http://$HOST:52773/api/atelier/" 2>/dev/null)
+          if [ "$status" = "200" ]; then
+            echo "IRIS_USERNAME=_SYSTEM" >> $GITHUB_ENV
+            echo "IRIS_PASSWORD=SYS" >> $GITHUB_ENV
+            echo "Credentials: _SYSTEM/SYS"
+          else
+            # Try SuperUser/SYS (newer community images)
+            status=$(curl -s -o /dev/null -w "%{http_code}" -u SuperUser:SYS "http://$HOST:52773/api/atelier/" 2>/dev/null)
+            if [ "$status" = "200" ]; then
+              echo "IRIS_USERNAME=SuperUser" >> $GITHUB_ENV
+              echo "IRIS_PASSWORD=SYS" >> $GITHUB_ENV
+              echo "Credentials: SuperUser/SYS"
+            else
+              echo "WARNING: Could not authenticate, will try _SYSTEM/SYS anyway"
+              echo "IRIS_USERNAME=_SYSTEM" >> $GITHUB_ENV
+              echo "IRIS_PASSWORD=SYS" >> $GITHUB_ENV
+            fi
+          fi
       - name: Run E2E tool tests against live IRIS
         run: pytest tests/integration/test_022_all_tools.py --tb=short -q
         env:
           IRIS_HOST: ${{ env.IRIS_HOST }}
           IRIS_WEB_PORT: "52773"
-          IRIS_USERNAME: _SYSTEM
-          IRIS_PASSWORD: SYS
+          IRIS_USERNAME: ${{ env.IRIS_USERNAME }}
+          IRIS_PASSWORD: ${{ env.IRIS_PASSWORD }}
           IRIS_NAMESPACE: USER
 
   cross-compile-check:
