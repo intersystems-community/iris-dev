@@ -12,7 +12,10 @@ fn test_skill_list_empty_global_json() {
 
     // The OLD broken pattern would have produced "]" - verify it fails to parse
     let bad = "]";
-    assert!(serde_json::from_str::<serde_json::Value>(bad).is_err(), "bare ] must not parse as valid JSON");
+    assert!(
+        serde_json::from_str::<serde_json::Value>(bad).is_err(),
+        "bare ] must not parse as valid JSON"
+    );
 }
 
 #[test]
@@ -22,8 +25,15 @@ fn test_debug_get_error_logs_capped_at_1000() {
     let max_entries: usize = 999999;
     let capped = max_entries.min(1000);
     let sql = format!("SELECT TOP {} ErrorCode FROM %SYSTEM.Error", capped);
-    assert!(sql.contains("TOP 1000"), "SQL should contain TOP 1000, got: {}", sql);
-    assert!(!sql.contains("999999"), "SQL must not contain uncapped value");
+    assert!(
+        sql.contains("TOP 1000"),
+        "SQL should contain TOP 1000, got: {}",
+        sql
+    );
+    assert!(
+        !sql.contains("999999"),
+        "SQL must not contain uncapped value"
+    );
 }
 
 #[test]
@@ -44,7 +54,13 @@ fn test_iris_test_zero_tests_detection() {
 fn test_tool_span_names_are_valid() {
     // Verify that the span name strings used in tools are non-empty valid identifiers.
     // This is a compile-time / string sanity check.
-    let span_names = ["iris_compile", "iris_execute", "iris_doc", "iris_query", "iris_test"];
+    let span_names = [
+        "iris_compile",
+        "iris_execute",
+        "iris_doc",
+        "iris_query",
+        "iris_test",
+    ];
     for name in &span_names {
         assert!(!name.is_empty());
         assert!(name.chars().all(|c| c.is_alphanumeric() || c == '_'));
@@ -111,7 +127,13 @@ fn test_iris_test_zero_total_should_be_no_tests_found() {
     let failed: u64 = 0;
     let total = passed + failed;
     // When total == 0, the error code must be NO_TESTS_FOUND (not a generic failure)
-    let error_code = if total == 0 { "NO_TESTS_FOUND" } else if failed > 0 { "TEST_FAILURE" } else { "SUCCESS" };
+    let error_code = if total == 0 {
+        "NO_TESTS_FOUND"
+    } else if failed > 0 {
+        "TEST_FAILURE"
+    } else {
+        "SUCCESS"
+    };
     assert_eq!(error_code, "NO_TESTS_FOUND");
 }
 
@@ -121,15 +143,24 @@ fn test_extract_class_name_validation() {
     use iris_dev_core::generate::extract_class_name;
 
     // Valid names should be returned
-    assert_eq!(extract_class_name("Class MyApp.Foo {}"), Some("MyApp.Foo".to_string()));
-    assert_eq!(extract_class_name("Class MyApp.Foo Extends %Persistent { }"), Some("MyApp.Foo".to_string()));
+    assert_eq!(
+        extract_class_name("Class MyApp.Foo {}"),
+        Some("MyApp.Foo".to_string())
+    );
+    assert_eq!(
+        extract_class_name("Class MyApp.Foo Extends %Persistent { }"),
+        Some("MyApp.Foo".to_string())
+    );
     assert_eq!(extract_class_name("Class Foo {}"), Some("Foo".to_string()));
 
     // Invalid names (containing special chars) should return None
     assert_eq!(extract_class_name("Class <Bad> {}"), None);
     // "Bad" is a valid class name — the parser takes the second token only.
     // Spaces after the name are class metadata (Extends, etc.), not part of the name.
-    assert_eq!(extract_class_name("Class Bad Name {}"), Some("Bad".to_string()));
+    assert_eq!(
+        extract_class_name("Class Bad Name {}"),
+        Some("Bad".to_string())
+    );
 
     // No Class declaration → None
     assert_eq!(extract_class_name("not a class"), None);

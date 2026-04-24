@@ -61,9 +61,7 @@ impl Resolve {
                             format!("https://github.com/{}/{}", owner, repo)
                         }
                         ResolvedSource::Git(url) => url.clone(),
-                        ResolvedSource::Local(path) => {
-                            path.to_string_lossy().into_owned()
-                        }
+                        ResolvedSource::Local(path) => path.to_string_lossy().into_owned(),
                         ResolvedSource::OpenExchange(id) => {
                             format!("openexchange:{}", id)
                         }
@@ -117,7 +115,13 @@ fn resolve_version(req: &VersionReq, source: &ResolvedSource) -> Result<Version>
 /// Test accessor for resolve_version. Exposed for integration tests.
 #[doc(hidden)]
 pub fn resolve_version_for_test(req: &semver::VersionReq) -> anyhow::Result<semver::Version> {
-    resolve_version(req, &ResolvedSource::GitHub { owner: "test".into(), repo: "test".into() })
+    resolve_version(
+        req,
+        &ResolvedSource::GitHub {
+            owner: "test".into(),
+            repo: "test".into(),
+        },
+    )
 }
 
 pub struct ResolveLock {

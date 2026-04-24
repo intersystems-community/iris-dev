@@ -94,7 +94,9 @@ mod interop_production_needs_update {
     fn iris_unreachable() {
         let r = rt().block_on(interop_production_needs_update_impl(
             None,
-            ProductionNeedsUpdateParams { namespace: "USER".into() },
+            ProductionNeedsUpdateParams {
+                namespace: "USER".into(),
+            },
         ));
         let result = r.unwrap();
         let text = result.content[0].raw.as_text().unwrap().text.clone();
@@ -110,7 +112,9 @@ mod interop_production_recover {
     fn iris_unreachable() {
         let r = rt().block_on(interop_production_recover_impl(
             None,
-            ProductionRecoverParams { namespace: "USER".into() },
+            ProductionRecoverParams {
+                namespace: "USER".into(),
+            },
         ));
         let result = r.unwrap();
         let text = result.content[0].raw.as_text().unwrap().text.clone();

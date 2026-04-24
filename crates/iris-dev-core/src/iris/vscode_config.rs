@@ -114,7 +114,9 @@ fn strip_jsonc(src: &str) -> String {
         // Trailing comma: ,  followed (possibly with whitespace) by } or ]
         if c == ',' {
             let mut j = i + 1;
-            while j < chars.len() && (chars[j] == ' ' || chars[j] == '\t' || chars[j] == '\n' || chars[j] == '\r') {
+            while j < chars.len()
+                && (chars[j] == ' ' || chars[j] == '\t' || chars[j] == '\n' || chars[j] == '\r')
+            {
                 j += 1;
             }
             if j < chars.len() && (chars[j] == '}' || chars[j] == ']') {

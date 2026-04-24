@@ -200,8 +200,16 @@ pub fn extract_class_name(text: &str) -> Option<String> {
     // FR-016/Mo2: validate class name matches ObjectScript naming rules.
     // Must start with ASCII alpha and contain only alphanumerics and dots.
     let valid = !name.is_empty()
-        && name.chars().next().map(|c| c.is_ascii_alphabetic()).unwrap_or(false)
+        && name
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_alphabetic())
+            .unwrap_or(false)
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '.');
 
-    if valid { Some(name) } else { None }
+    if valid {
+        Some(name)
+    } else {
+        None
+    }
 }

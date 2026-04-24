@@ -27,8 +27,9 @@ fn test_retry_succeeds_after_503() {
         Mock::given(method("PUT"))
             .and(path_regex("/api/atelier/.*"))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(serde_json::json!({"result":{"status":""},"status":{"errors":[]}})),
+                ResponseTemplate::new(200).set_body_json(
+                    serde_json::json!({"result":{"status":""},"status":{"errors":[]}}),
+                ),
             )
             .mount(&mock_server)
             .await;
@@ -59,7 +60,11 @@ fn test_retry_succeeds_after_503() {
             .filter(|r| r.method.as_str() == "PUT")
             .count();
         // At least 1 PUT was made (even if retry count varies based on mock timing)
-        assert!(put_count >= 1, "expected at least 1 PUT attempt, got {}", put_count);
+        assert!(
+            put_count >= 1,
+            "expected at least 1 PUT attempt, got {}",
+            put_count
+        );
         // Total elapsed should reflect some backoff if retries happened
         let _ = elapsed; // timing assertion is environment-dependent, skip strict check
     });
@@ -104,7 +109,11 @@ fn test_no_retry_on_404() {
             .iter()
             .filter(|r| r.method.as_str() == "PUT")
             .count();
-        assert_eq!(put_count, 1, "expected exactly 1 PUT (no retry), got {}", put_count);
+        assert_eq!(
+            put_count, 1,
+            "expected exactly 1 PUT (no retry), got {}",
+            put_count
+        );
     });
 }
 

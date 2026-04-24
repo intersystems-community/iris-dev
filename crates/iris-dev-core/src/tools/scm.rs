@@ -55,8 +55,8 @@ async fn xecute(
 /// Uses ObjectScript conventions: " → "", \n → $Char(10), \r → $Char(13).
 fn os_quote(s: &str) -> String {
     s.replace('"', "\"\"")
-     .replace('\n', "$Char(10)")
-     .replace('\r', "$Char(13)")
+        .replace('\n', "$Char(10)")
+        .replace('\r', "$Char(13)")
 }
 
 /// Parse "code|msg" output from SCM xecute helpers. Returns (action_code, msg).

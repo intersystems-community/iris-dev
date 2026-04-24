@@ -202,5 +202,8 @@ fn test_resolve_version_stub_is_honest() {
     use semver::VersionReq;
     let req = VersionReq::parse("^1.0").unwrap();
     let result = resolve_version_for_test(&req);
-    assert!(result.is_err(), "resolve_version must return Err when resolution is not implemented");
+    assert!(
+        result.is_err(),
+        "resolve_version must return Err when resolution is not implemented"
+    );
 }

@@ -152,7 +152,10 @@ impl IrisConnection {
         let mut last_err = anyhow::anyhow!("no attempts made");
 
         for (attempt, delay) in delays.iter().enumerate() {
-            match self.execute_via_generator_once(code, namespace, client).await {
+            match self
+                .execute_via_generator_once(code, namespace, client)
+                .await
+            {
                 Ok(output) => return Ok(output),
                 Err(e) => {
                     let msg = e.to_string();
@@ -282,7 +285,7 @@ impl IrisConnection {
             lines.push(format!("    {}", line));
         }
         lines.extend([
-            "    Write !".into(),  // IDEV-3: sentinel ensures temp file always ends with \n
+            "    Write !".into(), // IDEV-3: sentinel ensures temp file always ends with \n
             "  } Catch ex {".into(),
             "    Write \"ERROR: \",ex.DisplayString(),!".into(),
             "  }".into(),
@@ -296,7 +299,8 @@ impl IrisConnection {
             "    Close tmpfile".into(),
             "  }".into(),
             "  Do ##class(%Library.File).Delete(tmpfile)".into(),
-            "  Set qout = $Replace($Replace(out,$Char(34),$Char(34)_$Char(34)),$Char(10),$Char(1))".into(),
+            "  Set qout = $Replace($Replace(out,$Char(34),$Char(34)_$Char(34)),$Char(10),$Char(1))"
+                .into(),
             "  Do %code.WriteLine(\" Quit \"_$Char(34)_qout_$Char(34))".into(),
             "}".into(),
             "".into(),
@@ -445,11 +449,19 @@ pub fn strip_iris_banner(output: &str) -> String {
     }
 
     // Remove leading blank lines
-    while result_lines.first().map(|l: &&str| l.trim().is_empty()).unwrap_or(false) {
+    while result_lines
+        .first()
+        .map(|l: &&str| l.trim().is_empty())
+        .unwrap_or(false)
+    {
         result_lines.remove(0);
     }
     // Remove trailing blank lines
-    while result_lines.last().map(|l: &&str| l.trim().is_empty()).unwrap_or(false) {
+    while result_lines
+        .last()
+        .map(|l: &&str| l.trim().is_empty())
+        .unwrap_or(false)
+    {
         result_lines.pop();
     }
 

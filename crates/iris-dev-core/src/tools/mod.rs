@@ -1300,7 +1300,10 @@ Methods:
     async fn skill_list(&self, _: Parameters<NoParams>) -> Result<CallToolResult, McpError> {
         if let Some(iris) = self.iris.as_deref() {
             let code = "Set key=\"\" Set result=\"[\" Set sep=\"\" For { Set key=$Order(^SKILLS(key)) Quit:key=\"\" Set skill=$Get(^SKILLS(key)) Set result=result_sep_skill Set sep=\",\" } Set result=result_\"]\" Write result";
-            if let Ok(output) = iris.execute(code, &crate::tools::skills_tools::skills_namespace()).await {
+            if let Ok(output) = iris
+                .execute(code, &crate::tools::skills_tools::skills_namespace())
+                .await
+            {
                 if let Ok(skills) = serde_json::from_str::<serde_json::Value>(output.trim()) {
                     let count = skills.as_array().map(|a| a.len()).unwrap_or(0);
                     return ok_json(serde_json::json!({"skills": skills, "count": count}));
@@ -1317,7 +1320,10 @@ Methods:
     ) -> Result<CallToolResult, McpError> {
         if let Some(iris) = self.iris.as_deref() {
             let code = format!("Write $Get(^SKILLS(\"{}\"))", p.name.replace('"', "\\\""));
-            if let Ok(output) = iris.execute(&code, &crate::tools::skills_tools::skills_namespace()).await {
+            if let Ok(output) = iris
+                .execute(&code, &crate::tools::skills_tools::skills_namespace())
+                .await
+            {
                 if let Ok(skill) = serde_json::from_str::<serde_json::Value>(output.trim()) {
                     return ok_json(serde_json::json!({"success": true, "skill": skill}));
                 }
@@ -1347,7 +1353,10 @@ Methods:
                 ),
                 q
             );
-            if let Ok(output) = iris.execute(&code, &crate::tools::skills_tools::skills_namespace()).await {
+            if let Ok(output) = iris
+                .execute(&code, &crate::tools::skills_tools::skills_namespace())
+                .await
+            {
                 if let Ok(skills) = serde_json::from_str::<Vec<serde_json::Value>>(output.trim()) {
                     let limited: Vec<_> = skills.into_iter().take(p.top_k).collect();
                     let count = limited.len();
@@ -1370,7 +1379,11 @@ Methods:
                 "Kill ^SKILLS(\"{}\") Write \"OK\"",
                 p.name.replace('"', "\\\"")
             );
-            if iris.execute(&code, &crate::tools::skills_tools::skills_namespace()).await.is_ok() {
+            if iris
+                .execute(&code, &crate::tools::skills_tools::skills_namespace())
+                .await
+                .is_ok()
+            {
                 return ok_json(serde_json::json!({"success": true, "name": p.name}));
             }
         }
@@ -1384,7 +1397,10 @@ Methods:
         description = "Trigger pattern miner to synthesize new skills from recorded tool calls."
     )]
     async fn skill_propose(&self, _: Parameters<NoParams>) -> Result<CallToolResult, McpError> {
-        err_json("NOT_IMPLEMENTED", "skill_propose: pattern mining not yet implemented")
+        err_json(
+            "NOT_IMPLEMENTED",
+            "skill_propose: pattern mining not yet implemented",
+        )
     }
 
     #[tool(description = "Optimize a skill using DSPy. Requires OBJECTSCRIPT_DSPY=true.")]
@@ -1392,7 +1408,10 @@ Methods:
         &self,
         Parameters(_p): Parameters<SkillNameParams>,
     ) -> Result<CallToolResult, McpError> {
-        err_json("NOT_IMPLEMENTED", "skill_optimize: DSPy optimization not yet implemented")
+        err_json(
+            "NOT_IMPLEMENTED",
+            "skill_optimize: DSPy optimization not yet implemented",
+        )
     }
 
     #[tool(description = "Share a skill to the community via GitHub PR.")]
@@ -1400,7 +1419,10 @@ Methods:
         &self,
         Parameters(_p): Parameters<SkillNameParams>,
     ) -> Result<CallToolResult, McpError> {
-        err_json("NOT_IMPLEMENTED", "skill_share: GitHub PR integration not yet implemented")
+        err_json(
+            "NOT_IMPLEMENTED",
+            "skill_share: GitHub PR integration not yet implemented",
+        )
     }
 
     #[tool(
@@ -1447,7 +1469,10 @@ Methods:
         &self,
         Parameters(_p): Parameters<CommunityPkgParams>,
     ) -> Result<CallToolResult, McpError> {
-        err_json("NOT_IMPLEMENTED", "skill_community_install: community registry not yet implemented")
+        err_json(
+            "NOT_IMPLEMENTED",
+            "skill_community_install: community registry not yet implemented",
+        )
     }
 
     #[tool(description = "Index markdown files into the IRIS knowledge base for semantic search.")]

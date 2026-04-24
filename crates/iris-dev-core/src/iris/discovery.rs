@@ -252,8 +252,15 @@ async fn discover_via_docker() -> Option<IrisConnection> {
     };
 
     for (_score, container_name, web_port, port_ss) in candidates {
-        if let Some(mut conn) =
-            probe_atelier_with_client(&probe_client, "localhost", web_port, &username, &password, "USER").await
+        if let Some(mut conn) = probe_atelier_with_client(
+            &probe_client,
+            "localhost",
+            web_port,
+            &username,
+            &password,
+            "USER",
+        )
+        .await
         {
             conn.source = DiscoverySource::Docker { container_name };
             conn.port_superserver = port_ss;

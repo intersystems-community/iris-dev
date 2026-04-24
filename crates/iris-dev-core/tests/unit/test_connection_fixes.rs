@@ -58,7 +58,12 @@ fn test_banner_stripped_from_output() {
     // Real IRIS session: banner, then bare prompt, then code output on its own line, then bare prompt.
     let raw = "Copyright (c) 2024 InterSystems Corporation\nAll rights reserved.\nIRIS for UNIX (Apple Mac OS X for x86-64) 2024.1\nUSER>\n42\nUSER>\n";
     let stripped = iris_dev_core::iris::connection::strip_iris_banner(raw);
-    assert_eq!(stripped.trim(), "42", "expected only code output, got: {:?}", stripped);
+    assert_eq!(
+        stripped.trim(),
+        "42",
+        "expected only code output, got: {:?}",
+        stripped
+    );
 }
 
 #[test]
@@ -67,9 +72,21 @@ fn test_banner_strip_preserves_multiline_output() {
     let raw = "Copyright (c) 2024 InterSystems Corporation\nUSER>\nline1\nline2\nUSER>\n";
     let stripped = iris_dev_core::iris::connection::strip_iris_banner(raw);
     let trimmed = stripped.trim();
-    assert!(trimmed.contains("line1"), "should contain line1, got: {:?}", trimmed);
-    assert!(trimmed.contains("line2"), "should contain line2, got: {:?}", trimmed);
-    assert!(!trimmed.contains("Copyright"), "should not contain Copyright, got: {:?}", trimmed);
+    assert!(
+        trimmed.contains("line1"),
+        "should contain line1, got: {:?}",
+        trimmed
+    );
+    assert!(
+        trimmed.contains("line2"),
+        "should contain line2, got: {:?}",
+        trimmed
+    );
+    assert!(
+        !trimmed.contains("Copyright"),
+        "should not contain Copyright, got: {:?}",
+        trimmed
+    );
 }
 
 #[test]
@@ -85,7 +102,10 @@ fn test_banner_strip_noop_on_clean_output() {
 fn test_http_client_succeeds_normally() {
     // When TLS is not broken, http_client should succeed.
     let result = IrisConnection::http_client();
-    assert!(result.is_ok(), "http_client should succeed in normal environment");
+    assert!(
+        result.is_ok(),
+        "http_client should succeed in normal environment"
+    );
 }
 
 // ── IDEV-3: sentinel Write ! ─────────────────────────────────────────────
@@ -95,12 +115,19 @@ fn test_execute_captures_output_without_trailing_newline() {
     // build_exec_class must inject a sentinel Write ! after user code
     // so that Read line:0 always finds a line boundary.
     let lines = iris_dev_core::iris::connection::IrisConnection::build_exec_class_for_test(
-        "TestClass", "/tmp/test.txt", "Write 42"
+        "TestClass",
+        "/tmp/test.txt",
+        "Write 42",
     );
     // Find the user code line
-    let user_line_pos = lines.iter().position(|l| l.contains("Write 42")).expect("should contain user code");
+    let user_line_pos = lines
+        .iter()
+        .position(|l| l.contains("Write 42"))
+        .expect("should contain user code");
     // The line immediately after user code must be the sentinel
-    let sentinel_line = lines.get(user_line_pos + 1).expect("should have line after user code");
+    let sentinel_line = lines
+        .get(user_line_pos + 1)
+        .expect("should have line after user code");
     assert!(
         sentinel_line.contains("Write !"),
         "sentinel 'Write !' must follow user code, got: {:?}",
@@ -111,24 +138,40 @@ fn test_execute_captures_output_without_trailing_newline() {
 #[test]
 fn test_build_exec_class_sentinel_not_duplicated() {
     let lines = iris_dev_core::iris::connection::IrisConnection::build_exec_class_for_test(
-        "TestClass", "/tmp/test.txt", "Write 42,!"
+        "TestClass",
+        "/tmp/test.txt",
+        "Write 42,!",
     );
     // Count sentinel occurrences — must be exactly one "Write !" line
     let sentinel_count = lines.iter().filter(|l| l.trim() == "Write !").count();
-    assert_eq!(sentinel_count, 1, "exactly one sentinel Write ! should be present, got {}", sentinel_count);
+    assert_eq!(
+        sentinel_count, 1,
+        "exactly one sentinel Write ! should be present, got {}",
+        sentinel_count
+    );
 }
 
 #[test]
 fn test_execute_captures_multiline_without_trailing_newline() {
     // FR-007: multi-line output where last line has no trailing ! must be fully captured.
     let lines = iris_dev_core::iris::connection::IrisConnection::build_exec_class_for_test(
-        "TestClass", "/tmp/test.txt",
-        "Write \"line1\",!\nWrite \"line2\""
+        "TestClass",
+        "/tmp/test.txt",
+        "Write \"line1\",!\nWrite \"line2\"",
     );
     // Sentinel must appear after all user code lines
-    let sentinel_pos = lines.iter().rposition(|l| l.trim() == "Write !").expect("sentinel must exist");
-    let last_user_pos = lines.iter().rposition(|l| l.contains("Write \"line2\"")).expect("user code must exist");
-    assert!(sentinel_pos > last_user_pos, "sentinel must come after last user code line");
+    let sentinel_pos = lines
+        .iter()
+        .rposition(|l| l.trim() == "Write !")
+        .expect("sentinel must exist");
+    let last_user_pos = lines
+        .iter()
+        .rposition(|l| l.contains("Write \"line2\""))
+        .expect("user code must exist");
+    assert!(
+        sentinel_pos > last_user_pos,
+        "sentinel must come after last user code line"
+    );
 }
 
 // ── FR-009–FR-011: HTTP path handles long code ───────────────────────────
@@ -140,9 +183,14 @@ fn test_build_exec_class_handles_long_code() {
     let long_string: String = "A".repeat(200);
     let code = format!("Write \"{}\"", long_string);
     let lines = iris_dev_core::iris::connection::IrisConnection::build_exec_class_for_test(
-        "TestClass", "/tmp/test.txt", &code
+        "TestClass",
+        "/tmp/test.txt",
+        &code,
     );
     // The full 200-char string must appear in the generated lines without truncation
     let found = lines.iter().any(|l| l.contains(&long_string));
-    assert!(found, "200-char string must appear intact in generated class lines");
+    assert!(
+        found,
+        "200-char string must appear intact in generated class lines"
+    );
 }
