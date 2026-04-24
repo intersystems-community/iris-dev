@@ -1,0 +1,188 @@
+// Unit tests for iris/discovery.rs — score_container_name edge cases.
+// No Docker, no network required.
+
+use iris_dev_core::iris::discovery::score_container_name;
+
+// ── Basic coverage ────────────────────────────────────────────────────────────
+
+#[test]
+fn test_score_empty_workspace_returns_zero() {
+    assert_eq!(
+        score_container_name("any-iris", ""),
+        0,
+        "empty workspace basename must score 0"
+    );
+}
+
+#[test]
+fn test_score_unrelated_scores_zero() {
+    assert_eq!(score_container_name("redis-cache", "myapp"), 0);
+}
+
+#[test]
+fn test_score_exact_match_is_100() {
+    assert_eq!(score_container_name("myapp", "myapp"), 100);
+}
+
+#[test]
+fn test_score_starts_with_is_80() {
+    // "myapp-dev" starts with "myapp" but no -iris suffix
+    assert_eq!(score_container_name("myapp-dev", "myapp"), 80);
+}
+
+#[test]
+fn test_score_contains_match_is_60() {
+    // "myapp" is contained in "xyz-myapp-iris" but doesn't start with it
+    let s = score_container_name("xyz_myapp_iris", "myapp");
+    assert_eq!(s, 70, "contains match + iris suffix = 60 + 10 = 70");
+}
+
+#[test]
+fn test_score_iris_suffix_bonus_10() {
+    let with_iris = score_container_name("loanapp-iris", "loanapp");
+    let without = score_container_name("loanapp-dev", "loanapp");
+    // loanapp-iris: 80 + 10 = 90; loanapp-dev: 80 + 0 = 80
+    assert_eq!(with_iris, 90);
+    assert_eq!(without, 80);
+    assert!(with_iris > without, "-iris suffix must score higher");
+}
+
+#[test]
+fn test_score_test_suffix_bonus_5() {
+    let with_test = score_container_name("myapp-test", "myapp");
+    let without = score_container_name("myapp-dev", "myapp");
+    // myapp-test: 80 + 5 = 85; myapp-dev: 80 + 0 = 80
+    assert_eq!(with_test, 85);
+    assert!(
+        with_test > without,
+        "-test suffix must score higher than -dev"
+    );
+}
+
+#[test]
+fn test_score_iris_and_test_suffix_not_double_counted() {
+    // A name can't end in both -iris and -test simultaneously (they're different suffixes)
+    // Verify only one bonus is added at a time
+    let iris_only = score_container_name("app-iris", "app");
+    let test_only = score_container_name("app-test", "app");
+    assert_eq!(iris_only, 90);
+    assert_eq!(test_only, 85);
+}
+
+// ── Case insensitivity ────────────────────────────────────────────────────────
+
+#[test]
+fn test_score_exact_case_insensitive() {
+    let s1 = score_container_name("MyApp-IRIS", "myapp");
+    let s2 = score_container_name("myapp-iris", "myapp");
+    assert_eq!(s1, s2, "scoring must be case-insensitive");
+}
+
+#[test]
+fn test_score_workspace_uppercase() {
+    let s1 = score_container_name("myapp-iris", "MYAPP");
+    let s2 = score_container_name("myapp-iris", "myapp");
+    assert_eq!(s1, s2, "workspace name case should not matter");
+}
+
+// ── Hyphen/underscore normalization ───────────────────────────────────────────
+
+#[test]
+fn test_score_underscore_hyphen_equivalence() {
+    // id_try2 workspace should match id-try2-iris container
+    let s = score_container_name("id-try2-iris", "id_try2");
+    assert!(s > 0, "id_try2 should match id-try2-iris, got {}", s);
+    assert!(s >= 80, "should score at least 80 (starts_with), got {}", s);
+}
+
+#[test]
+fn test_score_hyphen_workspace_underscore_container() {
+    let s = score_container_name("id_try2_iris", "id-try2");
+    assert!(
+        s > 0,
+        "id-try2 workspace should match id_try2_iris container"
+    );
+}
+
+#[test]
+fn test_score_all_hyphens_normalized() {
+    // my-loan-app vs my_loan_app should be equivalent
+    let s1 = score_container_name("my-loan-app", "my_loan_app");
+    assert_eq!(
+        s1, 100,
+        "all-hyphen and all-underscore should be exact match after normalization"
+    );
+}
+
+// ── starts_with vs contains ordering ─────────────────────────────────────────
+
+#[test]
+fn test_score_starts_with_beats_contains() {
+    let starts = score_container_name("appname-iris", "appname");
+    let contains = score_container_name("myappname-iris", "appname");
+    // starts = 80+10=90; contains = 60+10=70
+    assert!(
+        starts > contains,
+        "starts_with ({}) must score higher than contains ({})",
+        starts,
+        contains
+    );
+}
+
+#[test]
+fn test_score_exact_beats_starts_with() {
+    let exact = score_container_name("loanapp", "loanapp");
+    let starts = score_container_name("loanapp-iris", "loanapp");
+    // exact = 100; starts+iris = 80+10 = 90
+    assert_eq!(exact, 100);
+    assert_eq!(starts, 90);
+    assert!(
+        exact > starts,
+        "exact match (100) must beat starts_with+iris (90)"
+    );
+}
+
+// ── Edge cases ────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_score_single_char_workspace() {
+    let s = score_container_name("a-iris", "a");
+    assert!(s > 0, "single-char workspace should still match, got {}", s);
+    assert_eq!(s, 90); // starts_with "a" + iris suffix = 80+10
+}
+
+#[test]
+fn test_score_empty_container_name() {
+    // Empty container can't match anything
+    assert_eq!(score_container_name("", "myapp"), 0);
+}
+
+#[test]
+fn test_score_both_empty() {
+    assert_eq!(score_container_name("", ""), 0);
+}
+
+#[test]
+fn test_score_container_only_iris_suffix() {
+    // Container "iris" for workspace "iris" — exact match = 100
+    assert_eq!(score_container_name("iris", "iris"), 100);
+}
+
+#[test]
+fn test_score_underscore_iris_suffix_also_counts() {
+    // ends_with("_iris") should also earn the +10 bonus
+    let s = score_container_name("myapp_iris", "myapp");
+    assert_eq!(s, 90, "underscore iris suffix should also score 90");
+}
+
+#[test]
+fn test_score_known_example_loanapp_iris() {
+    // Canonical example from spec-025
+    let score = score_container_name("loanapp-iris", "loanapp");
+    assert_eq!(score, 90, "loanapp-iris for loanapp should score 90");
+}
+
+#[test]
+fn test_score_determined_cray_is_zero() {
+    assert_eq!(score_container_name("determined_cray", "id_try2"), 0);
+}

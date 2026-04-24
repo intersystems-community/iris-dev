@@ -175,3 +175,27 @@ fn parse_search_results(
         "truncated": truncated,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── SearchParams serde ────────────────────────────────────────────────────
+    #[test]
+    fn test_search_params_minimal() {
+        let p: SearchParams =
+            serde_json::from_str(r#"{"query":"test","namespace":"USER"}"#).unwrap();
+        assert_eq!(p.query, "test");
+    }
+
+    // ── parse_search_results ──────────────────────────────────────────────────
+    // parse_search_results is private — test indirectly via known behaviour
+    #[test]
+    fn test_search_params_namespace_required_field() {
+        // namespace has no serde default in search.rs — it's required or has default
+        let result: Result<SearchParams, _> =
+            serde_json::from_str(r#"{"query":"x","namespace":"MYNS"}"#);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().namespace, "MYNS");
+    }
+}

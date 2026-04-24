@@ -115,3 +115,27 @@ path = "tests/unit/test_workspace_config.rs"
 [[test]]
 name = "test_e2e"
 path = "tests/integration/test_e2e.rs"
+
+[[test]]
+name = "test_scm_unit"
+path = "tests/unit/test_scm_unit.rs"
+
+[[test]]
+name = "test_search_unit"
+path = "tests/unit/test_search_unit.rs"
+
+[[test]]
+name = "test_skills_unit"
+path = "tests/unit/test_skills_unit.rs"
+
+[[test]]
+name = "test_info_unit"
+path = "tests/unit/test_info_unit.rs"
+
+[[test]]
+name = "test_generate_unit"
+path = "tests/unit/test_generate_unit.rs"
+
+[[test]]
+name = "test_discovery_unit"
+path = "tests/unit/test_discovery_unit.rs"

@@ -289,3 +289,111 @@ fn user_action_code(action_id: &str, doc: &str) -> String {
         os_quote(doc),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── os_quote ──────────────────────────────────────────────────────────────
+    #[test]
+    fn test_os_quote_double_quotes() {
+        assert_eq!(os_quote(r#"say "hi""#), r#"say ""hi"""#);
+    }
+    #[test]
+    fn test_os_quote_newline() {
+        assert_eq!(os_quote("a\nb"), "a$Char(10)b");
+    }
+    #[test]
+    fn test_os_quote_cr() {
+        assert_eq!(os_quote("a\rb"), "a$Char(13)b");
+    }
+    #[test]
+    fn test_os_quote_plain() {
+        assert_eq!(os_quote("hello"), "hello");
+    }
+    #[test]
+    fn test_os_quote_empty() {
+        assert_eq!(os_quote(""), "");
+    }
+
+    // ── parse_action_msg ─────────────────────────────────────────────────────
+    #[test]
+    fn test_parse_action_msg_code_and_msg() {
+        let (code, msg) = parse_action_msg("1|Please enter comment");
+        assert_eq!(code, 1);
+        assert_eq!(msg, "Please enter comment");
+    }
+    #[test]
+    fn test_parse_action_msg_zero_ok() {
+        let (code, msg) = parse_action_msg("0|");
+        assert_eq!(code, 0);
+        assert_eq!(msg, "");
+    }
+    #[test]
+    fn test_parse_action_msg_no_pipe() {
+        let (code, msg) = parse_action_msg("0");
+        assert_eq!(code, 0);
+        assert_eq!(msg, "");
+    }
+    #[test]
+    fn test_parse_action_msg_message_with_pipes() {
+        // Only splits on first pipe
+        let (code, msg) = parse_action_msg("1|msg with | pipe");
+        assert_eq!(code, 1);
+        assert_eq!(msg, "msg with | pipe");
+    }
+    #[test]
+    fn test_parse_action_msg_type_7() {
+        let (code, msg) = parse_action_msg("7|Enter value:");
+        assert_eq!(code, 7);
+        assert_eq!(msg, "Enter value:");
+    }
+
+    // ── user_action_code ──────────────────────────────────────────────────────
+    #[test]
+    fn test_user_action_code_no_backslash_quote() {
+        let code = user_action_code("CheckOut", "MyApp.Patient.cls");
+        assert!(
+            !code.contains("\\\""),
+            "must use ObjectScript quoting, not backslash: {}",
+            code
+        );
+        assert!(
+            code.contains("CheckOut"),
+            "must contain action_id: {}",
+            code
+        );
+        assert!(
+            code.contains("MyApp.Patient.cls"),
+            "must contain doc: {}",
+            code
+        );
+    }
+    #[test]
+    fn test_user_action_code_escapes_quotes_in_action() {
+        let code = user_action_code("Check\"Out", "Doc.cls");
+        assert!(
+            code.contains("\"\""),
+            "double-quote must become \"\": {}",
+            code
+        );
+        assert!(!code.contains("\\\""), "no backslash-quote: {}", code);
+    }
+    #[test]
+    fn test_user_action_code_escapes_newline_in_doc() {
+        let code = user_action_code("CheckOut", "Doc\nwith\nnewlines.cls");
+        assert!(
+            code.contains("$Char(10)"),
+            "newline must become $Char(10): {}",
+            code
+        );
+    }
+
+    // ── KNOWN_MENU_ITEMS ──────────────────────────────────────────────────────
+    #[test]
+    fn test_known_menu_items_has_checkout() {
+        assert!(KNOWN_MENU_ITEMS.contains(&"CheckOut"));
+        assert!(KNOWN_MENU_ITEMS.contains(&"CheckIn"));
+        assert!(KNOWN_MENU_ITEMS.contains(&"GetLatest"));
+    }
+}

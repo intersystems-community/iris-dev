@@ -430,3 +430,67 @@ fn doc_content_to_string(body: &serde_json::Value) -> String {
         })
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_doc_content_to_string_flat_array() {
+        let body = serde_json::json!({
+            "result": {
+                "content": ["Class Foo", "{", "}", ""]
+            }
+        });
+        let s = doc_content_to_string(&body);
+        assert!(s.contains("Class Foo"));
+        assert!(s.contains("{"));
+    }
+
+    #[test]
+    fn test_doc_content_to_string_empty_array() {
+        let body = serde_json::json!({"result": {"content": []}});
+        let s = doc_content_to_string(&body);
+        assert_eq!(s, "");
+    }
+
+    #[test]
+    fn test_doc_content_to_string_missing_result() {
+        let body = serde_json::json!({});
+        let s = doc_content_to_string(&body);
+        assert_eq!(s, "");
+    }
+
+    #[test]
+    fn test_strip_storage_blocks_single_line_storage() {
+        // Storage on one line (unusual but possible)
+        let cls = "Class Foo {\nStorage Default {}\n}";
+        let (stripped, flag) = strip_storage_blocks(cls);
+        assert!(flag, "should detect storage");
+        assert!(!stripped.contains("Storage Default"), "should strip");
+    }
+
+    #[test]
+    fn test_strip_storage_blocks_preserves_class_wrapper() {
+        // Storage block with opening brace on same line as Storage keyword
+        let cls = "Class Foo {\nProperty X As %String;\nStorage Default {\n<Type>T</Type>\n}\n}";
+        let (stripped, _) = strip_storage_blocks(cls);
+        assert!(stripped.contains("Class Foo"), "class wrapper preserved");
+        assert!(stripped.contains("Property X"), "property preserved");
+        assert!(
+            stripped.trim_end().ends_with('}'),
+            "closing brace preserved"
+        );
+    }
+
+    #[test]
+    fn test_strip_storage_blocks_inline_brace_strips_content() {
+        // Storage block with { on same line — content including nested braces is stripped
+        let cls =
+            "Class Foo {\nStorage Default {\n<Data>\n<Value>{ nested }</Value>\n</Data>\n}\n}";
+        let (stripped, flag) = strip_storage_blocks(cls);
+        assert!(flag);
+        assert!(!stripped.contains("Storage Default"));
+        assert!(!stripped.contains("nested"));
+    }
+}

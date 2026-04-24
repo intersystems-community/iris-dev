@@ -16,6 +16,14 @@ use std::process::{Command, Stdio};
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn iris_dev_bin() -> std::path::PathBuf {
+    // Allow scripts/coverage.sh to override the binary path so it can point at
+    // an instrumented build for E2E subprocess coverage collection.
+    if let Ok(path) = std::env::var("IRIS_DEV_BIN") {
+        let p = std::path::PathBuf::from(path);
+        if p.exists() {
+            return p;
+        }
+    }
     let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     p.pop(); // crates/iris-dev-core
     p.pop(); // crates/
@@ -104,6 +112,11 @@ fn mcp_call_timeout(
     cmd.args(["mcp"]);
     for (k, v) in env_vars {
         cmd.env(k, v);
+    }
+    // Propagate LLVM_PROFILE_FILE so the spawned iris-dev writes coverage data
+    // when built with -C instrument-coverage (used by scripts/coverage.sh).
+    if let Ok(profile) = std::env::var("LLVM_PROFILE_FILE") {
+        cmd.env("LLVM_PROFILE_FILE", &profile);
     }
 
     let mut child = cmd

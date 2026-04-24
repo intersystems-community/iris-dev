@@ -1895,3 +1895,153 @@ fn parse_source_line(raw: &str) -> (Option<String>, Option<i64>) {
     }
     (None, None)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── extract_port ──────────────────────────────────────────────────────────
+    #[test]
+    fn test_extract_port_standard() {
+        assert_eq!(
+            extract_port("0.0.0.0:52780->52773/tcp", "52773"),
+            Some(52780)
+        );
+    }
+    #[test]
+    fn test_extract_port_superserver() {
+        assert_eq!(extract_port("0.0.0.0:1974->1972/tcp", "1972"), Some(1974));
+    }
+    #[test]
+    fn test_extract_port_not_present() {
+        assert_eq!(extract_port("0.0.0.0:52780->52773/tcp", "1972"), None);
+    }
+    #[test]
+    fn test_extract_port_multiple_mappings() {
+        let ports = "0.0.0.0:1974->1972/tcp, 0.0.0.0:52775->52773/tcp";
+        assert_eq!(extract_port(ports, "52773"), Some(52775));
+        assert_eq!(extract_port(ports, "1972"), Some(1974));
+    }
+    #[test]
+    fn test_extract_port_empty_string() {
+        assert_eq!(extract_port("", "52773"), None);
+    }
+
+    // ── parse_iris_error_string ───────────────────────────────────────────────
+    #[test]
+    fn test_parse_iris_error_standard() {
+        let s = "<UNDEFINED>x+3^Ens.Director.1";
+        let result = parse_iris_error_string(s);
+        assert_eq!(result, Some(("Ens.Director.1".to_string(), 3)));
+    }
+    #[test]
+    fn test_parse_iris_error_divide() {
+        let s = "<DIVIDE>x+1^MyApp.Foo.1";
+        let result = parse_iris_error_string(s);
+        assert_eq!(result, Some(("MyApp.Foo.1".to_string(), 1)));
+    }
+    #[test]
+    fn test_parse_iris_error_no_match() {
+        assert!(parse_iris_error_string("just a plain error").is_none());
+        assert!(parse_iris_error_string("").is_none());
+    }
+    #[test]
+    fn test_parse_iris_error_large_offset() {
+        let s = "<ERROR>routine+99^Some.Class.INT";
+        let result = parse_iris_error_string(s);
+        assert_eq!(result, Some(("Some.Class.INT".to_string(), 99)));
+    }
+
+    // ── parse_source_line ─────────────────────────────────────────────────────
+    #[test]
+    fn test_parse_source_line_with_cls() {
+        let (cls, line) = parse_source_line("MyApp.Foo.cls:42");
+        assert_eq!(cls.as_deref(), Some("MyApp.Foo"));
+        assert_eq!(line, Some(42));
+    }
+    #[test]
+    fn test_parse_source_line_without_cls() {
+        let (cls, line) = parse_source_line("MyApp.Foo:10");
+        assert_eq!(cls.as_deref(), Some("MyApp.Foo"));
+        assert_eq!(line, Some(10));
+    }
+    #[test]
+    fn test_parse_source_line_empty() {
+        let (cls, line) = parse_source_line("");
+        assert!(cls.is_none());
+        assert!(line.is_none());
+    }
+    #[test]
+    fn test_parse_source_line_no_colon() {
+        let (cls, line) = parse_source_line("NoColonHere");
+        assert!(cls.is_none());
+        assert!(line.is_none());
+    }
+
+    // ── translate_symbols_query ───────────────────────────────────────────────
+    #[test]
+    fn test_translate_bare_star_no_where() {
+        let (sql, params) = translate_symbols_query(20, "*");
+        assert!(!sql.contains("WHERE"), "bare * has no WHERE: {}", sql);
+        assert!(params.is_empty());
+    }
+    #[test]
+    fn test_translate_empty_no_where() {
+        let (sql, params) = translate_symbols_query(20, "");
+        assert!(!sql.contains("WHERE"), "empty has no WHERE: {}", sql);
+        assert!(params.is_empty());
+    }
+    #[test]
+    fn test_translate_glob_suffix() {
+        let (sql, params) = translate_symbols_query(10, "HT.*");
+        assert!(sql.contains("%STARTSWITH"));
+        assert_eq!(params[0].as_str(), Some("HT."));
+    }
+    #[test]
+    fn test_translate_trailing_dot() {
+        let (sql, params) = translate_symbols_query(10, "Ens.");
+        assert!(sql.contains("%STARTSWITH"));
+        assert_eq!(params[0].as_str(), Some("Ens."));
+    }
+    #[test]
+    fn test_translate_mid_glob() {
+        let (sql, params) = translate_symbols_query(5, "A.*.B");
+        assert!(sql.contains("LIKE"));
+        let p = params[0].as_str().unwrap();
+        assert_eq!(p, "A.%.B");
+    }
+    #[test]
+    fn test_translate_plain_wraps_in_percent() {
+        let (sql, params) = translate_symbols_query(20, "Patient");
+        assert!(sql.contains("LIKE"));
+        assert_eq!(params[0].as_str(), Some("%Patient%"));
+    }
+    #[test]
+    fn test_translate_limit_in_sql() {
+        let (sql, _) = translate_symbols_query(42, "Foo");
+        assert!(sql.contains("42"), "limit must appear in SQL: {}", sql);
+    }
+
+    // ── sort_containers ───────────────────────────────────────────────────────
+    #[test]
+    fn test_sort_containers_by_score() {
+        let containers = vec![
+            serde_json::json!({"name":"z-iris","score":10}),
+            serde_json::json!({"name":"a-iris","score":90}),
+            serde_json::json!({"name":"m-iris","score":50}),
+        ];
+        let sorted = sort_containers(containers);
+        assert_eq!(sorted[0]["name"].as_str(), Some("a-iris"));
+        assert_eq!(sorted[1]["name"].as_str(), Some("m-iris"));
+        assert_eq!(sorted[2]["name"].as_str(), Some("z-iris"));
+    }
+    #[test]
+    fn test_sort_containers_tiebreak_by_name() {
+        let containers = vec![
+            serde_json::json!({"name":"z-iris","score":50}),
+            serde_json::json!({"name":"a-iris","score":50}),
+        ];
+        let sorted = sort_containers(containers);
+        assert_eq!(sorted[0]["name"].as_str(), Some("a-iris"));
+    }
+}

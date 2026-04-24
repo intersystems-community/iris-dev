@@ -14,7 +14,7 @@ fn iris_unreachable() -> McpError {
 }
 // Bug 18: "connection" matched too broadly — e.g. "No Interoperability connection configured"
 // was misclassified as IRIS_UNREACHABLE. Use more specific network-error patterns.
-fn is_network_error(msg: &str) -> bool {
+pub(crate) fn is_network_error(msg: &str) -> bool {
     msg.contains("error sending")
         || msg.contains("connection refused")
         || msg.contains("connection reset")
@@ -460,5 +460,83 @@ pub async fn interop_message_search_impl(
             },
             &e.to_string(),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_network_error_sending() {
+        assert!(is_network_error("error sending request for url"));
+    }
+
+    #[test]
+    fn test_is_network_error_refused() {
+        assert!(is_network_error("connection refused"));
+    }
+
+    #[test]
+    fn test_is_network_error_reset() {
+        assert!(is_network_error("connection reset by peer"));
+    }
+
+    #[test]
+    fn test_is_network_error_dns() {
+        assert!(is_network_error("dns error: no such host"));
+    }
+
+    #[test]
+    fn test_is_network_error_timeout() {
+        assert!(is_network_error("timed out"));
+    }
+
+    #[test]
+    fn test_is_network_error_false_for_interop_message() {
+        // "No Interoperability connection configured" must NOT be a network error
+        assert!(!is_network_error(
+            "No Interoperability connection configured"
+        ));
+    }
+
+    #[test]
+    fn test_is_network_error_false_for_docker_required() {
+        assert!(!is_network_error("DOCKER_REQUIRED"));
+    }
+
+    #[test]
+    fn test_is_network_error_false_for_sql_error() {
+        assert!(!is_network_error("SQLCODE: -1 Field not found"));
+    }
+
+    #[test]
+    fn test_production_status_params_deserialize() {
+        let p: ProductionStatusParams = serde_json::from_str(r#"{}"#).unwrap();
+        assert_eq!(p.namespace, "USER");
+        assert!(!p.full_status);
+    }
+
+    #[test]
+    fn test_production_name_params_deserialize() {
+        let p: ProductionNameParams =
+            serde_json::from_str(r#"{"production": "MyApp.Production", "namespace": "MYNS"}"#)
+                .unwrap();
+        assert_eq!(p.production.as_deref(), Some("MyApp.Production"));
+        assert_eq!(p.namespace, "MYNS");
+    }
+
+    #[test]
+    fn test_logs_params_defaults() {
+        let p: LogsParams = serde_json::from_str(r#"{}"#).unwrap();
+        assert_eq!(p.limit, 10); // default_limit returns 10
+        assert!(!p.log_type.is_empty()); // log_type has a default
+    }
+
+    #[test]
+    fn test_message_search_params_defaults() {
+        let p: MessageSearchParams = serde_json::from_str(r#"{}"#).unwrap();
+        assert!(p.source.is_none());
+        assert!(p.target.is_none());
     }
 }

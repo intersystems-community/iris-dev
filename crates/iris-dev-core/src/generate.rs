@@ -213,3 +213,78 @@ pub fn extract_class_name(text: &str) -> Option<String> {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_anthropic_request_serializes() {
+        let req = AnthropicRequest {
+            model: "claude-3-5-sonnet".to_string(),
+            max_tokens: 4096,
+            system: "You are helpful".to_string(),
+            messages: vec![AnthropicMessage {
+                role: "user".to_string(),
+                content: "Hello".to_string(),
+            }],
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("max_tokens"));
+        assert!(json.contains("claude-3-5-sonnet"));
+        assert!(json.contains("You are helpful"));
+    }
+
+    #[test]
+    fn test_openai_request_serializes() {
+        let req = OpenAiRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![OpenAiMessage {
+                role: "user".to_string(),
+                content: "test".to_string(),
+            }],
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("gpt-4"));
+        assert!(json.contains("messages"));
+    }
+
+    #[test]
+    fn test_validate_cls_syntax_requires_class_keyword() {
+        assert!(validate_cls_syntax("Class Foo { }"));
+        assert!(!validate_cls_syntax("function foo() {}"));
+        assert!(!validate_cls_syntax(""));
+    }
+
+    #[test]
+    fn test_validate_cls_syntax_requires_braces() {
+        assert!(!validate_cls_syntax("Class Foo"));
+        assert!(validate_cls_syntax("Class Foo { }"));
+    }
+
+    #[test]
+    fn test_extract_class_name_from_generated_text() {
+        // LLM typically wraps class in ```objectscript ``` blocks
+        let text = "Here is your class:\n```objectscript\nClass MyApp.Test { }\n```";
+        let result = extract_class_name(text);
+        assert_eq!(result, Some("MyApp.Test".to_string()));
+    }
+
+    #[test]
+    fn test_llm_client_needs_both_model_and_key() {
+        std::env::remove_var("IRIS_GENERATE_CLASS_MODEL");
+        std::env::remove_var("OPENAI_API_KEY");
+        std::env::remove_var("ANTHROPIC_API_KEY");
+        assert!(LlmClient::from_env().is_none());
+
+        std::env::set_var("IRIS_GENERATE_CLASS_MODEL", "gpt-4");
+        // Still None — needs API key too
+        assert!(LlmClient::from_env().is_none());
+
+        std::env::set_var("OPENAI_API_KEY", "sk-test");
+        assert!(LlmClient::from_env().is_some());
+
+        std::env::remove_var("IRIS_GENERATE_CLASS_MODEL");
+        std::env::remove_var("OPENAI_API_KEY");
+    }
+}
