@@ -124,28 +124,23 @@ jobs:
           echo "IRIS did not become ready in 7 minutes"
           docker logs iris-e2e 2>&1 | tail -20
           exit 1
-      - name: Detect IRIS credentials
+      - name: Set IRIS password via docker exec (community image security requirement)
         run: |
           HOST=${{ env.IRIS_HOST }}
-          # Try _SYSTEM/SYS first (older community images)
+          # IRIS 2026+ community images require password change on first use
+          # Use docker exec to set a known password
+          docker exec iris-e2e iris session IRIS -U %SYS <<'IRISEOF'
+do ##class(Security.Users).Exists("_SYSTEM", .user)
+set sc=##class(Security.Users).ChangePassword("_SYSTEM","SYS","SYS")
+write $system.Status.GetErrorText(sc),!
+halt
+IRISEOF
+          echo "IRIS_USERNAME=_SYSTEM" >> $GITHUB_ENV
+          echo "IRIS_PASSWORD=SYS" >> $GITHUB_ENV
+          # Verify
+          sleep 2
           status=$(curl -s -o /dev/null -w "%{http_code}" -u _SYSTEM:SYS "http://$HOST:52773/api/atelier/" 2>/dev/null)
-          if [ "$status" = "200" ]; then
-            echo "IRIS_USERNAME=_SYSTEM" >> $GITHUB_ENV
-            echo "IRIS_PASSWORD=SYS" >> $GITHUB_ENV
-            echo "Credentials: _SYSTEM/SYS"
-          else
-            # Try SuperUser/SYS (newer community images)
-            status=$(curl -s -o /dev/null -w "%{http_code}" -u SuperUser:SYS "http://$HOST:52773/api/atelier/" 2>/dev/null)
-            if [ "$status" = "200" ]; then
-              echo "IRIS_USERNAME=SuperUser" >> $GITHUB_ENV
-              echo "IRIS_PASSWORD=SYS" >> $GITHUB_ENV
-              echo "Credentials: SuperUser/SYS"
-            else
-              echo "WARNING: Could not authenticate, will try _SYSTEM/SYS anyway"
-              echo "IRIS_USERNAME=_SYSTEM" >> $GITHUB_ENV
-              echo "IRIS_PASSWORD=SYS" >> $GITHUB_ENV
-            fi
-          fi
+          echo "Auth check: HTTP $status"
       - name: Run E2E tool tests against live IRIS
         run: python -m pytest tests/integration/test_022_all_tools.py --tb=short -q
         env:
