@@ -95,7 +95,10 @@ jobs:
         run: |
           docker run -d --name iris-e2e \
             -p 52773:52773 \
-            intersystemsdc/iris-community:2024.1
+            -e ISC_PACKAGE_SUPERUSER=_SYSTEM \
+            -e ISC_PACKAGE_MANAGER_PASSOWRD=SYS \
+            -e ISC_PACKAGE_PASSWORD=SYS \
+            intersystemsdc/iris-community:2025.1
           # Wait for container to be running
           sleep 10
           docker ps | grep iris-e2e
