@@ -95,25 +95,37 @@ jobs:
         run: |
           docker run -d --name iris-e2e \
             -p 52773:52773 \
+            -e ISC_DATA_DIRECTORY=/irissys/data \
             intersystemsdc/iris-community:latest
-      - name: Wait for IRIS Atelier API to be ready (up to 5 minutes)
+          # Wait for container to be running
+          sleep 10
+          docker ps | grep iris-e2e
+      - name: Wait for IRIS Atelier API to be ready (up to 6 minutes)
         run: |
-          for i in $(seq 1 60); do
-            status=$(curl -s -o /dev/null -w "%{http_code}" -u _SYSTEM:SYS http://localhost:52773/api/atelier/ 2>/dev/null || echo "000")
-            if [ "$status" = "200" ]; then
-              echo "IRIS Atelier API ready after $((i * 5))s (HTTP $status)"
-              exit 0
-            fi
-            echo "Waiting... ($((i * 5))s, HTTP $status)"
+          IRIS_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' iris-e2e)
+          echo "IRIS container IP: $IRIS_IP"
+          for i in $(seq 1 72); do
+            # Try both container IP and localhost
+            for host in localhost $IRIS_IP; do
+              status=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 3 \
+                -u _SYSTEM:SYS "http://$host:52773/api/atelier/" 2>/dev/null || echo "000")
+              if [ "$status" = "200" ]; then
+                echo "IRIS Atelier API ready at $host:52773 after $((i * 5))s"
+                echo "IRIS_HOST=$host" >> $GITHUB_ENV
+                exit 0
+              fi
+            done
+            echo "Waiting... ($((i * 5))s)"
             sleep 5
           done
-          echo "IRIS did not become ready in 5 minutes"
+          echo "IRIS did not become ready in 6 minutes"
           docker logs iris-e2e 2>&1 | tail -30
+          docker inspect iris-e2e | python3 -c "import json,sys; c=json.load(sys.stdin)[0]; print('Ports:', c['NetworkSettings']['Ports'])"
           exit 1
       - name: Run E2E tool tests against live IRIS
         run: pytest tests/integration/test_022_all_tools.py --tb=short -q
         env:
-          IRIS_HOST: localhost
+          IRIS_HOST: ${{ env.IRIS_HOST }}
           IRIS_WEB_PORT: "52773"
           IRIS_USERNAME: _SYSTEM
           IRIS_PASSWORD: SYS
