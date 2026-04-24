@@ -192,7 +192,7 @@ impl IrisConnection {
             .collect();
         let class_name = format!("User.IrisDevRun{}", id);
         let doc_name = format!("{}.cls", class_name);
-        let sql_func = format!("User.IrisDevRun{}_Execute", id);
+        let sql_func = format!("User_IrisDevRun{}_Execute", id);
         let tmpfile = format!("/tmp/irisd_{}.txt", id);
 
         let content = Self::build_exec_class(&class_name, &tmpfile, code);

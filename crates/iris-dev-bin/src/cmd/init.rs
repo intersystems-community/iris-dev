@@ -36,6 +36,12 @@ impl InitCommand {
             .to_string();
 
         let containers = iris_dev_core::tools::list_iris_containers_pub(&workspace_basename).await;
+        if containers.is_empty() {
+            eprintln!(
+                "⚠ No running IRIS containers found. If your container was started without \
+                 IRIS_PASSWORD, restart with: docker run -e IRIS_PASSWORD=SYS ..."
+            );
+        }
         let suggested_container = containers
             .first()
             .and_then(|c| c["name"].as_str())

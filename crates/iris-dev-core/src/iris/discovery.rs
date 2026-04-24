@@ -33,6 +33,16 @@ async fn probe_atelier_with_client(
         .await
         .ok()?;
 
+    if resp.status().as_u16() == 401 {
+        // #21: iris-community containers started without IRIS_PASSWORD have OS auth only.
+        // Basic auth is rejected. Log a hint so the user knows what to do.
+        tracing::warn!(
+            "IRIS at {}:{} returned 401 — container may need IRIS_PASSWORD. \
+             Restart with: docker run -e IRIS_PASSWORD=SYS ...",
+            host, port
+        );
+        return None;
+    }
     if !resp.status().is_success() {
         return None;
     }
@@ -106,7 +116,22 @@ pub async fn discover_iris(explicit: Option<IrisConnection>) -> Result<Option<Ir
         }
     }
 
-    // 3. Localhost scan (parallel, 100ms each).
+    // 3. IRIS_CONTAINER: resolve the named container's web port via Docker.
+    // workspace_config sets this when container = "..." in .iris-dev.toml.
+    // Must run before the generic localhost scan or another container on port 52773 wins.
+    if let Ok(container_name) = std::env::var("IRIS_CONTAINER") {
+        if !container_name.is_empty() {
+            if let Some(conn) = discover_via_docker_named(&container_name).await {
+                return Ok(Some(conn));
+            }
+            tracing::warn!(
+                "IRIS_CONTAINER={} not found or not reachable via Docker",
+                container_name
+            );
+        }
+    }
+
+    // 4. Localhost scan (parallel, 100ms each).
     // Bug 24: share a single client across all port probes.
     let scan_client = reqwest::Client::builder()
         .timeout(Duration::from_millis(100))
@@ -132,12 +157,12 @@ pub async fn discover_iris(explicit: Option<IrisConnection>) -> Result<Option<Ir
         }
     }
 
-    // 4. Docker scan via bollard
+    // 5. Docker scan via bollard
     if let Some(conn) = discover_via_docker().await {
         return Ok(Some(conn));
     }
 
-    // 5. VS Code settings.json
+    // 6. VS Code settings.json
     if let Some(conn) = discover_via_vscode_settings().await {
         return Ok(Some(conn));
     }
@@ -151,8 +176,8 @@ pub fn score_container_name(container_name: &str, workspace_basename: &str) -> u
     if workspace_basename.is_empty() {
         return 0;
     }
-    let cn = container_name.to_lowercase();
-    let wb = workspace_basename.to_lowercase();
+    let cn = container_name.to_lowercase().replace('-', "_");
+    let wb = workspace_basename.to_lowercase().replace('-', "_");
 
     let base = if cn == wb {
         100
@@ -179,6 +204,63 @@ pub fn score_container_name(container_name: &str, workspace_basename: &str) -> u
     };
 
     base + suffix_bonus
+}
+
+/// Resolve a specific named container to its web port and probe it.
+/// Used when IRIS_CONTAINER env var is set (e.g. from .iris-dev.toml).
+async fn discover_via_docker_named(target: &str) -> Option<IrisConnection> {
+    use bollard::container::ListContainersOptions;
+    use bollard::Docker;
+
+    let docker = Docker::connect_with_defaults().ok()?;
+    let containers = docker
+        .list_containers(Some(ListContainersOptions::<String> {
+            all: false,
+            ..Default::default()
+        }))
+        .await
+        .ok()?;
+
+    let username = std::env::var("IRIS_USERNAME").unwrap_or_else(|_| "_SYSTEM".to_string());
+    let password = std::env::var("IRIS_PASSWORD").unwrap_or_else(|_| "SYS".to_string());
+    let namespace = std::env::var("IRIS_NAMESPACE").unwrap_or_else(|_| "USER".to_string());
+
+    for container in containers {
+        let name = container
+            .names
+            .and_then(|n| n.into_iter().next())
+            .unwrap_or_default()
+            .trim_start_matches('/')
+            .to_string();
+
+        if name != target {
+            continue;
+        }
+
+        let mut port_web: Option<u16> = None;
+        let mut port_ss: Option<u16> = None;
+        for port in container.ports.unwrap_or_default() {
+            if port.private_port == 52773 {
+                port_web = port.public_port;
+            }
+            if port.private_port == 1972 {
+                port_ss = port.public_port;
+            }
+        }
+
+        if let Some(web_port) = port_web {
+            if let Some(mut conn) =
+                probe_atelier("localhost", web_port, &username, &password, &namespace, 2000).await
+            {
+                conn.source = DiscoverySource::Docker {
+                    container_name: name,
+                };
+                conn.port_superserver = port_ss;
+                return Some(conn);
+            }
+        }
+    }
+    None
 }
 
 async fn discover_via_docker() -> Option<IrisConnection> {
