@@ -87,10 +87,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build -p iris-dev
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - run: pip install pytest httpx pyyaml
       - name: Start IRIS container
         run: |
           docker run -d --name iris-e2e \
@@ -145,19 +141,14 @@ jobs:
           echo "WARNING: Could not authenticate with any known credentials"
           echo "IRIS_USERNAME=_SYSTEM" >> $GITHUB_ENV
           echo "IRIS_PASSWORD=SYS" >> $GITHUB_ENV
-      - name: Run E2E tool tests against live IRIS
-        run: python -m pytest tests/integration/test_022_all_tools.py --tb=short -q
+      - name: Run E2E tests against live IRIS (Rust)
+        run: cargo test --test test_e2e -- --nocapture
         env:
           IRIS_HOST: ${{ env.IRIS_HOST }}
           IRIS_WEB_PORT: "52773"
           IRIS_USERNAME: ${{ env.IRIS_USERNAME }}
           IRIS_PASSWORD: ${{ env.IRIS_PASSWORD }}
           IRIS_NAMESPACE: USER
-      - name: Run compile hook integration tests
-        run: python -m pytest tests/integration/test_032_compile_hook.py --tb=short -q
-        env:
-          IRIS_HOST: ${{ env.IRIS_HOST }}
-          IRIS_WEB_PORT: "52773"
           IRIS_CONTAINER: iris-e2e
 
   cross-compile-check:
