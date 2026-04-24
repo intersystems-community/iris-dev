@@ -128,19 +128,13 @@ jobs:
         run: |
           HOST=${{ env.IRIS_HOST }}
           # IRIS 2026+ community images require password change on first use
-          # Use docker exec to set a known password
-          docker exec iris-e2e iris session IRIS -U %SYS <<'IRISEOF'
-do ##class(Security.Users).Exists("_SYSTEM", .user)
-set sc=##class(Security.Users).ChangePassword("_SYSTEM","SYS","SYS")
-write $system.Status.GetErrorText(sc),!
-halt
-IRISEOF
+          printf 'do ##class(Security.Users).ChangePassword("_SYSTEM","SYS","SYS") halt\n' | \
+            docker exec -i iris-e2e iris session IRIS -U '%SYS' || true
           echo "IRIS_USERNAME=_SYSTEM" >> $GITHUB_ENV
           echo "IRIS_PASSWORD=SYS" >> $GITHUB_ENV
-          # Verify
           sleep 2
           status=$(curl -s -o /dev/null -w "%{http_code}" -u _SYSTEM:SYS "http://$HOST:52773/api/atelier/" 2>/dev/null)
-          echo "Auth check: HTTP $status"
+          echo "Auth check after password set: HTTP $status"
       - name: Run E2E tool tests against live IRIS
         run: python -m pytest tests/integration/test_022_all_tools.py --tb=short -q
         env:
