@@ -104,7 +104,16 @@ impl CompileCommand {
             )
         };
 
-        match iris.execute(&code, &self.namespace).await {
+        // IDEV-1: try HTTP execution first (no IRIS_CONTAINER required).
+        // Fall back to docker exec only if IRIS_CONTAINER is set to a non-empty value.
+        let exec_result = match iris.execute_via_generator(&code, &self.namespace, &client).await {
+            Ok(out) => Ok(out),
+            Err(_) if std::env::var("IRIS_CONTAINER").ok().filter(|v| !v.is_empty()).is_some() => {
+                iris.execute(&code, &self.namespace).await
+            }
+            Err(e) => Err(e),
+        };
+        match exec_result {
             Ok(out) => {
                 let out = out.trim().to_string();
                 if out == "OK" {

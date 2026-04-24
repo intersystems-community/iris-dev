@@ -87,3 +87,62 @@ fn test_http_client_succeeds_normally() {
     let result = IrisConnection::http_client();
     assert!(result.is_ok(), "http_client should succeed in normal environment");
 }
+
+// ── IDEV-3: sentinel Write ! ─────────────────────────────────────────────
+
+#[test]
+fn test_execute_captures_output_without_trailing_newline() {
+    // build_exec_class must inject a sentinel Write ! after user code
+    // so that Read line:0 always finds a line boundary.
+    let lines = iris_dev_core::iris::connection::IrisConnection::build_exec_class_for_test(
+        "TestClass", "/tmp/test.txt", "Write 42"
+    );
+    // Find the user code line
+    let user_line_pos = lines.iter().position(|l| l.contains("Write 42")).expect("should contain user code");
+    // The line immediately after user code must be the sentinel
+    let sentinel_line = lines.get(user_line_pos + 1).expect("should have line after user code");
+    assert!(
+        sentinel_line.contains("Write !"),
+        "sentinel 'Write !' must follow user code, got: {:?}",
+        sentinel_line
+    );
+}
+
+#[test]
+fn test_build_exec_class_sentinel_not_duplicated() {
+    let lines = iris_dev_core::iris::connection::IrisConnection::build_exec_class_for_test(
+        "TestClass", "/tmp/test.txt", "Write 42,!"
+    );
+    // Count sentinel occurrences — must be exactly one "Write !" line
+    let sentinel_count = lines.iter().filter(|l| l.trim() == "Write !").count();
+    assert_eq!(sentinel_count, 1, "exactly one sentinel Write ! should be present, got {}", sentinel_count);
+}
+
+#[test]
+fn test_execute_captures_multiline_without_trailing_newline() {
+    // FR-007: multi-line output where last line has no trailing ! must be fully captured.
+    let lines = iris_dev_core::iris::connection::IrisConnection::build_exec_class_for_test(
+        "TestClass", "/tmp/test.txt",
+        "Write \"line1\",!\nWrite \"line2\""
+    );
+    // Sentinel must appear after all user code lines
+    let sentinel_pos = lines.iter().rposition(|l| l.trim() == "Write !").expect("sentinel must exist");
+    let last_user_pos = lines.iter().rposition(|l| l.contains("Write \"line2\"")).expect("user code must exist");
+    assert!(sentinel_pos > last_user_pos, "sentinel must come after last user code line");
+}
+
+// ── FR-009–FR-011: HTTP path handles long code ───────────────────────────
+
+#[test]
+fn test_build_exec_class_handles_long_code() {
+    // The HTTP path (build_exec_class) must handle code strings of any length.
+    // Generate a 200-char string literal and verify it appears intact in the generated class.
+    let long_string: String = "A".repeat(200);
+    let code = format!("Write \"{}\"", long_string);
+    let lines = iris_dev_core::iris::connection::IrisConnection::build_exec_class_for_test(
+        "TestClass", "/tmp/test.txt", &code
+    );
+    // The full 200-char string must appear in the generated lines without truncation
+    let found = lines.iter().any(|l| l.contains(&long_string));
+    assert!(found, "200-char string must appear intact in generated class lines");
+}

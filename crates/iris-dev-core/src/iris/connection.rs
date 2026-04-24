@@ -282,6 +282,7 @@ impl IrisConnection {
             lines.push(format!("    {}", line));
         }
         lines.extend([
+            "    Write !".into(),  // IDEV-3: sentinel ensures temp file always ends with \n
             "  } Catch ex {".into(),
             "    Write \"ERROR: \",ex.DisplayString(),!".into(),
             "  }".into(),
@@ -323,8 +324,15 @@ impl IrisConnection {
         Ok(())
     }
 
-    /// FR-006, FR-024: Execute ObjectScript via docker exec.
-    /// Strips IRIS session banner from stdout. Caches IRIS_CONTAINER at first call.
+    /// Execute ObjectScript code via docker exec (iris session stdin).
+    ///
+    /// LIMITATION: IRIS terminal sessions wrap stdin at ~80 columns when code is
+    /// sent as a single line. For code longer than ~80 characters, callers with
+    /// an HTTP client should use execute_via_generator() instead — it compiles
+    /// user code into a temp class with no line-length restriction.
+    ///
+    /// This method is preserved for environments without Atelier REST access.
+    /// Caches IRIS_CONTAINER at first call (FR-024).
     pub async fn execute(&self, code: &str, namespace: &str) -> anyhow::Result<String> {
         // FR-024: cache IRIS_CONTAINER once to prevent mid-session TOCTOU.
         let container = self
@@ -389,6 +397,12 @@ impl IrisConnection {
             .timeout(std::time::Duration::from_secs(30))
             .danger_accept_invalid_certs(insecure)
             .build()?)
+    }
+
+    /// Test accessor for build_exec_class. Exposed for integration tests.
+    #[doc(hidden)]
+    pub fn build_exec_class_for_test(class_name: &str, tmpfile: &str, code: &str) -> Vec<String> {
+        Self::build_exec_class(class_name, tmpfile, code)
     }
 }
 

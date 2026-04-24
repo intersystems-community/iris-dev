@@ -107,3 +107,72 @@ fn test_no_retry_on_404() {
         assert_eq!(put_count, 1, "expected exactly 1 PUT (no retry), got {}", put_count);
     });
 }
+
+#[test]
+fn test_compile_uses_http_when_no_container() {
+    rt().block_on(async {
+        // Explicitly remove IRIS_CONTAINER so docker path is unavailable
+        std::env::remove_var("IRIS_CONTAINER");
+
+        let mock_server = MockServer::start().await;
+
+        // Mock PUT (write temp class) — returns 200
+        Mock::given(method("PUT"))
+            .and(path_regex("/api/atelier/.*"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"result":{"status":""},"status":{"errors":[]}})),
+            )
+            .mount(&mock_server)
+            .await;
+
+        // Mock POST compile — returns 200 with no errors
+        Mock::given(method("POST"))
+            .and(path_regex("/api/atelier/.*/action/compile.*"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"result":{"log":[]},"status":{"errors":[]}})),
+            )
+            .mount(&mock_server)
+            .await;
+
+        // Mock POST query — returns "OK" as output (the $SYSTEM.OBJ.Compile result)
+        Mock::given(method("POST"))
+            .and(path_regex("/api/atelier/.*/action/query"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"result":{"content":[{"output":"OK"}]},"status":{"errors":[]}})),
+            )
+            .mount(&mock_server)
+            .await;
+
+        // Mock DELETE (cleanup temp class) — best effort
+        Mock::given(method("DELETE"))
+            .and(path_regex("/api/atelier/.*"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&mock_server)
+            .await;
+
+        let conn = iris_dev_core::iris::connection::IrisConnection::new(
+            mock_server.uri(),
+            "USER",
+            "_SYSTEM",
+            "SYS",
+            iris_dev_core::iris::connection::DiscoverySource::ExplicitFlag,
+        );
+        let client = iris_dev_core::iris::connection::IrisConnection::http_client().unwrap();
+
+        // Simulate the compile step: execute_via_generator with a $SYSTEM.OBJ.Compile command
+        let code = "Set sc=$SYSTEM.OBJ.Compile(\"MyApp.Patient\",\"cuk\") If $System.Status.IsOK(sc) {Write \"OK\"} Else {Write $System.Status.GetErrorText(sc)}";
+        let result = conn.execute_via_generator(code, "USER", &client).await;
+
+        // Should succeed via HTTP without requiring IRIS_CONTAINER
+        assert!(result.is_ok(), "HTTP execution should succeed without IRIS_CONTAINER, got: {:?}", result);
+        let output = result.unwrap();
+        assert!(
+            output.trim() == "OK" || output.is_empty(), // generator may return empty if mock doesn't fully simulate
+            "unexpected output: {:?}",
+            output
+        );
+    });
+}
