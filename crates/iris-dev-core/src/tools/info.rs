@@ -44,16 +44,12 @@ pub async fn handle_iris_info(
     let ns = &p.namespace;
     let url = match p.what.as_str() {
         "documents" => {
-            // /v1/{ns}/docnames/{type} is the verified working endpoint
-            let cat = match p.doc_type.as_deref().unwrap_or("ALL") {
-                "ALL" => "CLS".to_string(), // docnames requires a specific type
-                t => t.to_uppercase(),
-            };
-            iris.versioned_ns_url(ns, &format!("/docnames/{}", cat))
+            let cat = p.doc_type.as_deref().unwrap_or("ALL");
+            iris.versioned_ns_url(ns, &format!("/docs?category={}", cat))
         }
-        "modified" => iris.versioned_ns_url(ns, "/modified/0"),
-        "namespace" => iris.versioned_ns_url(ns, ""), // v1 not v8, no trailing slash
-        "metadata" => iris.atelier_url("/"), // root endpoint returns server metadata
+        "modified" => iris.versioned_ns_url(ns, "/docs/modified"),
+        "namespace" => iris.versioned_ns_url(ns, "/"),
+        "metadata" => iris.versioned_ns_url(ns, "/metadata"),
         "jobs" => iris.versioned_ns_url(ns, "/jobs"),
         "csp_apps" => iris.versioned_ns_url(ns, "/cspapps"),
         "csp_debug" => iris.versioned_ns_url(ns, "/cspdebugid"),
@@ -104,34 +100,15 @@ pub async fn handle_iris_macro(
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     match p.action.as_str() {
         "list" => {
-            // /v8/{ns}/macros does not exist — use docnames/INC to list include files
-            // which is where macros are defined in IRIS
-            let url = iris.versioned_ns_url(&p.namespace, "/docnames/INC");
+            let url = iris.versioned_ns_url(&p.namespace, "/macros");
             let resp = client
                 .get(&url)
                 .basic_auth(&iris.username, Some(&iris.password))
                 .send()
                 .await
                 .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
-            if !resp.status().is_success() {
-                return ok_json(serde_json::json!({
-                    "success": true,
-                    "macros": [],
-                    "note": "No include files found in this namespace"
-                }));
-            }
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
-            let inc_files: Vec<String> = body["result"]["content"]
-                .as_array()
-                .unwrap_or(&vec![])
-                .iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect();
-            ok_json(serde_json::json!({
-                "success": true,
-                "macros": inc_files,
-                "note": "Lists .inc include files — macro definitions are found within these files"
-            }))
+            ok_json(serde_json::json!({"success": true, "macros": body["result"]["content"]}))
         }
         action @ ("signature" | "location" | "definition" | "expand") => {
             let name = p.name.as_deref().unwrap_or("");
@@ -181,10 +158,10 @@ pub struct DebugParams {
 
 pub async fn handle_iris_debug(
     iris: &IrisConnection,
-    _client: &reqwest::Client,
+    client: &reqwest::Client,
     p: DebugParams,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-    let _query_url = iris.versioned_ns_url(&p.namespace, "/action/query");
+    let query_url = iris.versioned_ns_url(&p.namespace, "/action/query");
 
     match p.action.as_str() {
         "map_int" => {
@@ -205,15 +182,19 @@ pub async fn handle_iris_debug(
             }
         }
         "error_logs" => {
-            // IRIS error log tables (%SYS.ErrorLog, %SYSTEM.Error) are not SQL-accessible
-            // via the Atelier REST /action/query endpoint in IRIS Community edition.
-            // Return empty list with a clear note rather than a null or 404.
-            // Full error log access requires docker exec (use IRIS_CONTAINER env var).
-            ok_json(serde_json::json!({
-                "success": true,
-                "logs": [],
-                "note": "IRIS error log is not accessible via Atelier REST SQL. Set IRIS_CONTAINER to enable docker exec access to the full error log."
-            }))
+            let sql = format!(
+                "SELECT TOP {} ID, Name, Location, Date, Time FROM %SYSTEM.Error ORDER BY ID DESC",
+                p.limit
+            );
+            let resp = client
+                .post(&query_url)
+                .basic_auth(&iris.username, Some(&iris.password))
+                .json(&serde_json::json!({"query": sql}))
+                .send()
+                .await
+                .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            ok_json(serde_json::json!({"success": true, "logs": body["result"]["content"]}))
         }
         "capture" => {
             let code = "set err=$ZERROR write \"error:\"_err,! set loc=$ZPOSITION write \"position:\"_loc,!";

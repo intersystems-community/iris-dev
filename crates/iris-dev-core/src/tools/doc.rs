@@ -181,43 +181,40 @@ async fn handle_put(
         _ => raw_content,
     };
 
-    // SCM OnBeforeSave check — uses iris.execute() (docker exec or objectgenerator HTTP path)
+    // SCM OnBeforeSave — check if write is allowed (requires docker exec; skipped if unavailable)
     let scm_check = format!(
         "set scmObj=##class(%Studio.SourceControl.Base).%GetImplementationObject(\"{n}\") if '$IsObject(scmObj) {{ write \"NO_SCM\" }} else {{ set action=0 set msg=\"\" set target=\"\" set reload=0 set sc=scmObj.UserAction(0,\"%SourceMenu,CheckOut\",\"{n}\",\"\",.action,.target,.msg,.reload) write action_\"|\"_msg }}",
         n = name.replace('"', "\\\"")
     );
     if let Ok(out) = iris.execute(&scm_check, ns).await {
         let out = out.trim().to_string();
-        {
-            if out != "NO_SCM" && !out.is_empty() {
-                let parts: Vec<&str> = out.splitn(2, '|').collect();
-                let action_code = parts
-                    .first()
-                    .and_then(|s| s.trim().parse::<u8>().ok())
-                    .unwrap_or(0);
-                let msg = parts.get(1).map(|s| s.trim()).unwrap_or("");
+        if out != "NO_SCM" && !out.is_empty() {
+            let parts: Vec<&str> = out.splitn(2, '|').collect();
+            let action_code = parts
+                .first()
+                .and_then(|s| s.trim().parse::<u8>().ok())
+                .unwrap_or(0);
+            let msg = parts.get(1).map(|s| s.trim()).unwrap_or("");
 
-                if action_code == 1 {
-                    // Needs elicitation — store pending write
-                    let eid = elicitation_store.insert(
-                        name,
-                        crate::elicitation::ElicitationAction::Put,
-                        Some(content.to_string()),
-                        None,
-                        ns.clone(),
-                    );
-                    return ok_json(serde_json::json!({
-                        "success": false,
-                        "elicitation_required": true,
-                        "elicitation_id": eid,
-                        "message": if msg.is_empty() { format!("{} requires checkout. Check out and write?", name) } else { msg.to_string() },
-                        "options": ["yes", "no"],
-                    }));
-                } else if action_code == 6 {
-                    return err_json("SCM_REJECTED", &format!("Source control rejected: {}", msg));
-                }
-                // action_code == 0: proceed
+            if action_code == 1 {
+                let eid = elicitation_store.insert(
+                    name,
+                    crate::elicitation::ElicitationAction::Put,
+                    Some(content.to_string()),
+                    None,
+                    ns.clone(),
+                );
+                return ok_json(serde_json::json!({
+                    "success": false,
+                    "elicitation_required": true,
+                    "elicitation_id": eid,
+                    "message": if msg.is_empty() { format!("{} requires checkout. Check out and write?", name) } else { msg.to_string() },
+                    "options": ["yes", "no"],
+                }));
+            } else if action_code == 6 {
+                return err_json("SCM_REJECTED", &format!("Source control rejected: {}", msg));
             }
+            // action_code == 0: proceed
         }
     }
 

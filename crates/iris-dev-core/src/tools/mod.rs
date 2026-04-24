@@ -428,7 +428,7 @@ impl IrisTools {
 
         // Expand wildcards: resolve "MyApp.*.cls" to a list of matching class names
         let targets: Vec<String> = if p.target.contains('*') {
-            let list_url = iris.versioned_ns_url(&iris.namespace, "/docs?category=CLS");
+            let list_url = iris.versioned_ns_url(&iris.namespace.clone(), "/docs?category=CLS");
             match client
                 .get(&list_url)
                 .basic_auth(&iris.username, Some(&iris.password))

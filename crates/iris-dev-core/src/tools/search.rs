@@ -46,10 +46,7 @@ pub async fn handle_iris_search(
         query_string.push_str("&case=1");
     }
 
-    let sync_url = iris.atelier_url(&format!(
-        "/v2/{}/action/search?{}",
-        p.namespace, query_string
-    ));
+    let sync_url = iris.versioned_ns_url(&p.namespace, &format!("/action/search?{}", query_string));
 
     // Try sync search with 2s timeout
     let sync_client = reqwest::Client::builder()
@@ -76,8 +73,7 @@ pub async fn handle_iris_search(
         }
         _ => {
             // Timeout or error — fall back to async POST
-            // Search API requires minimum v2; intentionally using v2 not detected version
-            let post_url = iris.atelier_url(&format!("/v2/{}/action/search", p.namespace));
+            let post_url = iris.versioned_ns_url(&p.namespace, "/action/search");
             let post_body = serde_json::json!({
                 "query": p.query,
                 "regex": p.regex,
@@ -111,11 +107,10 @@ async fn poll_async_search(
     namespace: &str,
     query: &str,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-    let poll_url = iris.atelier_url(&format!(
-        "/v2/{}/action/search?workId={}",
+    let poll_url = iris.versioned_ns_url(
         namespace,
-        urlencoding::encode(work_id)
-    ));
+        &format!("/action/search?workId={}", urlencoding::encode(work_id)),
+    );
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
     loop {
