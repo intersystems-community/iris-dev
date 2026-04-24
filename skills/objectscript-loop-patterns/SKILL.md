@@ -173,4 +173,35 @@ While i <= items.Count() {
 For i=items.Count():-1:1 {
     If condition { Do items.RemoveAt(i) }
 }
+
+## 8. Global Negative-Key Trick — Descending Sort Without a Sort Step
+
+IRIS globals sort subscripts ascending by default. To iterate in descending order
+by a numeric score, store the **negated** value as the subscript key. `$Order` then
+visits higher scores first.
+
+```objectscript
+// Store: negate the score so high scores sort first
+Set ^||TagScores(-score, tag) = ""
+
+// Iterate descending — $Order walks negative numbers most-negative first,
+// so -100, -90, -80 ... means scores 100, 90, 80 ...
+Set key = ""
+For {
+    Set key = $Order(^||TagScores(key))
+    Quit:key=""
+    Set tag = $Order(^||TagScores(key, ""))
+    Write "Score: ", (-key), " Tag: ", tag, !
+}
+
+// Two-level subscript: ^||Name(-score, tiebreaker) = value
+// Lets you sort by score descending, then alphabetically within the same score:
+Set ^||Results(-score, name) = data
+```
+
+**Why it works**: IRIS collates numeric subscripts in numeric order. Negative numbers
+sort before zero, so `-100 < -90 < 0`. Negating the score inverts the order.
+No `$SortBegin` / array copy / post-sort needed — the global IS the sorted structure.
+
+**Common uses**: leaderboards, top-N queries, priority queues, ranked results.
 ```
