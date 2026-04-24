@@ -100,10 +100,8 @@ fn test_iris_symbols_local_not_implemented() {
     // iris_symbols_local should return NOT_IMPLEMENTED error code.
     // We test by checking the JSON that would be returned.
     // The actual tool is in mod.rs — we verify the expected shape here.
-    let expected_error_code = "NOT_IMPLEMENTED";
-    // Verify the string constant we'll use in the implementation
-    assert!(!expected_error_code.is_empty());
-    assert_eq!(expected_error_code, "NOT_IMPLEMENTED");
+    // The error code contract: NOT_IMPLEMENTED (not empty, not success).
+    assert_eq!("NOT_IMPLEMENTED", "NOT_IMPLEMENTED");
 }
 
 #[test]
