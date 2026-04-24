@@ -95,7 +95,6 @@ jobs:
         run: |
           docker run -d --name iris-e2e \
             -p 52773:52773 \
-            -e ISC_DATA_DIRECTORY=/irissys/data \
             intersystemsdc/iris-community:latest
           # Wait for container to be running
           sleep 10
