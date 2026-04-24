@@ -43,6 +43,9 @@ jobs:
           src="target/${{ matrix.target }}/release/iris-dev"
           [[ -f "${src}.exe" ]] && src="${src}.exe"
           cp "$src" "${{ matrix.artifact }}"
+      - name: Ad-hoc codesign (macOS only — removes Gatekeeper quarantine hang)
+        if: runner.os == 'macOS'
+        run: codesign --force --deep --sign - "${{ matrix.artifact }}"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
