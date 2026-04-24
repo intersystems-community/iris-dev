@@ -124,17 +124,23 @@ jobs:
           echo "IRIS did not become ready in 7 minutes"
           docker logs iris-e2e 2>&1 | tail -20
           exit 1
-      - name: Set IRIS password via docker exec (community image security requirement)
+      - name: Configure IRIS credentials for testing
         run: |
           HOST=${{ env.IRIS_HOST }}
-          # IRIS 2026+ community images require password change on first use
-          printf 'do ##class(Security.Users).ChangePassword("_SYSTEM","SYS","SYS") halt\n' | \
-            docker exec -i iris-e2e iris session IRIS -U '%SYS' || true
+          # Try to use the community image's initial _SYSTEM/SYS credentials
+          # If that fails, use the iris management portal to reset
           echo "IRIS_USERNAME=_SYSTEM" >> $GITHUB_ENV
           echo "IRIS_PASSWORD=SYS" >> $GITHUB_ENV
+          # The community image may have password expiry — try to reset via iris session
+          docker exec iris-e2e bash -c \
+            'echo "do ##class(Security.Users).UnExpireUserPasswords() halt" | iris session IRIS -U "%SYS"' \
+            2>/dev/null || true
           sleep 2
           status=$(curl -s -o /dev/null -w "%{http_code}" -u _SYSTEM:SYS "http://$HOST:52773/api/atelier/" 2>/dev/null)
-          echo "Auth check after password set: HTTP $status"
+          echo "Auth check: HTTP $status"
+          if [ "$status" != "200" ]; then
+            echo "WARNING: _SYSTEM:SYS returned $status — tests may fail with 401"
+          fi
       - name: Run E2E tool tests against live IRIS
         run: python -m pytest tests/integration/test_022_all_tools.py --tb=short -q
         env:
