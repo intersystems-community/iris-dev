@@ -174,6 +174,58 @@ fn test_execute_captures_multiline_without_trailing_newline() {
     );
 }
 
+// ── I-2: IRIS_CONTAINER read fresh each call ──────────────────────────────
+//
+// Both sub-cases run sequentially in one test to avoid env-var races
+// between parallel test threads.
+#[test]
+fn test_execute_iris_container_env_behavior() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    // Sub-case A: no container set → DOCKER_REQUIRED
+    std::env::remove_var("IRIS_CONTAINER");
+    let conn = IrisConnection::new(
+        "http://localhost:52773",
+        "USER",
+        "_SYSTEM",
+        "SYS",
+        DiscoverySource::ExplicitFlag,
+    );
+    let result = rt.block_on(conn.execute("Write 1", "USER"));
+    assert!(result.is_err(), "expected error when IRIS_CONTAINER unset");
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "DOCKER_REQUIRED",
+        "should return DOCKER_REQUIRED when IRIS_CONTAINER is not set"
+    );
+
+    // Sub-case B: set env var AFTER construction → execute() must pick it up.
+    // If OnceLock cached None at construction time the call would still return
+    // DOCKER_REQUIRED. Without the cache it attempts docker exec instead.
+    std::env::remove_var("IRIS_CONTAINER");
+    let conn2 = IrisConnection::new(
+        "http://localhost:52773",
+        "USER",
+        "_SYSTEM",
+        "SYS",
+        DiscoverySource::ExplicitFlag,
+    );
+    std::env::set_var("IRIS_CONTAINER", "nonexistent-container-for-test");
+    let result2 = rt.block_on(conn2.execute("Write 1", "USER"));
+    std::env::remove_var("IRIS_CONTAINER");
+    // Should be an error (container not found) but NOT "DOCKER_REQUIRED"
+    if let Err(e) = result2 {
+        assert!(
+            e.to_string() != "DOCKER_REQUIRED",
+            "should attempt docker exec (not DOCKER_REQUIRED): got '{}'",
+            e
+        );
+    }
+}
+
 // ── FR-009–FR-011: HTTP path handles long code ───────────────────────────
 
 #[test]

@@ -171,3 +171,54 @@ fn test_max_entries_capped() {
     let capped = max_entries.min(1000);
     assert_eq!(capped, 1000);
 }
+
+// ── I-5: iris_symbols query translation ──────────────────────────────────
+
+#[test]
+fn test_symbols_glob_star_dot_prefix() {
+    let (sql, param) = iris_dev_core::tools::translate_symbols_query(20, "HT.*");
+    assert!(
+        sql.contains("%STARTSWITH"),
+        "HT.* should use STARTSWITH: {}",
+        sql
+    );
+    assert_eq!(param, vec![serde_json::Value::String("HT.".to_string())]);
+}
+
+#[test]
+fn test_symbols_trailing_dot_prefix() {
+    let (sql, param) = iris_dev_core::tools::translate_symbols_query(20, "HT.");
+    assert!(
+        sql.contains("%STARTSWITH"),
+        "HT. should use STARTSWITH: {}",
+        sql
+    );
+    assert_eq!(param, vec![serde_json::Value::String("HT.".to_string())]);
+}
+
+#[test]
+fn test_symbols_mid_glob() {
+    let (sql, param) = iris_dev_core::tools::translate_symbols_query(20, "HT.*.Service");
+    assert!(sql.contains("LIKE"), "mid-glob should use LIKE: {}", sql);
+    let p = param[0].as_str().unwrap();
+    assert!(p.contains('%'), "param should have SQL % wildcard: {}", p);
+    assert!(!p.contains('*'), "param should not have literal *: {}", p);
+}
+
+#[test]
+fn test_symbols_plain_substring_unchanged() {
+    let (sql, param) = iris_dev_core::tools::translate_symbols_query(20, "Patient");
+    assert!(sql.contains("LIKE"), "plain query uses LIKE: {}", sql);
+    assert_eq!(param[0].as_str().unwrap(), "%Patient%");
+}
+
+#[test]
+fn test_symbols_star_alone_returns_all() {
+    let (sql, param) = iris_dev_core::tools::translate_symbols_query(20, "*");
+    assert!(
+        !sql.contains("WHERE"),
+        "bare * should remove WHERE: {}",
+        sql
+    );
+    assert!(param.is_empty(), "bare * param should be empty");
+}

@@ -21,7 +21,6 @@ impl AtelierVersion {
 }
 
 /// A resolved connection to a running IRIS instance via Atelier REST API.
-/// T010: added `cached_container` for TOCTOU fix (P4/FR-024).
 /// T011: manual Debug impl redacts `password` (P1/FR-022).
 #[derive(Clone)]
 pub struct IrisConnection {
@@ -34,8 +33,6 @@ pub struct IrisConnection {
     pub atelier_version: AtelierVersion,
     pub source: DiscoverySource,
     pub port_superserver: Option<u16>,
-    /// Cached IRIS_CONTAINER env var (read once on first execute() call).
-    cached_container: std::sync::OnceLock<Option<String>>,
 }
 
 /// T011: Manual Debug implementation — never prints the password.
@@ -80,7 +77,6 @@ impl IrisConnection {
             atelier_version: AtelierVersion::V1,
             source,
             port_superserver: None,
-            cached_container: std::sync::OnceLock::new(),
         }
     }
 
@@ -336,15 +332,10 @@ impl IrisConnection {
     /// user code into a temp class with no line-length restriction.
     ///
     /// This method is preserved for environments without Atelier REST access.
-    /// Caches IRIS_CONTAINER at first call (FR-024).
+    /// Reads IRIS_CONTAINER fresh on each call to pick up late env var changes.
     pub async fn execute(&self, code: &str, namespace: &str) -> anyhow::Result<String> {
-        // FR-024: cache IRIS_CONTAINER once to prevent mid-session TOCTOU.
-        let container = self
-            .cached_container
-            .get_or_init(|| std::env::var("IRIS_CONTAINER").ok())
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("DOCKER_REQUIRED"))?
-            .to_string();
+        let container =
+            std::env::var("IRIS_CONTAINER").map_err(|_| anyhow::anyhow!("DOCKER_REQUIRED"))?;
 
         use tokio::io::AsyncWriteExt;
 

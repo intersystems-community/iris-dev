@@ -241,8 +241,29 @@ async fn do_write(
     content: &str,
     namespace: &str,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-    let lines: Vec<&str> = content.lines().collect();
-    let url = iris.versioned_ns_url(namespace, &format!("/doc/{}", urlencoding::encode(name)));
+    // I-3: strip Storage blocks — IRIS 2025.1 UDL parser (#5559) fails on Storage XML.
+    // IRIS will auto-generate correct storage on first compile.
+    let content_for_write: String;
+    let storage_stripped = if content.lines().any(|l| l.trim().starts_with("Storage ")) {
+        let (stripped, was_stripped) = strip_storage_blocks(content);
+        if was_stripped {
+            content_for_write = stripped;
+            true
+        } else {
+            content_for_write = content.to_string();
+            false
+        }
+    } else {
+        content_for_write = content.to_string();
+        false
+    };
+    let lines: Vec<&str> = content_for_write.lines().collect();
+
+    // I-4: use ?ignoreConflict=1 — IRIS accepts the write unconditionally, never returns 409.
+    let url = iris.versioned_ns_url(
+        namespace,
+        &format!("/doc/{}?ignoreConflict=1", urlencoding::encode(name)),
+    );
 
     let resp = client
         .put(&url)
@@ -252,39 +273,7 @@ async fn do_write(
         .await
         .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP error: {e}"), None))?;
 
-    if resp.status().as_u16() == 409 {
-        let head_url =
-            iris.versioned_ns_url(namespace, &format!("/doc/{}", urlencoding::encode(name)));
-        let etag = client
-            .head(&head_url)
-            .basic_auth(&iris.username, Some(&iris.password))
-            .send()
-            .await
-            .ok()
-            .and_then(|r| {
-                r.headers()
-                    .get("ETag")
-                    .and_then(|v| v.to_str().ok())
-                    .map(|s| s.to_string())
-            });
-
-        // Bug 4: Atelier uses If-Match for optimistic locking, not If-None-Match.
-        let retry = client
-            .put(&url)
-            .basic_auth(&iris.username, Some(&iris.password))
-            .header("If-Match", etag.as_deref().unwrap_or(""))
-            .json(&serde_json::json!({"enc": false, "content": lines}))
-            .send()
-            .await
-            .map_err(|e| rmcp::ErrorData::internal_error(format!("HTTP retry error: {e}"), None))?;
-
-        if !retry.status().is_success() {
-            return err_json(
-                "CONFLICT",
-                "Document modified by another user; retry failed",
-            );
-        }
-    } else if !resp.status().is_success() {
+    if !resp.status().is_success() {
         return err_json("IRIS_UNREACHABLE", &format!("HTTP {}", resp.status()));
     }
 
@@ -292,7 +281,9 @@ async fn do_write(
     crate::tools::write_open_hint(namespace, name);
 
     let open_uri = format!("isfs://{}/{}", namespace, name);
-    ok_json(serde_json::json!({"success": true, "name": name, "open_uri": open_uri}))
+    ok_json(
+        serde_json::json!({"success": true, "name": name, "open_uri": open_uri, "storage_stripped": storage_stripped}),
+    )
 }
 
 async fn handle_delete(
@@ -365,6 +356,67 @@ async fn handle_head(
         .unwrap_or("")
         .to_string();
     ok_json(serde_json::json!({"success": true, "name": name, "exists": exists, "timestamp": ts}))
+}
+
+/// Strip `Storage Name { ... }` blocks from ObjectScript class content.
+/// Returns (content_without_storage, storage_was_present).
+/// IRIS 2025.1 UDL parser fails on explicit Storage XML blocks (#5559);
+/// omitting them lets IRIS auto-generate correct storage on first compile.
+pub fn strip_storage_blocks(content: &str) -> (String, bool) {
+    let mut result = Vec::new();
+    let mut in_storage = false;
+    let mut brace_depth: i32 = 0;
+    let mut found = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        if !in_storage {
+            // Detect start of Storage block: "Storage Name" or "Storage Name {"
+            let is_storage_start = {
+                let mut parts = trimmed.split_whitespace();
+                parts.next() == Some("Storage") && parts.next().is_some()
+            };
+            if is_storage_start {
+                in_storage = true;
+                found = true;
+                // Count any opening braces on this line
+                brace_depth += line.chars().filter(|&c| c == '{').count() as i32;
+                brace_depth -= line.chars().filter(|&c| c == '}').count() as i32;
+                if brace_depth <= 0 {
+                    // Single-line storage (rare) — done immediately
+                    in_storage = false;
+                    brace_depth = 0;
+                }
+                continue; // skip this line
+            }
+            result.push(line);
+        } else {
+            // Inside storage block — track brace depth
+            brace_depth += line.chars().filter(|&c| c == '{').count() as i32;
+            brace_depth -= line.chars().filter(|&c| c == '}').count() as i32;
+            if brace_depth <= 0 {
+                in_storage = false;
+                brace_depth = 0;
+                // Don't add this closing-brace line to result
+            }
+            // Skip all lines inside storage block
+        }
+    }
+
+    if found {
+        // Remove trailing blank lines that were before the storage block
+        while result
+            .last()
+            .map(|l: &&str| l.trim().is_empty())
+            .unwrap_or(false)
+        {
+            result.pop();
+        }
+        (result.join("\n") + "\n", true)
+    } else {
+        (content.to_string(), false)
+    }
 }
 
 fn doc_content_to_string(body: &serde_json::Value) -> String {

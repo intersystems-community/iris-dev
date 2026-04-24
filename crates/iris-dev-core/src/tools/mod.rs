@@ -339,6 +339,37 @@ pub async fn list_iris_containers_pub(workspace_basename: &str) -> Vec<serde_jso
     list_iris_containers(workspace_basename).await
 }
 
+/// Translate an iris_symbols query string into a SQL fragment and parameters.
+/// Supports: plain substring, `Pkg.*` prefix, `Pkg.` trailing dot, mid-glob `Pkg.*.Name`, bare `*`.
+pub fn translate_symbols_query(limit: usize, query: &str) -> (String, Vec<serde_json::Value>) {
+    let base = format!("SELECT TOP {} Name FROM %Dictionary.ClassDefinition", limit);
+    if query == "*" || query.is_empty() {
+        return (format!("{} ORDER BY Name", base), vec![]);
+    }
+    if let Some(prefix) = query.strip_suffix(".*") {
+        return (
+            format!("{} WHERE Name %STARTSWITH ? ORDER BY Name", base),
+            vec![serde_json::Value::String(format!("{}.", prefix))],
+        );
+    }
+    if query.ends_with('.') {
+        return (
+            format!("{} WHERE Name %STARTSWITH ? ORDER BY Name", base),
+            vec![serde_json::Value::String(query.to_string())],
+        );
+    }
+    if query.contains('*') {
+        return (
+            format!("{} WHERE Name LIKE ? ORDER BY Name", base),
+            vec![serde_json::Value::String(query.replace('*', "%"))],
+        );
+    }
+    (
+        format!("{} WHERE Name LIKE ? ORDER BY Name", base),
+        vec![serde_json::Value::String(format!("%{}%", query))],
+    )
+}
+
 #[derive(Clone)]
 pub struct IrisTools {
     pub iris: Option<Arc<IrisConnection>>,
@@ -1006,29 +1037,23 @@ impl IrisTools {
         }
     }
 
-    #[tool(description = "Search for ObjectScript classes matching a query in the IRIS namespace.")]
+    #[tool(
+        description = "Search for ObjectScript classes matching a query in the IRIS namespace. Query supports: plain substring ('Patient'), package prefix ('HT.*' or 'HT.'), mid-glob ('HT.*.Service'), or bare '*' for all."
+    )]
     async fn iris_symbols(
         &self,
         Parameters(p): Parameters<SymbolsParams>,
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
         let client = self.http_client();
-        let sql = format!(
-            "SELECT TOP {} Name FROM %Dictionary.ClassDefinition WHERE Name LIKE ? ORDER BY Name",
-            p.limit
-        );
-        match iris
-            .query(
-                &sql,
-                vec![serde_json::Value::String(format!("%{}%", p.query))],
-                &p.namespace,
-                client,
-            )
-            .await
-        {
-            Ok(resp) => ok_json(
-                serde_json::json!({"source": "iris_dictionary", "symbols": resp["result"]["content"], "count": resp["result"]["content"].as_array().map(|a| a.len()).unwrap_or(0)}),
-            ),
+        let (sql, params) = translate_symbols_query(p.limit, &p.query);
+        match iris.query(&sql, params, &p.namespace, client).await {
+            Ok(resp) => ok_json(serde_json::json!({
+                "source": "iris_dictionary",
+                "symbols": resp["result"]["content"],
+                "count": resp["result"]["content"].as_array().map(|a| a.len()).unwrap_or(0),
+                "query_hint": "Supports: plain text (substring), 'Pkg.*' (package prefix), 'Pkg.*.Name' (glob)",
+            })),
             Err(e) => err_json("IRIS_UNREACHABLE", &e.to_string()),
         }
     }
