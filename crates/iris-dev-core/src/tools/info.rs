@@ -45,17 +45,17 @@ pub async fn handle_iris_info(
     let url = match p.what.as_str() {
         "documents" => {
             let cat = p.doc_type.as_deref().unwrap_or("ALL");
-            iris.atelier_url(&format!("/v8/{}/docs?category={}", ns, cat))
+            iris.versioned_ns_url(ns, &format!("/docs?category={}", cat))
         }
-        "modified" => iris.atelier_url(&format!("/v8/{}/docs/modified", ns)),
-        "namespace" => iris.atelier_url(&format!("/v8/{}/", ns)),
-        "metadata" => iris.atelier_url(&format!("/v8/{}/metadata", ns)),
-        "jobs" => iris.atelier_url(&format!("/v8/{}/jobs", ns)),
-        "csp_apps" => iris.atelier_url(&format!("/v8/{}/cspapps", ns)),
-        "csp_debug" => iris.atelier_url(&format!("/v8/{}/cspdebugid", ns)),
+        "modified" => iris.versioned_ns_url(ns, "/docs/modified"),
+        "namespace" => iris.versioned_ns_url(ns, "/"),
+        "metadata" => iris.versioned_ns_url(ns, "/metadata"),
+        "jobs" => iris.versioned_ns_url(ns, "/jobs"),
+        "csp_apps" => iris.versioned_ns_url(ns, "/cspapps"),
+        "csp_debug" => iris.versioned_ns_url(ns, "/cspdebugid"),
         "sa_schema" => {
             let name = p.name.as_deref().unwrap_or("");
-            iris.atelier_url(&format!("/v8/{}/saschema/{}", ns, urlencoding::encode(name)))
+            iris.versioned_ns_url(ns, &format!("/saschema/{}", urlencoding::encode(name)))
         }
         other => return err_json("INVALID_PARAM", &format!("Unknown what='{}'. Use: documents, modified, namespace, metadata, jobs, csp_apps, csp_debug, sa_schema", other)),
     };
@@ -100,7 +100,7 @@ pub async fn handle_iris_macro(
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     match p.action.as_str() {
         "list" => {
-            let url = iris.atelier_url(&format!("/v8/{}/macros", p.namespace));
+            let url = iris.versioned_ns_url(&p.namespace, "/macros");
             let resp = client
                 .get(&url)
                 .basic_auth(&iris.username, Some(&iris.password))
@@ -112,7 +112,7 @@ pub async fn handle_iris_macro(
         }
         action @ ("signature" | "location" | "definition" | "expand") => {
             let name = p.name.as_deref().unwrap_or("");
-            let url = iris.atelier_url(&format!("/v8/{}/action/getmacro", p.namespace));
+            let url = iris.versioned_ns_url(&p.namespace, "/action/getmacro");
             let arg_count = p.args.len();
             let resp = client
                 .post(&url)
@@ -161,7 +161,7 @@ pub async fn handle_iris_debug(
     client: &reqwest::Client,
     p: DebugParams,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-    let query_url = iris.atelier_url(&format!("/v1/{}/action/query", p.namespace));
+    let query_url = iris.versioned_ns_url(&p.namespace, "/action/query");
 
     match p.action.as_str() {
         "map_int" => {
@@ -259,7 +259,7 @@ pub async fn handle_iris_generate(
     p: GenerateParams,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     let ns = &p.namespace;
-    let query_url = iris.atelier_url(&format!("/v1/{}/action/query", ns));
+    let query_url = iris.versioned_ns_url(ns, "/action/query");
 
     match p.gen_type.as_str() {
         "test" => {
