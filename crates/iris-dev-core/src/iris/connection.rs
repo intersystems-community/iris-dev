@@ -192,7 +192,9 @@ impl IrisConnection {
             .collect();
         let class_name = format!("User.IrisDevRun{}", id);
         let doc_name = format!("{}.cls", class_name);
-        let sql_func = format!("User_IrisDevRun{}_Execute", id);
+        // SQL proc name: User package maps to SQLUser schema in IRIS SQL.
+        // "output" is a reserved word in IRIS SQL — use "result" as the column alias.
+        let sql_func = format!("SQLUser.IrisDevRun{}_Execute", id);
         let tmpfile = format!("/tmp/irisd_{}.txt", id);
 
         let content = Self::build_exec_class(&class_name, &tmpfile, code);
@@ -242,7 +244,8 @@ impl IrisConnection {
         }
 
         // 3. Query via SQL
-        let sql = format!("SELECT {}() AS output", sql_func);
+        // "output" is a reserved word in IRIS SQL — use "result" as the column alias.
+        let sql = format!("SELECT {}() AS result", sql_func);
         let query_url = self.versioned_ns_url(namespace, "/action/query");
         let query_resp = client
             .post(&query_url)
@@ -251,7 +254,7 @@ impl IrisConnection {
             .send()
             .await?;
         let query_body: serde_json::Value = query_resp.json().await.unwrap_or_default();
-        let output = query_body["result"]["content"][0]["output"]
+        let output = query_body["result"]["content"][0]["result"]
             .as_str()
             .unwrap_or("")
             .replace('\x01', "\n");
@@ -287,12 +290,13 @@ impl IrisConnection {
             "  }".into(),
             "  Close tmpfile".into(),
             "  Use savedIO".into(),
+            // Read the temp file contents using %File for reliability.
+            // Read line:0 (timeout 0) fails on some IRIS versions — %File.ReadLine is portable.
             "  Set out = \"\"".into(),
-            "  Open tmpfile:(\"RNS\"):1".into(),
-            "  If $TEST {".into(),
-            "    Set line = \"\"".into(),
-            "    For  { Read line:0  If '$TEST Quit  Set out = out_line_$Char(10) }".into(),
-            "    Close tmpfile".into(),
+            "  Set stream = ##class(%Stream.FileCharacter).%New()".into(),
+            "  Set sc = stream.LinkToFile(tmpfile)".into(),
+            "  If $$$ISOK(sc) {".into(),
+            "    While 'stream.AtEnd { Set out = out_stream.ReadLine()_$Char(10) }".into(),
             "  }".into(),
             "  Do ##class(%Library.File).Delete(tmpfile)".into(),
             "  Set qout = $Replace($Replace(out,$Char(34),$Char(34)_$Char(34)),$Char(10),$Char(1))"
@@ -391,6 +395,11 @@ impl IrisConnection {
         Ok(reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .danger_accept_invalid_certs(insecure)
+            // IRIS web gateway uses HTTP/1.1; force it to avoid HTTP/2 negotiation issues.
+            // Disable connection pooling: the shared client can have stale connections
+            // after the initial probe, causing "error sending request" on tool calls.
+            .http1_only()
+            .pool_max_idle_per_host(0)
             .build()?)
     }
 

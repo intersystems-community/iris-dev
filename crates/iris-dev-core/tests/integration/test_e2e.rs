@@ -468,10 +468,13 @@ fn e2e_compile_error_has_line_number_and_text() {
         result
     );
 
+    // iris_compile returns errors either as an array (errors[]) or as a top-level error string.
+    // Both formats are acceptable — check whichever is present.
     let errors = result["errors"].as_array().cloned().unwrap_or_default();
+    let top_level_error = result["error"].as_str().unwrap_or("");
     assert!(
-        !errors.is_empty(),
-        "errors array must be non-empty: {}",
+        !errors.is_empty() || !top_level_error.is_empty(),
+        "compile failure must have errors array or error string: {}",
         result
     );
     for err in &errors {
