@@ -127,8 +127,23 @@ jobs:
           echo "IRIS did not become ready in 7 minutes"
           docker logs iris-e2e 2>&1 | tail -20
           exit 1
-      - name: Set IRIS credentials
+      - name: Detect and set IRIS credentials
         run: |
+          HOST=${{ env.IRIS_HOST }}
+          # IRIS 2025+ community images use SuperUser/SYS for Atelier REST
+          for user_pass in "_SYSTEM:SYS" "SuperUser:SYS" "_SYSTEM:sys" "SuperUser:sys"; do
+            user="${user_pass%%:*}"
+            pass="${user_pass##*:}"
+            status=$(curl -s -o /dev/null -w "%{http_code}" -u "$user:$pass" "http://$HOST:52773/api/atelier/" 2>/dev/null)
+            if [ "$status" = "200" ]; then
+              echo "IRIS_USERNAME=$user" >> $GITHUB_ENV
+              echo "IRIS_PASSWORD=$pass" >> $GITHUB_ENV
+              echo "Using credentials: $user (HTTP $status)"
+              exit 0
+            fi
+            echo "  $user:$pass — HTTP $status"
+          done
+          echo "WARNING: Could not authenticate with any known credentials"
           echo "IRIS_USERNAME=_SYSTEM" >> $GITHUB_ENV
           echo "IRIS_PASSWORD=SYS" >> $GITHUB_ENV
       - name: Run E2E tool tests against live IRIS
