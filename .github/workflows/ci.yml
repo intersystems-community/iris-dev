@@ -153,6 +153,12 @@ jobs:
           IRIS_USERNAME: ${{ env.IRIS_USERNAME }}
           IRIS_PASSWORD: ${{ env.IRIS_PASSWORD }}
           IRIS_NAMESPACE: USER
+      - name: Run compile hook integration tests
+        run: python -m pytest tests/integration/test_032_compile_hook.py --tb=short -q
+        env:
+          IRIS_HOST: ${{ env.IRIS_HOST }}
+          IRIS_WEB_PORT: "52773"
+          IRIS_CONTAINER: iris-e2e
 
   cross-compile-check:
     runs-on: ubuntu-latest

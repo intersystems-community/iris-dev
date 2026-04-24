@@ -252,3 +252,64 @@ fn test_workspace_config_field_shape() {
     assert_eq!(json["found"], true);
     assert_eq!(json["running"], false);
 }
+
+// ── Container scoring: hyphen/underscore normalization (#19) ─────────────────
+
+#[test]
+fn test_score_underscore_workspace_matches_hyphen_container() {
+    // id_try2 (underscore) should match id-try2-iris (hyphen) — both normalize to id_try2
+    use iris_dev_core::iris::discovery::score_container_name;
+    let score = score_container_name("id-try2-iris", "id_try2");
+    assert!(
+        score > 0,
+        "id_try2 should match id-try2-iris, got score {}",
+        score
+    );
+    assert!(
+        score >= 60,
+        "should score at least 60 (contains match), got {}",
+        score
+    );
+}
+
+#[test]
+fn test_score_hyphen_workspace_matches_underscore_container() {
+    use iris_dev_core::iris::discovery::score_container_name;
+    let score = score_container_name("id_try2_iris", "id-try2");
+    assert!(
+        score > 0,
+        "id-try2 should match id_try2_iris, got score {}",
+        score
+    );
+}
+
+#[test]
+fn test_score_exact_match_after_normalization() {
+    use iris_dev_core::iris::discovery::score_container_name;
+    // loanapp vs loanapp-iris: starts_with match + iris suffix = 80 + 10 = 90
+    let score = score_container_name("loanapp-iris", "loanapp");
+    assert_eq!(
+        score, 90,
+        "loanapp-iris for workspace loanapp should score 90"
+    );
+}
+
+#[test]
+fn test_score_unrelated_containers_score_zero() {
+    use iris_dev_core::iris::discovery::score_container_name;
+    let score = score_container_name("determined_cray", "id_try2");
+    assert_eq!(score, 0, "unrelated container should score 0");
+}
+
+#[test]
+fn test_score_container_beats_unrelated_after_normalization() {
+    use iris_dev_core::iris::discovery::score_container_name;
+    let target = score_container_name("id-try2-iris", "id_try2");
+    let random = score_container_name("determined_cray", "id_try2");
+    assert!(
+        target > random,
+        "id-try2-iris ({}) should beat determined_cray ({}) for id_try2 workspace",
+        target,
+        random
+    );
+}

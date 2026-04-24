@@ -162,3 +162,24 @@ def seed_test_class(iris_env):
 
     # Cleanup
     httpx.delete(f"{base}/v8/{ns}/doc/Test.E2E022.Hello.cls", auth=auth, timeout=10)
+
+
+@pytest.fixture(scope="session")
+def seed_glob_classes(iris_env):
+    """Seed two classes in Test022Glob package for glob pattern tests."""
+    classes = {
+        "Test022Glob.Alpha": "Class Test022Glob.Alpha { ClassMethod Run() { } }",
+        "Test022Glob.Beta": "Class Test022Glob.Beta { ClassMethod Run() { } }",
+    }
+    seeded = []
+    for name, content in classes.items():
+        resp = mcp_call("iris_doc", {"mode": "put", "name": f"{name}.cls",
+                                      "content": content, "namespace": "USER"})
+        c = extract_content(resp)
+        if c.get("success"):
+            mcp_call("iris_compile", {"target": f"{name}.cls", "namespace": "USER"})
+            seeded.append(name)
+    yield seeded
+    # Cleanup
+    for name in seeded:
+        mcp_call("iris_doc", {"mode": "delete", "name": f"{name}.cls", "namespace": "USER"})
