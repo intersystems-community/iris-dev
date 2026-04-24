@@ -30,6 +30,8 @@ enum Commands {
     Mcp(cmd::mcp::McpCommand),
     /// Compile ObjectScript .cls files on IRIS
     Compile(cmd::compile::CompileCommand),
+    /// Initialize a .iris-dev.toml workspace config
+    Init(cmd::init::InitCommand),
     /// Install packages from iris-dev.toml
     Install(cmd::install::InstallCommand),
 }
@@ -56,6 +58,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Some(Commands::Mcp(cmd)) => cmd.run().await,
         Some(Commands::Compile(cmd)) => cmd.run().await,
+        Some(Commands::Init(cmd)) => cmd.run().await,
         Some(Commands::Install(cmd)) => cmd.run().await,
         None => {
             // Check for iris-dev-* plugin on PATH before giving up

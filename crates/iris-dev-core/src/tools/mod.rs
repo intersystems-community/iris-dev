@@ -334,6 +334,11 @@ fn sort_containers(mut v: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
     v
 }
 
+/// Public accessor for list_iris_containers used by iris-dev init.
+pub async fn list_iris_containers_pub(workspace_basename: &str) -> Vec<serde_json::Value> {
+    list_iris_containers(workspace_basename).await
+}
+
 #[derive(Clone)]
 pub struct IrisTools {
     pub iris: Option<Arc<IrisConnection>>,
@@ -829,11 +834,37 @@ impl IrisTools {
                 c["name"].as_str().unwrap_or("")
             )
         });
+        // FR-012: show which container .iris-dev.toml would select and if it's running.
+        let workspace_config_json = {
+            let ws_path = p.workspace_root.as_deref();
+            match crate::iris::workspace_config::load_workspace_config(ws_path) {
+                None => serde_json::Value::Null,
+                Some(ref cfg) => {
+                    let container_name = cfg.container.as_deref().unwrap_or("");
+                    let running = !container_name.is_empty()
+                        && containers
+                            .iter()
+                            .any(|c| c["name"].as_str() == Some(container_name));
+                    let config_path = crate::iris::workspace_config::workspace_root(ws_path)
+                        .join(".iris-dev.toml")
+                        .to_string_lossy()
+                        .to_string();
+                    serde_json::json!({
+                        "found": true,
+                        "path": config_path,
+                        "container": cfg.container,
+                        "namespace": cfg.namespace,
+                        "running": running,
+                    })
+                }
+            }
+        };
         ok_json(serde_json::json!({
             "status": "ok",
             "containers": containers,
             "workspace_basename": workspace_basename,
             "suggestion": suggestion,
+            "workspace_config": workspace_config_json,
         }))
     }
 

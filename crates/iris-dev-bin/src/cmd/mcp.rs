@@ -61,6 +61,31 @@ impl McpCommand {
         let (iris_tx, iris_rx) =
             watch::channel::<Option<iris_dev_core::iris::connection::IrisConnection>>(None);
 
+        // Load .iris-dev.toml — takes precedence over env vars but not CLI flags (FR-006).
+        let explicit = {
+            let ws_cfg =
+                iris_dev_core::iris::workspace_config::load_workspace_config(Some(&self.workspace));
+            if let Some(ref cfg) = ws_cfg {
+                if explicit.is_none() {
+                    if let Some(conn) =
+                        iris_dev_core::iris::workspace_config::workspace_config_to_connection(
+                            cfg,
+                            &self.namespace,
+                        )
+                    {
+                        Some(conn)
+                    } else {
+                        explicit
+                    }
+                    // If container was set, workspace_config_to_connection set IRIS_CONTAINER env var.
+                } else {
+                    explicit
+                }
+            } else {
+                explicit
+            }
+        };
+
         tokio::spawn(async move {
             let conn = match discover_iris(explicit).await {
                 Ok(c) => c,

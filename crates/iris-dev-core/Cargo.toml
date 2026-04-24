@@ -107,3 +107,7 @@ path = "tests/unit/test_tools_fixes.rs"
 [[test]]
 name = "test_retry"
 path = "tests/integration/test_retry.rs"
+
+[[test]]
+name = "test_workspace_config"
+path = "tests/unit/test_workspace_config.rs"

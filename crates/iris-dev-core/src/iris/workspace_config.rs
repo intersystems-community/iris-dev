@@ -1,0 +1,156 @@
+//! Per-workspace IRIS connection config via `.iris-dev.toml`.
+//!
+//! Priority order: CLI flags > .iris-dev.toml > env vars > auto-discovery.
+
+use crate::iris::connection::{DiscoverySource, IrisConnection};
+use serde::Deserialize;
+use std::path::PathBuf;
+
+/// Parsed contents of `.iris-dev.toml`. All fields are optional.
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct WorkspaceConfig {
+    pub container: Option<String>,
+    pub namespace: Option<String>,
+    pub host: Option<String>,
+    pub web_port: Option<u16>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
+/// Resolve the workspace root path.
+/// Priority: OBJECTSCRIPT_WORKSPACE env var > workspace_path arg > current directory.
+pub fn workspace_root(workspace_path: Option<&str>) -> PathBuf {
+    if let Ok(ws) = std::env::var("OBJECTSCRIPT_WORKSPACE") {
+        if !ws.is_empty() {
+            return PathBuf::from(ws);
+        }
+    }
+    if let Some(p) = workspace_path {
+        if !p.is_empty() && p != "." {
+            return PathBuf::from(p);
+        }
+    }
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+/// Load `.iris-dev.toml` from the resolved workspace root.
+/// Returns `None` if the file does not exist (not an error).
+/// Logs a warning and returns `None` on parse errors — never panics.
+pub fn load_workspace_config(workspace_path: Option<&str>) -> Option<WorkspaceConfig> {
+    let root = workspace_root(workspace_path);
+    let config_path = root.join(".iris-dev.toml");
+
+    if !config_path.exists() {
+        return None;
+    }
+
+    match std::fs::read_to_string(&config_path) {
+        Err(e) => {
+            tracing::warn!(
+                "Could not read .iris-dev.toml at {}: {}",
+                config_path.display(),
+                e
+            );
+            None
+        }
+        Ok(contents) => match toml::from_str::<WorkspaceConfig>(&contents) {
+            Ok(cfg) => {
+                tracing::debug!("Loaded .iris-dev.toml from {}", config_path.display());
+                Some(cfg)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Could not parse .iris-dev.toml at {}: {}",
+                    config_path.display(),
+                    e
+                );
+                None
+            }
+        },
+    }
+}
+
+/// Apply workspace config to set up the connection environment.
+///
+/// If `host` is specified: returns `Some(IrisConnection)` that will be passed directly
+/// to `discover_iris()` as the explicit override.
+///
+/// If `container` is specified (but not host): sets `IRIS_CONTAINER` (and optionally
+/// `IRIS_NAMESPACE`, `IRIS_USERNAME`, `IRIS_PASSWORD`) so the standard discovery cascade
+/// picks up the container. Returns `None` to let discovery proceed normally.
+///
+/// If neither is specified: returns `None` — no connection info in the config.
+pub fn workspace_config_to_connection(
+    cfg: &WorkspaceConfig,
+    namespace_default: &str,
+) -> Option<IrisConnection> {
+    // host + web_port → explicit HTTP connection (highest priority, no docker needed)
+    if let Some(ref host) = cfg.host {
+        let port = cfg.web_port.unwrap_or(52773);
+        let base_url = format!("http://{}:{}", host, port);
+        let namespace = cfg
+            .namespace
+            .clone()
+            .or_else(|| std::env::var("IRIS_NAMESPACE").ok())
+            .unwrap_or_else(|| namespace_default.to_string());
+        let username = cfg
+            .username
+            .clone()
+            .or_else(|| std::env::var("IRIS_USERNAME").ok())
+            .unwrap_or_else(|| "_SYSTEM".to_string());
+        let password = cfg
+            .password
+            .clone()
+            .or_else(|| std::env::var("IRIS_PASSWORD").ok())
+            .unwrap_or_else(|| "SYS".to_string());
+        return Some(IrisConnection::new(
+            base_url,
+            namespace,
+            username,
+            password,
+            DiscoverySource::EnvVar,
+        ));
+    }
+
+    // container → inject into env so discover_iris() docker step picks it up
+    if let Some(ref container) = cfg.container {
+        std::env::set_var("IRIS_CONTAINER", container);
+        if let Some(ref ns) = cfg.namespace {
+            std::env::set_var("IRIS_NAMESPACE", ns);
+        }
+        if let Some(ref user) = cfg.username {
+            std::env::set_var("IRIS_USERNAME", user);
+        }
+        if let Some(ref pass) = cfg.password {
+            std::env::set_var("IRIS_PASSWORD", pass);
+        }
+        return None; // discover_iris() will find the container via IRIS_CONTAINER
+    }
+
+    None
+}
+
+/// Generate starter `.iris-dev.toml` content with inline comments.
+/// Used by `iris-dev init`.
+pub fn generate_toml_content(container: &str, namespace: &str) -> String {
+    format!(
+        r#"# iris-dev workspace configuration
+# Commit this file to share connection settings with your team.
+
+# Docker container name (for local development)
+container = "{container}"
+
+# Default IRIS namespace
+namespace = "{namespace}"
+
+# Alternative: direct host connection (for remote or CI IRIS)
+# host = "iris.example.com"
+# web_port = 52773
+
+# Credentials (optional)
+# Use IRIS_USERNAME / IRIS_PASSWORD env vars instead of committing credentials.
+# username = "_SYSTEM"
+# password = "..."  # not recommended in committed files
+"#
+    )
+}
