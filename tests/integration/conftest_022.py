@@ -97,12 +97,13 @@ def _find_iris_dev() -> str:
     binary = shutil.which("iris-dev")
     if binary:
         return binary
-    # Fall back to built binary in repo
+    # Fall back to built binary in repo — check both release and debug builds
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    candidate = os.path.join(repo_root, "target", "release", "iris-dev")
-    if os.path.isfile(candidate):
-        return candidate
-    raise FileNotFoundError("iris-dev binary not found on PATH or in target/release/")
+    for build_type in ("release", "debug"):
+        candidate = os.path.join(repo_root, "target", build_type, "iris-dev")
+        if os.path.isfile(candidate):
+            return candidate
+    raise FileNotFoundError("iris-dev binary not found on PATH or in target/release/ or target/debug/")
 
 
 @pytest.fixture(scope="session")
