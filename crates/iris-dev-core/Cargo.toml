@@ -30,6 +30,7 @@ tokio = { workspace = true, features = ["full"] }
 tempfile = "3"
 serde_json.workspace = true
 reqwest.workspace = true
+wiremock = "0.6"
 
 [[test]]
 name = "discovery_tests"
@@ -86,3 +87,23 @@ path = "tests/integration/test_scm.rs"
 [[test]]
 name = "test_doc_params"
 path = "tests/unit/test_doc_params.rs"
+
+[[test]]
+name = "test_connection_fixes"
+path = "tests/unit/test_connection_fixes.rs"
+
+[[test]]
+name = "test_elicitation_sweep"
+path = "tests/unit/test_elicitation_sweep.rs"
+
+[[test]]
+name = "test_scm_escaping"
+path = "tests/unit/test_scm_escaping.rs"
+
+[[test]]
+name = "test_tools_fixes"
+path = "tests/unit/test_tools_fixes.rs"
+
+[[test]]
+name = "test_retry"
+path = "tests/integration/test_retry.rs"

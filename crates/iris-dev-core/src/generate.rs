@@ -191,8 +191,17 @@ pub fn validate_cls_syntax(text: &str) -> bool {
 }
 
 pub fn extract_class_name(text: &str) -> Option<String> {
-    text.lines()
+    let name = text
+        .lines()
         .find(|l| l.trim_start().starts_with("Class "))
         .and_then(|l| l.split_whitespace().nth(1))
-        .map(|s| s.to_string())
+        .map(|s| s.to_string())?;
+
+    // FR-016/Mo2: validate class name matches ObjectScript naming rules.
+    // Must start with ASCII alpha and contain only alphanumerics and dots.
+    let valid = !name.is_empty()
+        && name.chars().next().map(|c| c.is_ascii_alphabetic()).unwrap_or(false)
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '.');
+
+    if valid { Some(name) } else { None }
 }

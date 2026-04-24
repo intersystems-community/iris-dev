@@ -105,12 +105,19 @@ fn dep_to_source(name: &str, dep: &DependencySpec) -> Result<ResolvedSource> {
     ))
 }
 
-fn resolve_version(req: &VersionReq, _source: &ResolvedSource) -> Result<Version> {
-    let stub = Version::new(0, 1, 0);
-    if req.matches(&stub) {
-        return Ok(stub);
-    }
-    Ok(Version::new(1, 0, 0))
+fn resolve_version(req: &VersionReq, source: &ResolvedSource) -> Result<Version> {
+    // FR-019/Mo5: return explicit error instead of stub version.
+    anyhow::bail!(
+        "version resolution not yet implemented for source {:?} (requirement: {})",
+        source,
+        req
+    )
+}
+
+/// Test accessor for resolve_version. Exposed for integration tests.
+#[doc(hidden)]
+pub fn resolve_version_for_test(req: &semver::VersionReq) -> anyhow::Result<semver::Version> {
+    resolve_version(req, &ResolvedSource::GitHub { owner: "test".into(), repo: "test".into() })
 }
 
 pub struct ResolveLock {

@@ -76,10 +76,15 @@ impl CompileCommand {
                 .replace("\r\n", "\n")
                 .replace('\r', "\n")
                 .replace('\n', "\r\n");
+            // FR-017/Mo3: use parameterized placeholders for both cls_name and cls_text.
             let set_result = iris.query(
-                &format!("SELECT $SYSTEM.Status.IsOK(##class(%Compiler.UDL.TextServices).SetTextFromString(NULL,'{}',?))", cls_name),
-                vec![serde_json::Value::String(cls_text_crlf)],
-                &client
+                "SELECT $SYSTEM.Status.IsOK(##class(%Compiler.UDL.TextServices).SetTextFromString(NULL,?,?))",
+                vec![
+                    serde_json::Value::String(cls_name.clone()),
+                    serde_json::Value::String(cls_text_crlf),
+                ],
+                &self.namespace,
+                &client,
             ).await;
             match set_result {
                 Ok(_) => format!(

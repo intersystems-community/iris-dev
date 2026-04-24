@@ -75,4 +75,20 @@ impl ElicitationStore {
     pub fn clear(&self, id: &str) {
         self.0.lock().unwrap().remove(id);
     }
+
+    /// Remove all expired entries. Returns the count of removed entries.
+    pub fn sweep(&self) -> usize {
+        let mut store = self.0.lock().unwrap();
+        let now = std::time::Instant::now();
+        let expired: Vec<String> = store
+            .iter()
+            .filter(|(_, e)| now > e.expires_at)
+            .map(|(k, _)| k.clone())
+            .collect();
+        let count = expired.len();
+        for key in expired {
+            store.remove(&key);
+        }
+        count
+    }
 }

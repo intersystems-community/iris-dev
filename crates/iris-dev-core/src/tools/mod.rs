@@ -349,30 +349,30 @@ pub struct IrisTools {
 
 #[tool_router]
 impl IrisTools {
-    pub fn new(iris: Option<IrisConnection>) -> Self {
-        let client = Arc::new(IrisConnection::http_client().unwrap_or_default());
-        Self {
+    pub fn new(iris: Option<IrisConnection>) -> anyhow::Result<Self> {
+        let client = Arc::new(IrisConnection::http_client()?);
+        Ok(Self {
             iris: iris.map(Arc::new),
             registry: Arc::new(crate::skills::SkillRegistry::new()),
             client,
             history: Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(50))),
             elicitation_store: Arc::new(ElicitationStore::new()),
             tool_router: Self::tool_router(),
-        }
+        })
     }
     pub fn with_registry(
         iris: Option<IrisConnection>,
         registry: crate::skills::SkillRegistry,
-    ) -> Self {
-        let client = Arc::new(IrisConnection::http_client().unwrap_or_default());
-        Self {
+    ) -> anyhow::Result<Self> {
+        let client = Arc::new(IrisConnection::http_client()?);
+        Ok(Self {
             iris: iris.map(Arc::new),
             registry: Arc::new(registry),
             client,
             history: Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(50))),
             elicitation_store: Arc::new(ElicitationStore::new()),
             tool_router: Self::tool_router(),
-        }
+        })
     }
     fn get_iris(&self) -> Result<&IrisConnection, McpError> {
         self.iris.as_deref().ok_or_else(iris_unreachable)
@@ -401,6 +401,7 @@ impl IrisTools {
         Parameters(p): Parameters<CompileParams>,
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
+        tracing::info!(namespace = %p.namespace, target = %p.target, "iris_compile");
         let client = self.http_client();
 
         // Expand wildcards: resolve "MyApp.*.cls" to a list of matching class names.
@@ -577,6 +578,7 @@ impl IrisTools {
         &self,
         Parameters(p): Parameters<TestParams>,
     ) -> Result<CallToolResult, McpError> {
+        tracing::info!(namespace = %p.namespace, pattern = %p.pattern, "iris_test");
         let iris = self.get_iris()?;
         let code = format!(
             "do ##class(%UnitTest.Manager).RunTest(\"{}\",\"/noload/run\")",
@@ -626,7 +628,21 @@ impl IrisTools {
                     })
                     .unwrap_or(0);
                 let total = passed + failed;
-                let success = failed == 0 && total > 0;
+                // FR-015/Mo1: distinguish "no tests found" from "test failure".
+                if total == 0 {
+                    self.record_call("iris_test", false);
+                    return ok_json(serde_json::json!({
+                        "success": false,
+                        "error_code": "NO_TESTS_FOUND",
+                        "error": "Pattern matched no test classes",
+                        "pattern": p.pattern,
+                        "namespace": p.namespace,
+                        "passed": 0,
+                        "failed": 0,
+                        "total": 0,
+                    }));
+                }
+                let success = failed == 0;
                 self.record_call("iris_test", success);
                 ok_json(serde_json::json!({
                     "success": success,
@@ -649,6 +665,7 @@ impl IrisTools {
         Parameters(p): Parameters<ExecuteParams>,
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
+        tracing::info!(namespace = %p.namespace, "iris_execute");
         let client = self.http_client();
         let timeout = std::time::Duration::from_secs(p.timeout);
 
@@ -731,6 +748,7 @@ impl IrisTools {
         Parameters(p): Parameters<IrisDocParams>,
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
+        tracing::info!(namespace = %p.namespace, "iris_doc");
         let client = self.http_client();
         let result = doc::handle_iris_doc(iris, client, p, &self.elicitation_store).await;
         self.record_call("iris_doc", result.is_ok());
@@ -745,6 +763,7 @@ impl IrisTools {
         Parameters(p): Parameters<QueryParams>,
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
+        tracing::info!(namespace = %p.namespace, "iris_query");
         let client = self.http_client();
         let query_url = iris.versioned_ns_url(&p.namespace, "/action/query");
         let resp = client
@@ -971,6 +990,7 @@ impl IrisTools {
             .query(
                 &sql,
                 vec![serde_json::Value::String(format!("%{}%", p.query))],
+                &p.namespace,
                 client,
             )
             .await
@@ -987,16 +1007,9 @@ impl IrisTools {
     )]
     async fn iris_symbols_local(
         &self,
-        Parameters(p): Parameters<SymbolsLocalParams>,
+        Parameters(_p): Parameters<SymbolsLocalParams>,
     ) -> Result<CallToolResult, McpError> {
-        if std::env::var("IRIS_ISFS").as_deref() == Ok("true") {
-            return ok_json(
-                serde_json::json!({"error": "ISFS workspace detected — no local .cls files to parse. Use iris_symbols instead.", "isfs": true}),
-            );
-        }
-        ok_json(
-            serde_json::json!({"source": "local_scan", "workspace": p.workspace_path.unwrap_or_else(|| ".".to_string()), "symbols": [], "note": "tree-sitter integration pending"}),
-        )
+        err_json("NOT_IMPLEMENTED", "iris_symbols_local requires tree-sitter integration (pending). Use iris_symbols for IRIS-connected symbol search.")
     }
 
     #[tool(
@@ -1012,12 +1025,14 @@ impl IrisTools {
         let methods = iris.query(
             "SELECT Name,FormalSpec,ReturnType FROM %Dictionary.CompiledMethod WHERE parent=? ORDER BY Name",
             vec![serde_json::Value::String(p.class_name.clone())],
+            &p.namespace,
             client,
         ).await.unwrap_or_default();
         let props = iris
             .query(
                 "SELECT Name,Type FROM %Dictionary.CompiledProperty WHERE parent=? ORDER BY Name",
                 vec![serde_json::Value::String(p.class_name.clone())],
+                &p.namespace,
                 client,
             )
             .await
@@ -1069,7 +1084,7 @@ impl IrisTools {
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
         let client = self.http_client();
-        match iris.query("SELECT TOP 20 ErrorCode,ErrorText,TimeStamp FROM %SYSTEM.Error ORDER BY TimeStamp DESC", vec![], client).await {
+        match iris.query("SELECT TOP 20 ErrorCode,ErrorText,TimeStamp FROM %SYSTEM.Error ORDER BY TimeStamp DESC", vec![], &_p.namespace, client).await {
             Ok(resp) => ok_json(serde_json::json!({"success": true, "errors": resp["result"]["content"]})),
             Err(e) => err_json("IRIS_UNREACHABLE", &e.to_string()),
         }
@@ -1082,8 +1097,10 @@ impl IrisTools {
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
         let client = self.http_client();
-        let sql = format!("SELECT TOP {} ErrorCode,ErrorText,TimeStamp FROM %SYSTEM.Error ORDER BY TimeStamp DESC", p.max_entries);
-        match iris.query(&sql, vec![], client).await {
+        // FR-012: cap max_entries to prevent runaway queries.
+        let max_entries = p.max_entries.min(1000);
+        let sql = format!("SELECT TOP {} ErrorCode,ErrorText,TimeStamp FROM %SYSTEM.Error ORDER BY TimeStamp DESC", max_entries);
+        match iris.query(&sql, vec![], &p.namespace, client).await {
             Ok(resp) => {
                 ok_json(serde_json::json!({"success": true, "logs": resp["result"]["content"]}))
             }
@@ -1165,7 +1182,7 @@ impl IrisTools {
                 class_name
             );
             let compile_ok = iris
-                .execute(&code, &iris.namespace)
+                .execute(&code, &p.namespace)
                 .await
                 .map(|o| o.trim() == "1")
                 .unwrap_or(false);
@@ -1190,7 +1207,7 @@ Original: {}",
                         fixed_name
                     );
                     let ok2 = iris
-                        .execute(&code2, &iris.namespace)
+                        .execute(&code2, &p.namespace)
                         .await
                         .map(|o| o.trim() == "1")
                         .unwrap_or(false);
@@ -1227,9 +1244,13 @@ Original: {}",
 
         let introspection_context = if let Some(iris) = self.iris.as_deref() {
             let client = self.http_client();
-            let cls = p.class_name.replace("'", "''");
-            let sql = format!("SELECT Name,FormalSpec,ReturnType FROM %Dictionary.CompiledMethod WHERE parent='{}' ORDER BY Name", cls);
-            iris.query(&sql, vec![], client)
+            // FR-001/C1: use parameterized query to prevent SQL injection via class_name.
+            iris.query(
+                "SELECT Name,FormalSpec,ReturnType FROM %Dictionary.CompiledMethod WHERE parent=? ORDER BY Name",
+                vec![serde_json::Value::String(p.class_name.clone())],
+                &p.namespace,
+                client,
+            )
                 .await
                 .map(|r| {
                     format!(
@@ -1278,8 +1299,8 @@ Methods:
     #[tool(description = "List all synthesized skills in the registry.")]
     async fn skill_list(&self, _: Parameters<NoParams>) -> Result<CallToolResult, McpError> {
         if let Some(iris) = self.iris.as_deref() {
-            let code = "Set key=\"\" Set result=\"[\" For { Set key=$Order(^SKILLS(key)) Quit:key=\"\" Set skill=$Get(^SKILLS(key)) Set result=result_skill_\",\" } Set result=$Extract(result,1,$Length(result)-1)_\"]\" Write result";
-            if let Ok(output) = iris.execute(code, &iris.namespace).await {
+            let code = "Set key=\"\" Set result=\"[\" Set sep=\"\" For { Set key=$Order(^SKILLS(key)) Quit:key=\"\" Set skill=$Get(^SKILLS(key)) Set result=result_sep_skill Set sep=\",\" } Set result=result_\"]\" Write result";
+            if let Ok(output) = iris.execute(code, &crate::tools::skills_tools::skills_namespace()).await {
                 if let Ok(skills) = serde_json::from_str::<serde_json::Value>(output.trim()) {
                     let count = skills.as_array().map(|a| a.len()).unwrap_or(0);
                     return ok_json(serde_json::json!({"skills": skills, "count": count}));
@@ -1296,7 +1317,7 @@ Methods:
     ) -> Result<CallToolResult, McpError> {
         if let Some(iris) = self.iris.as_deref() {
             let code = format!("Write $Get(^SKILLS(\"{}\"))", p.name.replace('"', "\\\""));
-            if let Ok(output) = iris.execute(&code, &iris.namespace).await {
+            if let Ok(output) = iris.execute(&code, &crate::tools::skills_tools::skills_namespace()).await {
                 if let Ok(skill) = serde_json::from_str::<serde_json::Value>(output.trim()) {
                     return ok_json(serde_json::json!({"success": true, "skill": skill}));
                 }
@@ -1326,7 +1347,7 @@ Methods:
                 ),
                 q
             );
-            if let Ok(output) = iris.execute(&code, &iris.namespace).await {
+            if let Ok(output) = iris.execute(&code, &crate::tools::skills_tools::skills_namespace()).await {
                 if let Ok(skills) = serde_json::from_str::<Vec<serde_json::Value>>(output.trim()) {
                     let limited: Vec<_> = skills.into_iter().take(p.top_k).collect();
                     let count = limited.len();
@@ -1349,7 +1370,7 @@ Methods:
                 "Kill ^SKILLS(\"{}\") Write \"OK\"",
                 p.name.replace('"', "\\\"")
             );
-            if iris.execute(&code, &iris.namespace).await.is_ok() {
+            if iris.execute(&code, &crate::tools::skills_tools::skills_namespace()).await.is_ok() {
                 return ok_json(serde_json::json!({"success": true, "name": p.name}));
             }
         }
@@ -1363,9 +1384,7 @@ Methods:
         description = "Trigger pattern miner to synthesize new skills from recorded tool calls."
     )]
     async fn skill_propose(&self, _: Parameters<NoParams>) -> Result<CallToolResult, McpError> {
-        ok_json(
-            serde_json::json!({"triggered": true, "note": "pattern mining pending full learning agent port"}),
-        )
+        err_json("NOT_IMPLEMENTED", "skill_propose: pattern mining not yet implemented")
     }
 
     #[tool(description = "Optimize a skill using DSPy. Requires OBJECTSCRIPT_DSPY=true.")]
@@ -1373,10 +1392,7 @@ Methods:
         &self,
         Parameters(_p): Parameters<SkillNameParams>,
     ) -> Result<CallToolResult, McpError> {
-        err_json(
-            "NOT_AVAILABLE",
-            "DSPy optimization requires OBJECTSCRIPT_DSPY=true",
-        )
+        err_json("NOT_IMPLEMENTED", "skill_optimize: DSPy optimization not yet implemented")
     }
 
     #[tool(description = "Share a skill to the community via GitHub PR.")]
@@ -1384,10 +1400,7 @@ Methods:
         &self,
         Parameters(_p): Parameters<SkillNameParams>,
     ) -> Result<CallToolResult, McpError> {
-        err_json(
-            "NOT_IMPLEMENTED",
-            "Skill sharing pending GitHub integration",
-        )
+        err_json("NOT_IMPLEMENTED", "skill_share: GitHub PR integration not yet implemented")
     }
 
     #[tool(
@@ -1434,7 +1447,7 @@ Methods:
         &self,
         Parameters(_p): Parameters<CommunityPkgParams>,
     ) -> Result<CallToolResult, McpError> {
-        err_json("NOT_IMPLEMENTED", "Community skill installation pending")
+        err_json("NOT_IMPLEMENTED", "skill_community_install: community registry not yet implemented")
     }
 
     #[tool(description = "Index markdown files into the IRIS knowledge base for semantic search.")]
@@ -1442,9 +1455,18 @@ Methods:
         &self,
         Parameters(p): Parameters<KbIndexParams>,
     ) -> Result<CallToolResult, McpError> {
-        ok_json(
-            serde_json::json!({"indexed": 0, "workspace": p.workspace_path.unwrap_or_else(|| ".".to_string()), "note": "KB indexing pending IRIS vector store integration"}),
+        let iris = self.get_iris()?;
+        skills_tools::handle_kb(
+            iris,
+            self.http_client(),
+            skills_tools::KbParams {
+                action: "index".into(),
+                path: p.workspace_path,
+                query: None,
+                top_k: 0,
+            },
         )
+        .await
     }
 
     #[tool(
@@ -1465,9 +1487,22 @@ Methods:
                 let snippet = content_lower
                     .find(&q)
                     .and_then(|pos| {
-                        let start = pos.saturating_sub(150);
-                        let end = (pos + q.len() + 300).min(item.content.len());
-                        item.content.get(start..end)
+                        // FR-018/Mo4: use char-boundary-safe slicing to prevent None on multibyte UTF-8.
+                        let snippet_start = {
+                            let mut s = pos.saturating_sub(150);
+                            while s > 0 && !item.content.is_char_boundary(s) {
+                                s -= 1;
+                            }
+                            s
+                        };
+                        let snippet_end = {
+                            let mut e = (pos + q.len() + 300).min(item.content.len());
+                            while e < item.content.len() && !item.content.is_char_boundary(e) {
+                                e += 1;
+                            }
+                            e
+                        };
+                        item.content.get(snippet_start..snippet_end)
                     })
                     .map(|s| format!("...{}...", s.trim()))
                     .unwrap_or_else(|| item.content.chars().take(300).collect());
@@ -1499,17 +1534,39 @@ Methods:
         &self,
         Parameters(p): Parameters<AgentHistoryParams>,
     ) -> Result<CallToolResult, McpError> {
-        ok_json(
-            serde_json::json!({"calls": [], "limit": p.limit, "note": "history recording pending"}),
-        )
+        let calls: Vec<serde_json::Value> = self
+            .history
+            .lock()
+            .map(|h| {
+                h.iter()
+                    .rev()
+                    .take(p.limit)
+                    .map(|c| {
+                        serde_json::json!({
+                            "tool": c.tool,
+                            "success": c.success,
+                            "ago_secs": c.timestamp.elapsed().as_secs(),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        ok_json(serde_json::json!({"calls": calls, "limit": p.limit}))
     }
 
     #[tool(description = "Return learning agent status: skill count, pattern count, KB size.")]
     async fn agent_stats(&self, _: Parameters<NoParams>) -> Result<CallToolResult, McpError> {
-        let skill_count = serde_json::Value::Null; // requires docker exec; see iris_execute
-        ok_json(
-            serde_json::json!({"status": "ok", "skill_count": skill_count, "pattern_count": null, "learning_enabled": false}),
-        )
+        let skill_count = self.registry.list_skills().len();
+        let session_calls = self.history.lock().map(|h| h.len()).unwrap_or(0);
+        let learning_enabled = std::env::var("OBJECTSCRIPT_LEARNING")
+            .map(|v| v != "false")
+            .unwrap_or(true);
+        ok_json(serde_json::json!({
+            "status": "ok",
+            "skill_count": skill_count,
+            "session_calls": session_calls,
+            "learning_enabled": learning_enabled,
+        }))
     }
 
     #[tool(

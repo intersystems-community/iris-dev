@@ -193,3 +193,14 @@ bad-dep = { version = "not-a-semver-version!!", github = "owner/repo" }
     // For now, assert it at least returns Ok (stub) or Err (real impl)
     let _ = resolve; // don't assert yet — resolver is a stub
 }
+
+// ── T041: resolve_version stub is honest ────────────────────────────────────
+
+#[test]
+fn test_resolve_version_stub_is_honest() {
+    use iris_dev_core::manifest::resolve::resolve_version_for_test;
+    use semver::VersionReq;
+    let req = VersionReq::parse("^1.0").unwrap();
+    let result = resolve_version_for_test(&req);
+    assert!(result.is_err(), "resolve_version must return Err when resolution is not implemented");
+}

@@ -114,7 +114,20 @@ impl McpCommand {
             _setmode(1, O_BINARY); // stdout
         }
 
-        let service = IrisTools::with_registry(iris, registry)
+        let tools = IrisTools::with_registry(iris, registry)?;
+
+        // FR-007: periodically sweep expired elicitation entries.
+        {
+            let store = tools.elicitation_store.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    store.sweep();
+                }
+            });
+        }
+
+        let service = tools
             .serve(stdio())
             .await
             .inspect_err(|e| tracing::error!("MCP server error: {:?}", e))?;

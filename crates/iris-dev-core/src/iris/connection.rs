@@ -1,6 +1,6 @@
 //! IRIS connection types and Atelier REST API fingerprinting.
 
-// (serde imports removed — no types in this module derive Serialize/Deserialize)
+use std::fmt;
 
 /// Which version of the Atelier REST API to use.
 #[derive(Debug, Clone, PartialEq)]
@@ -21,7 +21,9 @@ impl AtelierVersion {
 }
 
 /// A resolved connection to a running IRIS instance via Atelier REST API.
-#[derive(Debug, Clone)]
+/// T010: added `cached_container` for TOCTOU fix (P4/FR-024).
+/// T011: manual Debug impl redacts `password` (P1/FR-022).
+#[derive(Clone)]
 pub struct IrisConnection {
     /// Base URL e.g. "http://localhost:52773" or "http://localhost:80/prefix"
     pub base_url: String,
@@ -32,6 +34,24 @@ pub struct IrisConnection {
     pub atelier_version: AtelierVersion,
     pub source: DiscoverySource,
     pub port_superserver: Option<u16>,
+    /// Cached IRIS_CONTAINER env var (read once on first execute() call).
+    cached_container: std::sync::OnceLock<Option<String>>,
+}
+
+/// T011: Manual Debug implementation — never prints the password.
+impl fmt::Debug for IrisConnection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("IrisConnection")
+            .field("base_url", &self.base_url)
+            .field("namespace", &self.namespace)
+            .field("username", &self.username)
+            .field("password", &"[redacted]")
+            .field("version", &self.version)
+            .field("atelier_version", &self.atelier_version)
+            .field("source", &self.source)
+            .field("port_superserver", &self.port_superserver)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -60,12 +80,11 @@ impl IrisConnection {
             atelier_version: AtelierVersion::V1,
             source,
             port_superserver: None,
+            cached_container: std::sync::OnceLock::new(),
         }
     }
 
     /// Build the full Atelier REST URL for a given path suffix.
-    /// Handles optional path prefix already baked into base_url.
-    /// e.g. atelier_url("/v8/USER/action/compile") → "http://host:port[/prefix]/api/atelier/v8/USER/action/compile"
     pub fn atelier_url(&self, path: &str) -> String {
         format!(
             "{}/api/atelier{}",
@@ -80,7 +99,6 @@ impl IrisConnection {
     }
 
     /// Build a versioned Atelier URL for an explicit namespace.
-    /// Always uses the highest detected API version rather than hardcoding v1.
     pub fn versioned_ns_url(&self, namespace: &str, path: &str) -> String {
         let v = self.atelier_version.version_str();
         self.atelier_url(&format!("/{}/{}{}", v, namespace, path))
@@ -119,12 +137,49 @@ impl IrisConnection {
     }
 
     /// Execute ObjectScript code via the write-compile-query cycle (pure HTTP, no docker).
-    ///
-    /// Writes a temp class whose `CodeMode = objectgenerator` method runs the user's code at
-    /// compile time, captures its `Write` output to a temp file, and embeds the result as a
-    /// static return value in the generated method. The method is called via SQL to retrieve
-    /// the output, then the temp class is deleted.
+    /// FR-023: retries up to 3 times with 100/200/400ms backoff on network errors or HTTP 5xx.
     pub async fn execute_via_generator(
+        &self,
+        code: &str,
+        namespace: &str,
+        client: &reqwest::Client,
+    ) -> anyhow::Result<String> {
+        let delays = [
+            std::time::Duration::from_millis(100),
+            std::time::Duration::from_millis(200),
+            std::time::Duration::from_millis(400),
+        ];
+        let mut last_err = anyhow::anyhow!("no attempts made");
+
+        for (attempt, delay) in delays.iter().enumerate() {
+            match self.execute_via_generator_once(code, namespace, client).await {
+                Ok(output) => return Ok(output),
+                Err(e) => {
+                    let msg = e.to_string();
+                    // Only retry on network errors or 5xx; 4xx are client errors, don't retry.
+                    let is_retryable = msg.contains("HTTP 5")
+                        || msg.contains("error sending request")
+                        || msg.contains("connection refused")
+                        || msg.contains("timed out");
+                    if !is_retryable || attempt == delays.len() - 1 {
+                        return Err(e);
+                    }
+                    tracing::warn!(
+                        "execute_via_generator attempt {} failed ({}), retrying in {:?}",
+                        attempt + 1,
+                        msg,
+                        delay
+                    );
+                    last_err = e;
+                    tokio::time::sleep(*delay).await;
+                }
+            }
+        }
+        Err(last_err)
+    }
+
+    /// Single attempt of execute_via_generator (no retry logic).
+    async fn execute_via_generator_once(
         &self,
         code: &str,
         namespace: &str,
@@ -138,7 +193,6 @@ impl IrisConnection {
             .collect();
         let class_name = format!("User.IrisDevRun{}", id);
         let doc_name = format!("{}.cls", class_name);
-        // IRIS SQL stored procedure: schema "User", proc name "IrisDevRun{id}_Execute"
         let sql_func = format!("User.IrisDevRun{}_Execute", id);
         let tmpfile = format!("/tmp/irisd_{}.txt", id);
 
@@ -159,7 +213,7 @@ impl IrisConnection {
             anyhow::bail!("PUT doc failed: HTTP {}", put_resp.status());
         }
 
-        // 2. Compile — triggers the generator, which runs user code and captures output
+        // 2. Compile
         let compile_url = self.versioned_ns_url(namespace, "/action/compile?flags=cuk");
         let compile_resp = client
             .post(&compile_url)
@@ -188,7 +242,7 @@ impl IrisConnection {
             anyhow::bail!("compile errors: {:?}", compile_body["result"]["log"]);
         }
 
-        // 3. Query via SQL — the generated method returns the captured output as a literal string
+        // 3. Query via SQL
         let sql = format!("SELECT {}() AS output", sql_func);
         let query_url = self.versioned_ns_url(namespace, "/action/query");
         let query_resp = client
@@ -198,8 +252,6 @@ impl IrisConnection {
             .send()
             .await?;
         let query_body: serde_json::Value = query_resp.json().await.unwrap_or_default();
-        // Bug 3: newlines were encoded as $Char(1) to avoid bare newlines in the
-        // generated ObjectScript string literal; reverse that here.
         let output = query_body["result"]["content"][0]["output"]
             .as_str()
             .unwrap_or("")
@@ -212,11 +264,6 @@ impl IrisConnection {
     }
 
     /// Build the `.cls` source lines for the temp executor class.
-    ///
-    /// The generated class has a `CodeMode = objectgenerator` method whose body runs at
-    /// compile time: it redirects Write output to a temp file, executes user code inside a
-    /// Try/Catch, reads back the captured output, then writes `Quit "output"` as the sole
-    /// line of the generated method body. SQL call retrieves that literal string.
     fn build_exec_class(class_name: &str, tmpfile: &str, code: &str) -> Vec<String> {
         let mut lines: Vec<String> = vec![
             format!("Class {} [ Final ]", class_name),
@@ -227,7 +274,6 @@ impl IrisConnection {
             format!("  Set tmpfile = \"{}\"", tmpfile),
             "  Set savedIO = $IO".into(),
             "  Open tmpfile:(\"WNS\"):5".into(),
-            // ObjectScript: "" inside a string = one literal " — so ""ERROR..."" = "ERROR..."
             "  If '$TEST { Do %code.WriteLine(\" Quit \"\"ERROR: output capture unavailable\"\"\") Quit }".into(),
             "  Use tmpfile".into(),
             "  Try {".into(),
@@ -245,15 +291,11 @@ impl IrisConnection {
             "  Open tmpfile:(\"RNS\"):1".into(),
             "  If $TEST {".into(),
             "    Set line = \"\"".into(),
-            // Read line-by-line until EOF ($TEST=0 on timeout with :0)
             "    For  { Read line:0  If '$TEST Quit  Set out = out_line_$Char(10) }".into(),
             "    Close tmpfile".into(),
             "  }".into(),
             "  Do ##class(%Library.File).Delete(tmpfile)".into(),
-            // Bug 3: replace newlines with $Char(1) so the generated Quit "..." literal
-            // never contains a bare newline (which is a UDL syntax error).
             "  Set qout = $Replace($Replace(out,$Char(34),$Char(34)_$Char(34)),$Char(10),$Char(1))".into(),
-            // Generate: Quit "captured_output" — $Char(34) avoids nested quote escaping
             "  Do %code.WriteLine(\" Quit \"_$Char(34)_qout_$Char(34))".into(),
             "}".into(),
             "".into(),
@@ -281,11 +323,16 @@ impl IrisConnection {
         Ok(())
     }
 
-    /// Execute ObjectScript code via docker exec (requires IRIS_CONTAINER env var).
-    /// Returns stdout from the IRIS session. No Python required — pure Rust via tokio::process.
+    /// FR-006, FR-024: Execute ObjectScript via docker exec.
+    /// Strips IRIS session banner from stdout. Caches IRIS_CONTAINER at first call.
     pub async fn execute(&self, code: &str, namespace: &str) -> anyhow::Result<String> {
-        let container =
-            std::env::var("IRIS_CONTAINER").map_err(|_| anyhow::anyhow!("DOCKER_REQUIRED"))?;
+        // FR-024: cache IRIS_CONTAINER once to prevent mid-session TOCTOU.
+        let container = self
+            .cached_container
+            .get_or_init(|| std::env::var("IRIS_CONTAINER").ok())
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("DOCKER_REQUIRED"))?
+            .to_string();
 
         use tokio::io::AsyncWriteExt;
 
@@ -309,17 +356,20 @@ impl IrisConnection {
                 .await
                 .map_err(|_| anyhow::anyhow!("docker exec timed out after 30s"))??;
 
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        let raw = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok(strip_iris_banner(&raw))
     }
 
-    /// Run a SQL query via the Atelier query endpoint. Returns the response body.
+    /// FR-004: Run a SQL query via the Atelier query endpoint.
+    /// Takes an explicit `namespace` parameter rather than always using `self.namespace`.
     pub async fn query(
         &self,
         sql: &str,
         params: Vec<serde_json::Value>,
+        namespace: &str,
         client: &reqwest::Client,
     ) -> anyhow::Result<serde_json::Value> {
-        let url = self.versioned_ns_url(&self.namespace.clone(), "/action/query");
+        let url = self.versioned_ns_url(namespace, "/action/query");
         let resp = client
             .post(&url)
             .basic_auth(&self.username, Some(&self.password))
@@ -340,4 +390,72 @@ impl IrisConnection {
             .danger_accept_invalid_certs(insecure)
             .build()?)
     }
+}
+
+/// FR-006: Strip IRIS session banner and prompt lines from docker exec stdout.
+///
+/// IRIS session output looks like:
+///   Copyright (c) 2024 InterSystems Corporation
+///   All rights reserved.
+///   IRIS for UNIX ... 2024.1 ...
+///   USER>
+///   <code output lines>
+///   USER>
+///
+/// We strip banner lines and bare prompt lines (lines that are ONLY a prompt, no content).
+/// Lines that start with a prompt prefix but have content after it are kept.
+pub fn strip_iris_banner(output: &str) -> String {
+    let mut result_lines: Vec<&str> = Vec::new();
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+
+        // Unconditionally strip well-known banner lines.
+        if trimmed.starts_with("Copyright")
+            || trimmed.contains("InterSystems Corporation")
+            || trimmed.starts_with("All rights reserved")
+            || trimmed.starts_with("IRIS for ")
+            || trimmed.starts_with("Cache for ")
+            || trimmed.starts_with("Ensemble for ")
+        {
+            continue;
+        }
+
+        // Strip bare prompt-only lines: lines that are just "USER>", "IRIS>", "%SYS>", etc.
+        // A bare prompt line has no content beyond the prompt token.
+        if is_bare_prompt_line(trimmed) {
+            continue;
+        }
+
+        result_lines.push(line);
+    }
+
+    // Remove leading blank lines
+    while result_lines.first().map(|l: &&str| l.trim().is_empty()).unwrap_or(false) {
+        result_lines.remove(0);
+    }
+    // Remove trailing blank lines
+    while result_lines.last().map(|l: &&str| l.trim().is_empty()).unwrap_or(false) {
+        result_lines.pop();
+    }
+
+    result_lines.join("\n")
+}
+
+/// Returns true if the line is purely an IRIS session prompt with no following content.
+/// Examples: "USER>", "IRIS>", "%SYS>", "USER> " (trailing space only).
+fn is_bare_prompt_line(s: &str) -> bool {
+    // Strip trailing whitespace for the check
+    let s = s.trim_end();
+    if !s.ends_with('>') {
+        return false;
+    }
+    // The prompt token is everything before '>'
+    let token = &s[..s.len() - 1];
+    // Allow optional leading '%'
+    let token = token.strip_prefix('%').unwrap_or(token);
+    // Prompt namespace is uppercase alphanumeric + underscore, non-empty, reasonable length
+    !token.is_empty()
+        && token.len() <= 16
+        && token.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }

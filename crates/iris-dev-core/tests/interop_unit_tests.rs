@@ -75,6 +75,7 @@ mod interop_production_update {
         let r = rt().block_on(interop_production_update_impl(
             None,
             ProductionUpdateParams {
+                namespace: "USER".into(),
                 timeout: 30,
                 force: false,
             },
@@ -91,7 +92,10 @@ mod interop_production_needs_update {
 
     #[test]
     fn iris_unreachable() {
-        let r = rt().block_on(interop_production_needs_update_impl(None));
+        let r = rt().block_on(interop_production_needs_update_impl(
+            None,
+            ProductionNeedsUpdateParams { namespace: "USER".into() },
+        ));
         let result = r.unwrap();
         let text = result.content[0].raw.as_text().unwrap().text.clone();
         let v: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -104,7 +108,10 @@ mod interop_production_recover {
 
     #[test]
     fn iris_unreachable() {
-        let r = rt().block_on(interop_production_recover_impl(None));
+        let r = rt().block_on(interop_production_recover_impl(
+            None,
+            ProductionRecoverParams { namespace: "USER".into() },
+        ));
         let result = r.unwrap();
         let text = result.content[0].raw.as_text().unwrap().text.clone();
         let v: serde_json::Value = serde_json::from_str(&text).unwrap();

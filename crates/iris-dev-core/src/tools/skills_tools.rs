@@ -21,7 +21,7 @@ fn learning_enabled() -> bool {
         .unwrap_or(true)
 }
 
-fn skills_namespace() -> String {
+pub fn skills_namespace() -> String {
     std::env::var("OBJECTSCRIPT_SKILLMCP_NAMESPACE").unwrap_or_else(|_| "USER".to_string())
 }
 

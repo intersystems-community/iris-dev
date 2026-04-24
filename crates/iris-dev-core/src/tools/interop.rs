@@ -368,7 +368,7 @@ pub async fn interop_logs_impl(
         .map(|n| format!("AND ConfigName = '{}'", n.replace('\'', "''")))
         .unwrap_or_default();
     let sql = format!("SELECT TOP {} ID, TimeLogged, Type, ConfigName, Text FROM Ens_Util.Log WHERE 1=1 {} {} ORDER BY ID DESC", params.limit, type_filter, item_filter);
-    match iris.query(&sql, vec![], &client).await {
+    match iris.query(&sql, vec![], &iris.namespace.clone(), &client).await {
         Ok(resp) => ok_json(
             serde_json::json!({"success": true, "logs": resp["result"]["content"], "count": resp["result"]["content"].as_array().map(|a| a.len()).unwrap_or(0)}),
         ),
@@ -392,7 +392,7 @@ pub async fn interop_queues_impl(
     };
     let client = IrisConnection::http_client().map_err(|_| iris_unreachable())?;
     match iris
-        .query("SELECT * FROM Ens.Queue_Enumerate()", vec![], &client)
+        .query("SELECT * FROM Ens.Queue_Enumerate()", vec![], &iris.namespace.clone(), &client)
         .await
     {
         Ok(resp) => {
@@ -437,7 +437,7 @@ pub async fn interop_message_search_impl(
         format!("WHERE {}", filters.join(" AND "))
     };
     let sql = format!("SELECT TOP {} ID, TimeCreated, SourceConfigName, TargetConfigName, MessageBodyClassName, Status FROM Ens.MessageHeader {} ORDER BY ID DESC", params.limit, where_clause);
-    match iris.query(&sql, vec![], &client).await {
+    match iris.query(&sql, vec![], &iris.namespace.clone(), &client).await {
         Ok(resp) => ok_json(
             serde_json::json!({"success": true, "messages": resp["result"]["content"], "count": resp["result"]["content"].as_array().map(|a| a.len()).unwrap_or(0)}),
         ),

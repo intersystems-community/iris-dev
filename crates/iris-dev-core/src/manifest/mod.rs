@@ -1,4 +1,4 @@
-mod resolve;
+pub mod resolve;
 mod schema;
 
 pub use resolve::Resolve;
