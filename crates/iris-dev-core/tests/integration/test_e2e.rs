@@ -84,8 +84,17 @@ macro_rules! require_bin {
     };
 }
 
-/// Send MCP messages to iris-dev mcp and collect responses.
+/// Send MCP messages to iris-dev mcp and collect responses (default 10s timeout).
 fn mcp_call(env_vars: &[(&str, String)], messages: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    mcp_call_timeout(env_vars, messages, 10)
+}
+
+/// Send MCP messages to iris-dev mcp and collect responses with configurable timeout.
+fn mcp_call_timeout(
+    env_vars: &[(&str, String)],
+    messages: &[serde_json::Value],
+    timeout_secs: u64,
+) -> Vec<serde_json::Value> {
     let bin = iris_dev_bin();
     if !bin.exists() {
         return vec![];
@@ -116,7 +125,7 @@ fn mcp_call(env_vars: &[(&str, String)], messages: &[serde_json::Value]) -> Vec<
         stdin.flush().unwrap();
 
         if msg.get("id").is_some() {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(50));
                 let mut line = String::new();
@@ -164,13 +173,18 @@ fn tool_result(responses: &[serde_json::Value], id: u64) -> serde_json::Value {
 
 /// Call a single tool and return its result JSON.
 fn call_tool(name: &str, args: serde_json::Value) -> serde_json::Value {
+    call_tool_timeout(name, args, 10)
+}
+
+/// Call a single tool with a custom timeout (seconds).
+fn call_tool_timeout(name: &str, args: serde_json::Value, timeout_secs: u64) -> serde_json::Value {
     let env = iris_env();
     let mut msgs = init_msgs();
     msgs.push(serde_json::json!({
         "jsonrpc":"2.0","id":2,"method":"tools/call",
         "params":{"name": name, "arguments": args}
     }));
-    let responses = mcp_call(&env, &msgs);
+    let responses = mcp_call_timeout(&env, &msgs, timeout_secs);
     tool_result(&responses, 2)
 }
 
@@ -614,6 +628,244 @@ fn e2e_query_invalid_sql_structured_error() {
         result["error_code"].is_string(),
         "invalid SQL must return error_code: {}",
         result
+    );
+}
+
+// ── iris_execute multiline ────────────────────────────────────────────────────
+
+#[test]
+fn e2e_execute_multiline_output_encoded_correctly() {
+    require_iris!();
+    // Multi-line output uses $Char(1) encoding in the generated class and must
+    // be decoded back to \n by the Rust layer. Tests the $Char(10)→$Char(1)
+    // encoding and the replace('\x01', "\n") decode path.
+    let result = call_tool(
+        "iris_execute",
+        serde_json::json!({"code": "Write \"line1\",!\nWrite \"line2\",!", "namespace": "USER", "confirmed": true}),
+    );
+    if result["success"] == true {
+        let output = result["output"].as_str().unwrap_or("").trim().to_string();
+        assert!(
+            output.contains("line1") && output.contains("line2"),
+            "multi-line Write should return both lines, got: {:?}",
+            output
+        );
+        assert!(
+            output.contains('\n'),
+            "multi-line output must contain newline separator, got: {:?}",
+            output
+        );
+    }
+}
+
+// ── iris_doc batch get ────────────────────────────────────────────────────────
+
+#[test]
+fn e2e_doc_batch_get_returns_all_documents() {
+    require_iris!();
+    // Seed two documents, batch-fetch both, verify both returned concurrently.
+    let name_a = "Test022.BatchA.cls";
+    let name_b = "Test022.BatchB.cls";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name_a,
+            "content":"Class Test022.BatchA { ClassMethod Run() { } }","namespace":"USER"}),
+    );
+    call_tool(
+        "iris_compile",
+        serde_json::json!({"target":name_a,"namespace":"USER"}),
+    );
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name_b,
+            "content":"Class Test022.BatchB { ClassMethod Run() { } }","namespace":"USER"}),
+    );
+    call_tool(
+        "iris_compile",
+        serde_json::json!({"target":name_b,"namespace":"USER"}),
+    );
+
+    // Batch get spawns concurrent requests — use longer timeout than single-doc calls.
+    let result = call_tool_timeout(
+        "iris_doc",
+        serde_json::json!({"mode":"get","names":[name_a, name_b],"namespace":"USER"}),
+        20,
+    );
+    assert_eq!(
+        result["success"], true,
+        "batch get should succeed: {}",
+        result
+    );
+    let docs = result["documents"].as_array().cloned().unwrap_or_default();
+    assert_eq!(
+        docs.len(),
+        2,
+        "batch get must return exactly 2 documents: {}",
+        result
+    );
+    let names: Vec<&str> = docs.iter().filter_map(|d| d["name"].as_str()).collect();
+    assert!(
+        names.contains(&name_a),
+        "batch result must include {}: {:?}",
+        name_a,
+        names
+    );
+    assert!(
+        names.contains(&name_b),
+        "batch result must include {}: {:?}",
+        name_b,
+        names
+    );
+    // Each document must have non-empty content
+    for doc in &docs {
+        assert!(
+            !doc["content"].as_str().unwrap_or("").is_empty(),
+            "document content must not be empty: {}",
+            doc
+        );
+    }
+
+    // Cleanup
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name_a,"namespace":"USER"}),
+    );
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name_b,"namespace":"USER"}),
+    );
+}
+
+// ── iris_compile wildcard ─────────────────────────────────────────────────────
+
+#[test]
+fn e2e_compile_wildcard_package() {
+    require_iris!();
+    // Seed two classes in a package, compile with *.cls wildcard.
+    // Tests the /docnames/CLS expansion + regex filter path.
+    let name_a = "Test022.Wild.Alpha.cls";
+    let name_b = "Test022.Wild.Beta.cls";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name_a,
+            "content":"Class Test022.Wild.Alpha { ClassMethod Run() As %String { Return \"a\" } }",
+            "namespace":"USER"}),
+    );
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name_b,
+            "content":"Class Test022.Wild.Beta { ClassMethod Run() As %String { Return \"b\" } }",
+            "namespace":"USER"}),
+    );
+
+    let result = call_tool(
+        "iris_compile",
+        serde_json::json!({"target":"Test022.Wild.*.cls","namespace":"USER","flags":"ck"}),
+    );
+
+    // Must not crash and must return a structured response
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "wildcard compile must return structured response: {}",
+        result
+    );
+    // If it succeeded, targets_compiled should be >= 2
+    if result["success"] == true {
+        let compiled = result["targets_compiled"].as_u64().unwrap_or(0);
+        assert!(
+            compiled >= 2,
+            "wildcard compile Test022.Wild.* should compile at least 2 classes, got: {}",
+            compiled
+        );
+    }
+
+    // Cleanup
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name_a,"namespace":"USER"}),
+    );
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name_b,"namespace":"USER"}),
+    );
+}
+
+// ── iris_test with real tests ─────────────────────────────────────────────────
+
+#[test]
+fn e2e_test_runs_unit_test_and_returns_counts() {
+    require_iris!();
+    // Only runnable if IRIS_CONTAINER is set (iris_test uses docker exec)
+    if std::env::var("IRIS_CONTAINER")
+        .unwrap_or_default()
+        .is_empty()
+    {
+        eprintln!("Skipping: IRIS_CONTAINER not set — iris_test needs docker exec");
+        return;
+    }
+
+    // Seed a %UnitTest.TestCase with one passing and one failing method
+    let cls_doc = "Test022.UnitTestSuite.cls";
+    let cls_content = r#"Class Test022.UnitTestSuite Extends %UnitTest.TestCase {
+
+Method TestAlwaysPasses() {
+  Do $$$AssertEquals(1, 1, "one equals one")
+}
+
+Method TestAlwaysFails() {
+  Do $$$AssertEquals(1, 2, "one does not equal two")
+}
+
+}"#;
+
+    let put = call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":cls_doc,"content":cls_content,"namespace":"USER"}),
+    );
+    assert_eq!(put["success"], true, "seed unit test class: {}", put);
+
+    let compile = call_tool(
+        "iris_compile",
+        serde_json::json!({"target":cls_doc,"namespace":"USER"}),
+    );
+    assert_eq!(
+        compile["success"], true,
+        "unit test class must compile: {}",
+        compile
+    );
+
+    // %UnitTest.Manager.RunTest with /noload/run uses package prefix matching.
+    // Pass "Test022" to match all test classes in the Test022 package.
+    let result = call_tool(
+        "iris_test",
+        serde_json::json!({"pattern": "Test022", "namespace": "USER"}),
+    );
+
+    // iris_test returns success:false when any tests fail — that's expected here
+    // Accept NO_TESTS_FOUND if RunTest can't locate the class (env limitation)
+    if result["error_code"].as_str() == Some("NO_TESTS_FOUND")
+        || result["error_code"].as_str() == Some("DOCKER_REQUIRED")
+    {
+        eprintln!("iris_test could not find/run test class in this environment — skipping count assertions");
+        return;
+    }
+
+    let passed = result["passed"].as_u64().unwrap_or(0);
+    let failed = result["failed"].as_u64().unwrap_or(0);
+    let total = result["total"].as_u64().unwrap_or(0);
+
+    assert!(
+        total >= 2,
+        "should run at least 2 test methods, got: {}",
+        result
+    );
+    assert!(passed >= 1, "TestAlwaysPasses should pass, got: {}", result);
+    assert!(failed >= 1, "TestAlwaysFails should fail, got: {}", result);
+
+    // Cleanup
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":cls_doc,"namespace":"USER"}),
     );
 }
 

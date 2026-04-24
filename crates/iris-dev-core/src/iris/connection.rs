@@ -395,11 +395,6 @@ impl IrisConnection {
         Ok(reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .danger_accept_invalid_certs(insecure)
-            // IRIS web gateway uses HTTP/1.1; force it to avoid HTTP/2 negotiation issues.
-            // Disable connection pooling: the shared client can have stale connections
-            // after the initial probe, causing "error sending request" on tool calls.
-            .http1_only()
-            .pool_max_idle_per_host(0)
             .build()?)
     }
 

@@ -73,6 +73,17 @@ async fn handle_get(
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     // Batch get — Bug 19: fetch concurrently instead of sequentially.
     if !p.names.is_empty() {
+        // Build a fresh client for batch gets with a shorter timeout so concurrent
+        // requests fail fast and the handler returns within the MCP response deadline.
+        let batch_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .danger_accept_invalid_certs(
+                std::env::var("IRIS_INSECURE")
+                    .map(|v| v == "true" || v == "1")
+                    .unwrap_or(false),
+            )
+            .build()
+            .unwrap_or_else(|_| client.clone());
         let mut set = tokio::task::JoinSet::new();
         for name in &p.names {
             let url =
@@ -80,9 +91,9 @@ async fn handle_get(
             let username = iris.username.clone();
             let password = iris.password.clone();
             let name = name.clone();
-            let client = client.clone();
+            let c = batch_client.clone();
             set.spawn(async move {
-                let result = client
+                let result = c
                     .get(&url)
                     .basic_auth(&username, Some(&password))
                     .send()
@@ -408,7 +419,8 @@ pub fn strip_storage_blocks(content: &str) -> (String, bool) {
 }
 
 fn doc_content_to_string(body: &serde_json::Value) -> String {
-    body["result"]["content"][0]["content"]
+    // Atelier GET /doc/<name> returns result.content as a flat array of line strings.
+    body["result"]["content"]
         .as_array()
         .map(|a| {
             a.iter()
