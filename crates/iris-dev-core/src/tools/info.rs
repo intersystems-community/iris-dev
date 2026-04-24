@@ -180,10 +180,10 @@ pub struct DebugParams {
 
 pub async fn handle_iris_debug(
     iris: &IrisConnection,
-    client: &reqwest::Client,
+    _client: &reqwest::Client,
     p: DebugParams,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-    let query_url = iris.versioned_ns_url(&p.namespace, "/action/query");
+    let _query_url = iris.versioned_ns_url(&p.namespace, "/action/query");
 
     match p.action.as_str() {
         "map_int" => {
