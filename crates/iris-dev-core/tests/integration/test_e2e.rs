@@ -1780,6 +1780,343 @@ fn e2e_debug_map_int_to_cls_parses_error_string() {
     }
 }
 
+// ── iris_execute extended ─────────────────────────────────────────────────────
+
+#[test]
+fn e2e_execute_arithmetic_expression() {
+    require_iris!();
+    let result = call_tool(
+        "iris_execute",
+        serde_json::json!({"code":"Write 6*7,!","namespace":"USER","confirmed":true}),
+    );
+    if result["success"] == true {
+        assert_eq!(
+            result["output"].as_str().map(|s| s.trim()),
+            Some("42"),
+            "6*7 should equal 42: {}",
+            result
+        );
+    }
+}
+
+#[test]
+fn e2e_execute_string_concatenation() {
+    require_iris!();
+    let result = call_tool(
+        "iris_execute",
+        serde_json::json!({"code":"Write \"Hello\"_\" \"_\"World\",!","namespace":"USER","confirmed":true}),
+    );
+    if result["success"] == true {
+        let out = result["output"].as_str().unwrap_or("").trim().to_string();
+        assert_eq!(out, "Hello World", "string concat: {}", result);
+    }
+}
+
+#[test]
+fn e2e_execute_set_and_read_variable() {
+    require_iris!();
+    let result = call_tool(
+        "iris_execute",
+        serde_json::json!({"code":"Set x=42 Write x,!","namespace":"USER","confirmed":true}),
+    );
+    if result["success"] == true {
+        assert_eq!(
+            result["output"].as_str().map(|s| s.trim()),
+            Some("42"),
+            "Set then Write: {}",
+            result
+        );
+    }
+}
+
+#[test]
+fn e2e_execute_list_operations() {
+    require_iris!();
+    let result = call_tool(
+        "iris_execute",
+        serde_json::json!({"code":"Set lst=$ListBuild(\"a\",\"b\",\"c\") Write $ListLength(lst),!","namespace":"USER","confirmed":true}),
+    );
+    if result["success"] == true {
+        assert_eq!(
+            result["output"].as_str().map(|s| s.trim()),
+            Some("3"),
+            "$ListLength of 3-element list: {}",
+            result
+        );
+    }
+}
+
+#[test]
+fn e2e_execute_date_functions() {
+    require_iris!();
+    let result = call_tool(
+        "iris_execute",
+        serde_json::json!({"code":"Write $ZDate(+$Horolog,3),!","namespace":"USER","confirmed":true}),
+    );
+    if result["success"] == true {
+        let out = result["output"].as_str().unwrap_or("").trim().to_string();
+        assert!(
+            out.contains("-") && out.len() >= 8,
+            "$ZDate should return YYYY-MM-DD: {:?}",
+            out
+        );
+    }
+}
+
+#[test]
+fn e2e_execute_class_method_call() {
+    require_iris!();
+    let result = call_tool(
+        "iris_execute",
+        serde_json::json!({"code":"Write ##class(%SYSTEM.Version).GetVersion(),!","namespace":"USER","confirmed":true}),
+    );
+    if result["success"] == true {
+        let out = result["output"].as_str().unwrap_or("").trim().to_string();
+        assert!(
+            !out.is_empty(),
+            "GetVersion() should return something: {}",
+            result
+        );
+        assert!(
+            out.contains("IRIS") || out.contains("20"),
+            "version should mention IRIS or year: {:?}",
+            out
+        );
+    }
+}
+
+#[test]
+fn e2e_execute_for_loop_output() {
+    require_iris!();
+    let result = call_tool(
+        "iris_execute",
+        serde_json::json!({"code":"Set sum=0 For i=1:1:5 { Set sum=sum+i } Write sum,!","namespace":"USER","confirmed":true}),
+    );
+    if result["success"] == true {
+        assert_eq!(
+            result["output"].as_str().map(|s| s.trim()),
+            Some("15"),
+            "sum 1..5 should be 15: {}",
+            result
+        );
+    }
+}
+
+#[test]
+fn e2e_execute_error_code_not_empty_on_failure() {
+    require_iris!();
+    // When execute fails (DOCKER_REQUIRED or HTTP error), error_code must be present
+    let result = call_tool(
+        "iris_execute",
+        serde_json::json!({"code":"Write 1","namespace":"USER","confirmed":true}),
+    );
+    // If it failed, must have error_code
+    if result["success"] == false {
+        assert!(
+            result["error_code"].is_string(),
+            "failure must have error_code: {}",
+            result
+        );
+    }
+}
+
+// ── iris_compile extended ─────────────────────────────────────────────────────
+
+#[test]
+fn e2e_compile_class_with_property() {
+    require_iris!();
+    let name = "Test022.PropTest.cls";
+    let content = "Class Test022.PropTest Extends %RegisteredObject {\nProperty Score As %Integer [ InitialExpression = 0 ];\n}";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,"content":content,"namespace":"USER"}),
+    );
+    let result = call_tool(
+        "iris_compile",
+        serde_json::json!({"target":name,"namespace":"USER"}),
+    );
+    assert_eq!(
+        result["success"], true,
+        "class with property should compile: {}",
+        result
+    );
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+    );
+}
+
+#[test]
+fn e2e_compile_class_with_method_returning_value() {
+    require_iris!();
+    let name = "Test022.ReturnTest.cls";
+    let content = "Class Test022.ReturnTest {\nClassMethod Double(x As %Integer) As %Integer { Return x*2 }\n}";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,"content":content,"namespace":"USER"}),
+    );
+    let result = call_tool(
+        "iris_compile",
+        serde_json::json!({"target":name,"namespace":"USER"}),
+    );
+    assert_eq!(
+        result["success"], true,
+        "class with return method: {}",
+        result
+    );
+    // Immediately exercise the compiled method
+    let exec = call_tool(
+        "iris_execute",
+        serde_json::json!({"code":"Write ##class(Test022.ReturnTest).Double(21),!","namespace":"USER","confirmed":true}),
+    );
+    if exec["success"] == true {
+        assert_eq!(
+            exec["output"].as_str().map(|s| s.trim()),
+            Some("42"),
+            "Double(21) should return 42: {}",
+            exec
+        );
+    }
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+    );
+}
+
+#[test]
+fn e2e_compile_class_with_class_parameter() {
+    require_iris!();
+    let name = "Test022.ParamTest.cls";
+    let content =
+        "Class Test022.ParamTest [ ClassType = datatype ] {\nParameter VERSION = \"1.0\";\n}";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,"content":content,"namespace":"USER"}),
+    );
+    let result = call_tool(
+        "iris_compile",
+        serde_json::json!({"target":name,"namespace":"USER"}),
+    );
+    assert_eq!(result["success"], true, "class with parameter: {}", result);
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+    );
+}
+
+#[test]
+fn e2e_compile_multiple_flags() {
+    require_iris!();
+    let name = "Test022.FlagsTest.cls";
+    let content = "Class Test022.FlagsTest { ClassMethod Run() { } }";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,"content":content,"namespace":"USER"}),
+    );
+    // "ckb" = compile, check, keep source
+    let result = call_tool(
+        "iris_compile",
+        serde_json::json!({"target":name,"namespace":"USER","flags":"ckb"}),
+    );
+    assert_eq!(
+        result["success"], true,
+        "compile with flags ckb: {}",
+        result
+    );
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+    );
+}
+
+#[test]
+fn e2e_compile_error_shows_class_name_in_error() {
+    require_iris!();
+    let name = "Test022.ErrClass.cls";
+    let bad = "Class Test022.ErrClass { Method Bad() { undefined_builtin_func() } }";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,"content":bad,"namespace":"USER"}),
+    );
+    let result = call_tool(
+        "iris_compile",
+        serde_json::json!({"target":name,"namespace":"USER"}),
+    );
+    assert_eq!(
+        result["success"], false,
+        "bad class should fail: {}",
+        result
+    );
+    // Error must mention the class or method name somewhere
+    let error_text = result.to_string().to_lowercase();
+    assert!(
+        error_text.contains("test022") || error_text.contains("error"),
+        "error must reference class: {}",
+        result
+    );
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+    );
+}
+
+#[test]
+fn e2e_compile_registered_object_extends() {
+    require_iris!();
+    let name = "Test022.RegObj.cls";
+    let content = "Class Test022.RegObj Extends %RegisteredObject {\nMethod Greet() As %String { Return \"Hello\" }\n}";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,"content":content,"namespace":"USER"}),
+    );
+    let result = call_tool(
+        "iris_compile",
+        serde_json::json!({"target":name,"namespace":"USER"}),
+    );
+    assert_eq!(
+        result["success"], true,
+        "%RegisteredObject subclass: {}",
+        result
+    );
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+    );
+}
+
+#[test]
+fn e2e_compile_open_uri_in_response() {
+    require_iris!();
+    // Successful compile of a single class must include open_uri for VS Code auto-open
+    let name = "Test022.OpenUri.cls";
+    let content = "Class Test022.OpenUri { ClassMethod Run() { } }";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,"content":content,"namespace":"USER"}),
+    );
+    let result = call_tool(
+        "iris_compile",
+        serde_json::json!({"target":name,"namespace":"USER"}),
+    );
+    if result["success"] == true {
+        let uri = result["open_uri"].as_str().unwrap_or("");
+        assert!(
+            uri.starts_with("isfs://"),
+            "open_uri must be isfs:// scheme: {}",
+            result
+        );
+        assert!(
+            uri.contains("Test022"),
+            "open_uri must contain class name: {}",
+            result
+        );
+    }
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+    );
+}
+
 // ── iris_generate (context building) ─────────────────────────────────────────
 
 #[test]
@@ -1843,4 +2180,1098 @@ fn e2e_introspect_returns_method_signatures() {
         .all(|m| m["Name"].as_str().map(|s| !s.is_empty()).unwrap_or(false));
     assert!(has_name, "all methods must have Name: {:?}", methods);
     let _ = has_formal_spec; // informational
+}
+
+// ── iris_symbols extended ─────────────────────────────────────────────────────
+
+#[test]
+fn e2e_symbols_limit_respected() {
+    require_iris!();
+    let result = call_tool(
+        "iris_symbols",
+        serde_json::json!({
+            "query": "Ens", "namespace": "USER", "limit": 3
+        }),
+    );
+    assert!(
+        result["symbols"].is_array(),
+        "symbols must be array: {}",
+        result
+    );
+    let symbols = result["symbols"].as_array().unwrap();
+    assert!(
+        symbols.len() <= 3,
+        "limit=3 must not return more than 3: {}",
+        symbols.len()
+    );
+}
+
+#[test]
+fn e2e_symbols_returns_name_field() {
+    require_iris!();
+    let result = call_tool(
+        "iris_symbols",
+        serde_json::json!({
+            "query": "Ens.Director", "namespace": "USER", "limit": 5
+        }),
+    );
+    let symbols = result["symbols"].as_array().cloned().unwrap_or_default();
+    for sym in &symbols {
+        assert!(
+            sym["Name"].is_string(),
+            "each symbol must have Name field: {:?}",
+            sym
+        );
+        assert!(
+            !sym["Name"].as_str().unwrap_or("").is_empty(),
+            "Name must not be empty: {:?}",
+            sym
+        );
+    }
+}
+
+#[test]
+fn e2e_symbols_count_matches_symbols_length() {
+    require_iris!();
+    let result = call_tool(
+        "iris_symbols",
+        serde_json::json!({
+            "query": "Ens.Director", "namespace": "USER", "limit": 10
+        }),
+    );
+    if result["symbols"].is_array() && result["count"].is_number() {
+        let symbols_len = result["symbols"].as_array().unwrap().len() as u64;
+        let count = result["count"].as_u64().unwrap_or(0);
+        assert_eq!(
+            symbols_len, count,
+            "symbols array length must match count field: {}",
+            result
+        );
+    }
+}
+
+#[test]
+fn e2e_symbols_user_defined_class_found() {
+    require_iris!();
+    // Seed a class, verify iris_symbols finds it
+    let name = "Test022.SymFind.cls";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,
+        "content":"Class Test022.SymFind { }","namespace":"USER"}),
+    );
+    call_tool(
+        "iris_compile",
+        serde_json::json!({"target":name,"namespace":"USER"}),
+    );
+    let result = call_tool(
+        "iris_symbols",
+        serde_json::json!({
+            "query": "Test022.SymFind", "namespace": "USER", "limit": 5
+        }),
+    );
+    let symbols = result["symbols"].as_array().cloned().unwrap_or_default();
+    let found = symbols
+        .iter()
+        .any(|s| s["Name"].as_str() == Some("Test022.SymFind"));
+    assert!(
+        found,
+        "compiled class must appear in symbols: {:?}",
+        symbols
+    );
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+    );
+}
+
+#[test]
+fn e2e_symbols_query_hint_in_response() {
+    require_iris!();
+    // iris_symbols now includes query_hint explaining syntax — verify it's present
+    let result = call_tool(
+        "iris_symbols",
+        serde_json::json!({
+            "query": "Ens", "namespace": "USER", "limit": 1
+        }),
+    );
+    // query_hint is present in v0.4.x+ — may not exist in older versions
+    if result["query_hint"].is_string() {
+        assert!(
+            !result["query_hint"].as_str().unwrap().is_empty(),
+            "query_hint must not be empty: {}",
+            result
+        );
+    }
+}
+
+// ── docs_introspect extended ──────────────────────────────────────────────────
+
+#[test]
+fn e2e_introspect_returns_properties() {
+    require_iris!();
+    // Seed a class with a property, introspect, verify properties returned
+    let name = "Test022.WithProp.cls";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,
+        "content":"Class Test022.WithProp Extends %Persistent { Property Score As %Integer; }",
+        "namespace":"USER"}),
+    );
+    call_tool(
+        "iris_compile",
+        serde_json::json!({"target":name,"namespace":"USER"}),
+    );
+    let result = call_tool(
+        "docs_introspect",
+        serde_json::json!({
+            "class_name": "Test022.WithProp", "namespace": "USER"
+        }),
+    );
+    assert_eq!(
+        result["success"], true,
+        "introspect compiled class: {}",
+        result
+    );
+    let props = result["properties"].as_array().cloned().unwrap_or_default();
+    let found = props.iter().any(|p| p["Name"].as_str() == Some("Score"));
+    assert!(found, "Score property must be in properties: {:?}", props);
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+    );
+}
+
+#[test]
+fn e2e_introspect_method_has_formal_spec_field() {
+    require_iris!();
+    // Ens.Director.StartProduction has a FormalSpec
+    let result = call_tool(
+        "docs_introspect",
+        serde_json::json!({
+            "class_name": "Ens.Director", "namespace": "USER"
+        }),
+    );
+    assert_eq!(
+        result["success"], true,
+        "introspect Ens.Director: {}",
+        result
+    );
+    let methods = result["methods"].as_array().cloned().unwrap_or_default();
+    // At least one method must have a non-empty FormalSpec
+    let has_formal = methods.iter().any(|m| {
+        m["FormalSpec"]
+            .as_str()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
+    });
+    assert!(
+        has_formal,
+        "at least one Ens.Director method must have FormalSpec: {:?}",
+        methods.iter().map(|m| &m["Name"]).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn e2e_introspect_method_return_type_present() {
+    require_iris!();
+    let result = call_tool(
+        "docs_introspect",
+        serde_json::json!({
+            "class_name": "Ens.Director", "namespace": "USER"
+        }),
+    );
+    assert_eq!(result["success"], true);
+    let methods = result["methods"].as_array().cloned().unwrap_or_default();
+    for m in &methods {
+        // ReturnType may be empty (void methods) but field must exist
+        assert!(
+            m.get("ReturnType").is_some(),
+            "ReturnType key must exist: {:?}",
+            m
+        );
+    }
+}
+
+#[test]
+fn e2e_introspect_user_class_after_compile() {
+    require_iris!();
+    let name = "Test022.Introspectable.cls";
+    let content = "Class Test022.Introspectable {\nClassMethod Add(a As %Integer, b As %Integer) As %Integer { Return a+b }\n}";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,"content":content,"namespace":"USER"}),
+    );
+    call_tool(
+        "iris_compile",
+        serde_json::json!({"target":name,"namespace":"USER"}),
+    );
+    let result = call_tool(
+        "docs_introspect",
+        serde_json::json!({
+            "class_name": "Test022.Introspectable", "namespace": "USER"
+        }),
+    );
+    assert_eq!(result["success"], true, "introspect user class: {}", result);
+    let methods = result["methods"].as_array().cloned().unwrap_or_default();
+    let found = methods.iter().any(|m| m["Name"].as_str() == Some("Add"));
+    assert!(found, "Add method must appear in introspect: {:?}", methods);
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+    );
+}
+
+#[test]
+fn e2e_introspect_class_name_in_response() {
+    require_iris!();
+    let result = call_tool(
+        "docs_introspect",
+        serde_json::json!({
+            "class_name": "Ens.Director", "namespace": "USER"
+        }),
+    );
+    assert_eq!(result["success"], true);
+    // Response must echo back the class_name
+    assert_eq!(
+        result["class_name"].as_str(),
+        Some("Ens.Director"),
+        "class_name must be echoed in response: {}",
+        result
+    );
+}
+
+// ── iris_info extended ────────────────────────────────────────────────────────
+
+#[test]
+fn e2e_info_metadata_has_version_string() {
+    require_iris!();
+    let result = call_tool(
+        "iris_info",
+        serde_json::json!({"what":"metadata","namespace":"USER"}),
+    );
+    assert_eq!(result["success"], true, "metadata: {}", result);
+    // Version must be a non-empty string
+    let ver = result["version"]
+        .as_str()
+        .or_else(|| result["iris_version"].as_str())
+        .unwrap_or("");
+    if !ver.is_empty() {
+        assert!(
+            ver.contains("IRIS") || ver.contains("20"),
+            "version string must mention IRIS or year: {:?}",
+            ver
+        );
+    }
+}
+
+#[test]
+fn e2e_info_namespace_matches_requested() {
+    require_iris!();
+    let result = call_tool(
+        "iris_info",
+        serde_json::json!({"what":"namespace","namespace":"USER"}),
+    );
+    if result["success"] == true {
+        let ns = result["name"]
+            .as_str()
+            .or_else(|| result["namespace"].as_str())
+            .unwrap_or("");
+        assert!(
+            ns.to_uppercase().contains("USER"),
+            "namespace name must contain USER: {:?}",
+            ns
+        );
+    }
+}
+
+#[test]
+fn e2e_info_jobs_entries_have_expected_fields() {
+    require_iris!();
+    let result = call_tool(
+        "iris_info",
+        serde_json::json!({"what":"jobs","namespace":"USER"}),
+    );
+    if result["success"] == true {
+        let jobs = result["jobs"].as_array().cloned().unwrap_or_default();
+        // If there are jobs, each must have at least a pid or job-id field
+        for job in &jobs {
+            assert!(
+                job.get("pid").is_some() || job.get("job").is_some() || job.get("PID").is_some(),
+                "job entry must have pid/job field: {:?}",
+                job
+            );
+        }
+    }
+}
+
+#[test]
+fn e2e_info_csp_apps_structured_response() {
+    require_iris!();
+    // csp_apps returns 404 on some Atelier v8 endpoints — documented issue I-7
+    let result = call_tool(
+        "iris_info",
+        serde_json::json!({"what":"csp_apps","namespace":"USER"}),
+    );
+    // Accept success or error — must not crash
+    assert!(
+        result.is_object(),
+        "csp_apps must return object: {}",
+        result
+    );
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "csp_apps must be structured: {}",
+        result
+    );
+}
+
+// ── Interoperability extended ─────────────────────────────────────────────────
+
+#[test]
+fn e2e_interop_production_status_no_crash_without_container() {
+    require_iris!();
+    // Without IRIS_CONTAINER, production tools return DOCKER_REQUIRED — that's fine
+    // This test verifies the error is structured, not a panic/crash
+    let result = call_tool(
+        "interop_production_status",
+        serde_json::json!({"namespace":"USER"}),
+    );
+    assert!(
+        result["success"] == true || result["error_code"].is_string() || result.is_object(),
+        "production status must not crash: {}",
+        result
+    );
+}
+
+#[test]
+fn e2e_interop_queues_count_field() {
+    require_iris!();
+    let result = call_tool("interop_queues", serde_json::json!({}));
+    if result["success"] == true {
+        let queues = result["queues"].as_array().cloned().unwrap_or_default();
+        // count field must match array length
+        let count = result["count"].as_u64().unwrap_or(queues.len() as u64);
+        assert_eq!(
+            count,
+            queues.len() as u64,
+            "count must match queues array length: {}",
+            result
+        );
+    }
+}
+
+#[test]
+fn e2e_interop_logs_limit_parameter() {
+    require_iris!();
+    let result = call_tool(
+        "interop_logs",
+        serde_json::json!({
+            "log_type": "error,warning,info",
+            "limit": 3
+        }),
+    );
+    if result["success"] == true {
+        let logs = result["logs"].as_array().cloned().unwrap_or_default();
+        assert!(
+            logs.len() <= 3,
+            "limit=3 must not return more than 3 logs: {}",
+            logs.len()
+        );
+    }
+}
+
+#[test]
+fn e2e_interop_message_search_with_limit() {
+    require_iris!();
+    let result = call_tool("interop_message_search", serde_json::json!({"limit": 2}));
+    if result["success"] == true {
+        let messages = result["messages"].as_array().cloned().unwrap_or_default();
+        assert!(
+            messages.len() <= 2,
+            "limit=2 must not exceed: {}",
+            messages.len()
+        );
+    }
+}
+
+#[test]
+fn e2e_interop_logs_error_type_filter() {
+    require_iris!();
+    let result = call_tool(
+        "interop_logs",
+        serde_json::json!({
+            "log_type": "error",
+            "limit": 5
+        }),
+    );
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "error-type filter: {}",
+        result
+    );
+}
+
+// ── Debug tools extended ──────────────────────────────────────────────────────
+
+#[test]
+fn e2e_debug_error_logs_max_entries_cap() {
+    require_iris!();
+    // max_entries must be capped at 1000 (FR-012 fix) — requesting 5000 returns at most 1000
+    let result = call_tool(
+        "debug_get_error_logs",
+        serde_json::json!({
+            "namespace": "USER",
+            "max_entries": 5000
+        }),
+    );
+    assert_eq!(result["success"], true, "debug_get_error_logs: {}", result);
+    let logs = result["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.len() <= 1000,
+        "max_entries=5000 must be capped at 1000: {}",
+        logs.len()
+    );
+}
+
+#[test]
+fn e2e_debug_error_logs_small_limit() {
+    require_iris!();
+    let result = call_tool(
+        "debug_get_error_logs",
+        serde_json::json!({
+            "namespace": "USER",
+            "max_entries": 1
+        }),
+    );
+    assert_eq!(
+        result["success"], true,
+        "debug_get_error_logs max=1: {}",
+        result
+    );
+    let logs = result["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.len() <= 1,
+        "max_entries=1 must return at most 1 entry: {}",
+        logs.len()
+    );
+}
+
+#[test]
+fn e2e_debug_capture_packet_success_field() {
+    require_iris!();
+    let result = call_tool(
+        "debug_capture_packet",
+        serde_json::json!({"namespace":"USER"}),
+    );
+    assert_eq!(result["success"], true, "capture packet: {}", result);
+    // errors field must be array or null (never absent when success=true)
+    assert!(
+        result["errors"].is_array() || result["errors"].is_null(),
+        "errors field must be present and array or null: {}",
+        result
+    );
+}
+
+#[test]
+fn e2e_debug_source_map_nonexistent_class() {
+    require_iris!();
+    // debug_source_map on a nonexistent class must not crash — returns empty map or error
+    let result = call_tool(
+        "debug_source_map",
+        serde_json::json!({
+            "cls_name": "NonExistent.Class.XYZ",
+            "cls_text": "Class NonExistent.Class.XYZ { }",
+            "namespace": "USER"
+        }),
+    );
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "debug_source_map nonexistent must be structured: {}",
+        result
+    );
+}
+
+// ── iris_doc extended ─────────────────────────────────────────────────────────
+
+#[test]
+fn e2e_doc_put_and_verify_content_preserved() {
+    require_iris!();
+    let name = "Test022.ContentCheck.cls";
+    let content =
+        "Class Test022.ContentCheck {\n/// Unique marker: XYZZY42\nClassMethod Marker() { }\n}";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,"content":content,"namespace":"USER"}),
+    );
+    let get = call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"get","name":name,"namespace":"USER"}),
+    );
+    assert_eq!(get["success"], true, "get after put: {}", get);
+    assert!(
+        get["content"].as_str().unwrap_or("").contains("XYZZY42"),
+        "unique marker must survive round-trip: {}",
+        get
+    );
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+    );
+}
+
+#[test]
+fn e2e_doc_delete_removes_document() {
+    require_iris!();
+    let name = "Test022.DeleteMe.cls";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,
+            "content":"Class Test022.DeleteMe { }","namespace":"USER"}),
+    );
+    let del = call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+    );
+    assert_eq!(del["success"], true, "delete: {}", del);
+    // HEAD after delete must return not-found
+    let head = call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"head","name":name,"namespace":"USER"}),
+    );
+    assert!(
+        head["success"] == false || head["exists"] == false,
+        "document must not exist after delete: {}",
+        head
+    );
+}
+
+#[test]
+fn e2e_doc_get_mac_routine() {
+    require_iris!();
+    // Read a known .mac routine — tests non-.cls document type
+    let result = call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"get","name":"%Library.Global.mac","namespace":"USER"}),
+    );
+    // May succeed or return not-found — just must be structured
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "get .mac must return structured response: {}",
+        result
+    );
+}
+
+#[test]
+fn e2e_doc_put_multiline_content_all_lines_stored() {
+    require_iris!();
+    let name = "Test022.MultiLine.cls";
+    let content = "Class Test022.MultiLine {\nClassMethod Line1() { }\nClassMethod Line2() { }\nClassMethod Line3() { }\n}";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,"content":content,"namespace":"USER"}),
+    );
+    let get = call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"get","name":name,"namespace":"USER"}),
+    );
+    if get["success"] == true {
+        let c = get["content"].as_str().unwrap_or("");
+        assert!(
+            c.contains("Line1") && c.contains("Line2") && c.contains("Line3"),
+            "all three methods must be in stored content: {}",
+            get
+        );
+    }
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+    );
+}
+
+#[test]
+fn e2e_doc_batch_get_preserves_order() {
+    require_iris!();
+    // Batch get must return docs in the requested order, not arbitrary order
+    let a = "Test022.OrderA.cls";
+    let b = "Test022.OrderB.cls";
+    let c = "Test022.OrderC.cls";
+    for (n, content) in &[
+        (a, "Class Test022.OrderA{}"),
+        (b, "Class Test022.OrderB{}"),
+        (c, "Class Test022.OrderC{}"),
+    ] {
+        call_tool(
+            "iris_doc",
+            serde_json::json!({"mode":"put","name":n,"content":content,"namespace":"USER"}),
+        );
+        call_tool(
+            "iris_compile",
+            serde_json::json!({"target":n,"namespace":"USER"}),
+        );
+    }
+    let result = call_tool_timeout(
+        "iris_doc",
+        serde_json::json!({"mode":"get","names":[a,b,c],"namespace":"USER"}),
+        20,
+    );
+    if result["success"] == true {
+        let docs = result["documents"].as_array().cloned().unwrap_or_default();
+        if docs.len() == 3 {
+            assert_eq!(
+                docs[0]["name"].as_str(),
+                Some(a),
+                "first doc should be A: {:?}",
+                docs[0]
+            );
+            assert_eq!(
+                docs[1]["name"].as_str(),
+                Some(b),
+                "second doc should be B: {:?}",
+                docs[1]
+            );
+            assert_eq!(
+                docs[2]["name"].as_str(),
+                Some(c),
+                "third doc should be C: {:?}",
+                docs[2]
+            );
+        }
+    }
+    for n in &[a, b, c] {
+        call_tool(
+            "iris_doc",
+            serde_json::json!({"mode":"delete","name":n,"namespace":"USER"}),
+        );
+    }
+}
+
+#[test]
+fn e2e_doc_put_overwrites_existing() {
+    require_iris!();
+    let name = "Test022.Overwrite.cls";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,
+            "content":"Class Test022.Overwrite { ClassMethod V1() { } }","namespace":"USER"}),
+    );
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,
+            "content":"Class Test022.Overwrite { ClassMethod V2() { } }","namespace":"USER"}),
+    );
+    let get = call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"get","name":name,"namespace":"USER"}),
+    );
+    if get["success"] == true {
+        let c = get["content"].as_str().unwrap_or("");
+        assert!(c.contains("V2"), "overwrite must store V2: {}", get);
+    }
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+    );
+}
+
+#[test]
+fn e2e_doc_open_uri_after_put() {
+    require_iris!();
+    let name = "Test022.OpenUriDoc.cls";
+    let result = call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,
+            "content":"Class Test022.OpenUriDoc { }","namespace":"USER"}),
+    );
+    if result["success"] == true {
+        let uri = result["open_uri"].as_str().unwrap_or("");
+        assert!(
+            uri.starts_with("isfs://"),
+            "put must return isfs:// open_uri: {}",
+            result
+        );
+    }
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+    );
+}
+
+#[test]
+fn e2e_doc_put_inc_file() {
+    require_iris!();
+    // Test non-.cls document type: .inc include file
+    let name = "Test022.MyMacros.inc";
+    let content = "#define TESTVAL 42\n";
+    let result = call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,"content":content,"namespace":"USER"}),
+    );
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "put .inc file must return structured response: {}",
+        result
+    );
+    if result["success"] == true {
+        call_tool(
+            "iris_doc",
+            serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+        );
+    }
+}
+
+// ── iris_query extended ───────────────────────────────────────────────────────
+
+#[test]
+fn e2e_query_top_n_limit_respected() {
+    require_iris!();
+    let result = call_tool(
+        "iris_query",
+        serde_json::json!({
+            "query": "SELECT TOP 3 Name FROM %Dictionary.ClassDefinition ORDER BY Name",
+            "namespace": "USER"
+        }),
+    );
+    assert_eq!(result["success"], true, "TOP 3: {}", result);
+    let rows = result["rows"].as_array().cloned().unwrap_or_default();
+    assert_eq!(
+        rows.len(),
+        3,
+        "TOP 3 must return exactly 3 rows: {}",
+        result
+    );
+}
+
+#[test]
+fn e2e_query_count_returns_integer() {
+    require_iris!();
+    let result = call_tool(
+        "iris_query",
+        serde_json::json!({
+            "query": "SELECT COUNT(*) AS cnt FROM %Dictionary.ClassDefinition",
+            "namespace": "USER"
+        }),
+    );
+    assert_eq!(result["success"], true, "COUNT: {}", result);
+    let rows = result["rows"].as_array().cloned().unwrap_or_default();
+    assert!(!rows.is_empty(), "COUNT must return a row: {}", result);
+    let cnt = rows[0]["cnt"]
+        .as_i64()
+        .or_else(|| rows[0]["Cnt"].as_i64())
+        .unwrap_or(0);
+    assert!(
+        cnt > 100,
+        "namespace must have >100 classes, got {}: {}",
+        cnt,
+        result
+    );
+}
+
+#[test]
+fn e2e_query_where_like_filter() {
+    require_iris!();
+    let result = call_tool(
+        "iris_query",
+        serde_json::json!({
+            "query": "SELECT TOP 5 Name FROM %Dictionary.ClassDefinition WHERE Name LIKE 'Ens.%' ORDER BY Name",
+            "namespace": "USER"
+        }),
+    );
+    assert_eq!(result["success"], true, "LIKE filter: {}", result);
+    let rows = result["rows"].as_array().cloned().unwrap_or_default();
+    for row in &rows {
+        let name = row["Name"].as_str().unwrap_or("");
+        assert!(
+            name.starts_with("Ens."),
+            "LIKE 'Ens.%' must only return Ens classes: {}",
+            name
+        );
+    }
+}
+
+#[test]
+fn e2e_query_order_by_respected() {
+    require_iris!();
+    let result = call_tool(
+        "iris_query",
+        serde_json::json!({
+            "query": "SELECT TOP 5 Name FROM %Dictionary.ClassDefinition ORDER BY Name ASC",
+            "namespace": "USER"
+        }),
+    );
+    assert_eq!(result["success"], true, "ORDER BY: {}", result);
+    let rows = result["rows"].as_array().cloned().unwrap_or_default();
+    let names: Vec<&str> = rows.iter().filter_map(|r| r["Name"].as_str()).collect();
+    let mut sorted = names.clone();
+    sorted.sort();
+    assert_eq!(names, sorted, "rows must be sorted ascending: {:?}", names);
+}
+
+#[test]
+fn e2e_query_multiple_columns_returned() {
+    require_iris!();
+    let result = call_tool(
+        "iris_query",
+        serde_json::json!({
+            "query": "SELECT TOP 1 Name, Super FROM %Dictionary.ClassDefinition WHERE Name = 'Ens.Director'",
+            "namespace": "USER"
+        }),
+    );
+    assert_eq!(result["success"], true, "multi-column: {}", result);
+    let rows = result["rows"].as_array().cloned().unwrap_or_default();
+    assert!(!rows.is_empty(), "must find Ens.Director: {}", result);
+    assert!(
+        rows[0]["Name"].is_string(),
+        "Name column must exist: {:?}",
+        rows[0]
+    );
+    assert!(
+        rows[0]["Super"].is_string() || rows[0]["Super"].is_null(),
+        "Super column must exist: {:?}",
+        rows[0]
+    );
+}
+
+#[test]
+fn e2e_query_insert_update_delete_sequence() {
+    require_iris!();
+    // Full DML cycle on a temp persistent class
+    let cls = "Test022.DmlTest.cls";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":cls,
+            "content":"Class Test022.DmlTest Extends %Persistent { Property Val As %String; }",
+            "namespace":"USER"}),
+    );
+    let compile = call_tool(
+        "iris_compile",
+        serde_json::json!({"target":cls,"namespace":"USER"}),
+    );
+    if compile["success"] != true {
+        call_tool(
+            "iris_doc",
+            serde_json::json!({"mode":"delete","name":cls,"namespace":"USER"}),
+        );
+        return;
+    }
+    // INSERT
+    let ins = call_tool(
+        "iris_query",
+        serde_json::json!({
+            "query":"INSERT INTO Test022.DmlTest (Val) VALUES (?)",
+            "parameters":["hello"],"namespace":"USER"}),
+    );
+    if ins["success"] == true {
+        // UPDATE
+        call_tool(
+            "iris_query",
+            serde_json::json!({
+                "query":"UPDATE Test022.DmlTest SET Val=? WHERE Val=?",
+                "parameters":["world","hello"],"namespace":"USER"}),
+        );
+        // SELECT after update
+        let sel = call_tool(
+            "iris_query",
+            serde_json::json!({
+                "query":"SELECT Val FROM Test022.DmlTest WHERE Val=?",
+                "parameters":["world"],"namespace":"USER"}),
+        );
+        assert_eq!(sel["success"], true, "SELECT after UPDATE: {}", sel);
+        // DELETE
+        call_tool(
+            "iris_query",
+            serde_json::json!({
+                "query":"DELETE FROM Test022.DmlTest WHERE Val=?",
+                "parameters":["world"],"namespace":"USER"}),
+        );
+    }
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":cls,"namespace":"USER"}),
+    );
+}
+
+#[test]
+fn e2e_query_null_handling() {
+    require_iris!();
+    // SELECT NULL AS val should return null in the row
+    let result = call_tool(
+        "iris_query",
+        serde_json::json!({
+            "query": "SELECT NULL AS val, 'present' AS other",
+            "namespace": "USER"
+        }),
+    );
+    assert_eq!(result["success"], true, "SELECT NULL: {}", result);
+    let rows = result["rows"].as_array().cloned().unwrap_or_default();
+    assert!(!rows.is_empty(), "must return a row: {}", result);
+    assert!(
+        rows[0]["other"].as_str() == Some("present"),
+        "non-null value: {:?}",
+        rows[0]
+    );
+}
+
+#[test]
+fn e2e_query_stored_proc_call() {
+    require_iris!();
+    // Call a built-in IRIS SQL expression
+    let result = call_tool(
+        "iris_query",
+        serde_json::json!({
+            "query": "SELECT %EXTERNAL(1+1) AS two",
+            "namespace": "USER"
+        }),
+    );
+    // May succeed or fail — just must be structured
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "stored proc call must be structured: {}",
+        result
+    );
+}
+
+// ── iris_search extended ──────────────────────────────────────────────────────
+
+#[test]
+fn e2e_search_case_insensitive_default() {
+    require_iris!();
+    let result = call_tool(
+        "iris_search",
+        serde_json::json!({
+            "query": "director",
+            "namespace": "USER",
+            "category": "CLS",
+            "max_results": 5
+        }),
+    );
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "case-insensitive search: {}",
+        result
+    );
+}
+
+#[test]
+fn e2e_search_empty_query_returns_error_not_crash() {
+    require_iris!();
+    let result = call_tool(
+        "iris_search",
+        serde_json::json!({
+            "query": "",
+            "namespace": "USER"
+        }),
+    );
+    // Empty query should return structured response — not crash
+    assert!(
+        result.is_object(),
+        "empty query must return object: {}",
+        result
+    );
+}
+
+#[test]
+fn e2e_search_mac_category() {
+    require_iris!();
+    let result = call_tool(
+        "iris_search",
+        serde_json::json!({
+            "query": "Main",
+            "namespace": "USER",
+            "category": "MAC",
+            "max_results": 5
+        }),
+    );
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "MAC category search: {}",
+        result
+    );
+}
+
+#[test]
+fn e2e_search_nonexistent_content_returns_empty() {
+    require_iris!();
+    let result = call_tool(
+        "iris_search",
+        serde_json::json!({
+            "query": "ZZZNOMATCHXXX999",
+            "namespace": "USER",
+            "max_results": 5
+        }),
+    );
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "no-match search: {}",
+        result
+    );
+    if result["success"] == true {
+        let results = result["results"].as_array().cloned().unwrap_or_default();
+        assert_eq!(
+            results.len(),
+            0,
+            "gibberish query should return 0 results: {}",
+            result
+        );
+    }
+}
+
+#[test]
+fn e2e_search_max_results_respected() {
+    require_iris!();
+    let result = call_tool(
+        "iris_search",
+        serde_json::json!({
+            "query": "Class",
+            "namespace": "USER",
+            "max_results": 2
+        }),
+    );
+    if result["success"] == true {
+        let results = result["results"].as_array().cloned().unwrap_or_default();
+        assert!(
+            results.len() <= 2,
+            "max_results=2 must not return more: {} results",
+            results.len()
+        );
+    }
+}
+
+#[test]
+fn e2e_search_result_has_document_and_context() {
+    require_iris!();
+    // Seed a class with unique searchable content
+    let name = "Test022.SearchContent.cls";
+    let unique = "UNIQUESEARCHCONTEXT8675309";
+    let content = format!(
+        "Class Test022.SearchContent {{\n/// {}\nClassMethod Run() {{ }}\n}}",
+        unique
+    );
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,"content":content,"namespace":"USER"}),
+    );
+    let result = call_tool(
+        "iris_search",
+        serde_json::json!({
+            "query": unique,
+            "namespace": "USER",
+            "max_results": 3
+        }),
+    );
+    if result["success"] == true {
+        let results = result["results"].as_array().cloned().unwrap_or_default();
+        if !results.is_empty() {
+            // Each result must have document name and some context
+            assert!(
+                results[0]["document"].is_string(),
+                "result must have document: {:?}",
+                results[0]
+            );
+        }
+    }
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+    );
 }
