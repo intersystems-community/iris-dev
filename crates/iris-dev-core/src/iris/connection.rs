@@ -118,39 +118,6 @@ impl IrisConnection {
         }
     }
 
-    /// Detect the highest available Atelier API version by probing.
-    /// Sets self.atelier_version in place.
-    pub async fn detect_version(&mut self, client: &reqwest::Client) {
-        // Try v8 first
-        let v8_url = self.atelier_url(&format!("/v8/{}/", self.namespace));
-        if let Ok(resp) = client
-            .get(&v8_url)
-            .basic_auth(&self.username, Some(&self.password))
-            .send()
-            .await
-        {
-            if resp.status().is_success() {
-                self.atelier_version = AtelierVersion::V8;
-                return;
-            }
-        }
-        // Try v2
-        let v2_url = self.atelier_url(&format!("/v2/{}/", self.namespace));
-        if let Ok(resp) = client
-            .get(&v2_url)
-            .basic_auth(&self.username, Some(&self.password))
-            .send()
-            .await
-        {
-            if resp.status().is_success() {
-                self.atelier_version = AtelierVersion::V2;
-                return;
-            }
-        }
-        // Fall back to v1
-        self.atelier_version = AtelierVersion::V1;
-    }
-
     /// Execute ObjectScript code via the write-compile-query cycle (pure HTTP, no docker).
     ///
     /// Writes a temp class whose `CodeMode = objectgenerator` method runs the user's code at
@@ -231,10 +198,12 @@ impl IrisConnection {
             .send()
             .await?;
         let query_body: serde_json::Value = query_resp.json().await.unwrap_or_default();
+        // Bug 3: newlines were encoded as $Char(1) to avoid bare newlines in the
+        // generated ObjectScript string literal; reverse that here.
         let output = query_body["result"]["content"][0]["output"]
             .as_str()
             .unwrap_or("")
-            .to_string();
+            .replace('\x01', "\n");
 
         // 4. Delete the temp class (best-effort)
         let _ = self.delete_doc(&doc_name, namespace, client).await;
@@ -281,7 +250,9 @@ impl IrisConnection {
             "    Close tmpfile".into(),
             "  }".into(),
             "  Do ##class(%Library.File).Delete(tmpfile)".into(),
-            "  Set qout = $Replace(out,$Char(34),$Char(34)_$Char(34))".into(),
+            // Bug 3: replace newlines with $Char(1) so the generated Quit "..." literal
+            // never contains a bare newline (which is a UDL syntax error).
+            "  Set qout = $Replace($Replace(out,$Char(34),$Char(34)_$Char(34)),$Char(10),$Char(1))".into(),
             // Generate: Quit "captured_output" — $Char(34) avoids nested quote escaping
             "  Do %code.WriteLine(\" Quit \"_$Char(34)_qout_$Char(34))".into(),
             "}".into(),
@@ -359,10 +330,14 @@ impl IrisConnection {
     }
 
     /// Build a reqwest Client suitable for Atelier REST calls.
+    /// TLS certificate validation is enabled by default; set `IRIS_INSECURE=true` to disable.
     pub fn http_client() -> anyhow::Result<reqwest::Client> {
+        let insecure = std::env::var("IRIS_INSECURE")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
         Ok(reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
-            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_certs(insecure)
             .build()?)
     }
 }

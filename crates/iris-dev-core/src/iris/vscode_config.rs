@@ -59,19 +59,89 @@ impl IntersystemsServer {
     }
 }
 
+/// Strip JSONC (JSON with Comments) syntax so serde_json can parse VS Code settings.json.
+///
+/// Handles: full-line // comments, inline // comments, /* block comments */,
+/// and trailing commas before `}` or `]`.
+fn strip_jsonc(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let chars: Vec<char> = src.chars().collect();
+    let mut i = 0;
+    let mut in_string = false;
+
+    while i < chars.len() {
+        let c = chars[i];
+
+        if in_string {
+            out.push(c);
+            if c == '\\' && i + 1 < chars.len() {
+                // escaped character — emit both and skip next
+                i += 1;
+                out.push(chars[i]);
+            } else if c == '"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        // Outside a string
+        if c == '"' {
+            in_string = true;
+            out.push(c);
+            i += 1;
+            continue;
+        }
+
+        // Line comment //
+        if c == '/' && i + 1 < chars.len() && chars[i + 1] == '/' {
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+            continue;
+        }
+
+        // Block comment /* ... */
+        if c == '/' && i + 1 < chars.len() && chars[i + 1] == '*' {
+            i += 2;
+            while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                i += 1;
+            }
+            i += 2; // skip */
+            continue;
+        }
+
+        // Trailing comma: ,  followed (possibly with whitespace) by } or ]
+        if c == ',' {
+            let mut j = i + 1;
+            while j < chars.len() && (chars[j] == ' ' || chars[j] == '\t' || chars[j] == '\n' || chars[j] == '\r') {
+                j += 1;
+            }
+            if j < chars.len() && (chars[j] == '}' || chars[j] == ']') {
+                // skip the comma
+                i += 1;
+                continue;
+            }
+        }
+
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
 /// Parse a VS Code settings.json file.
+/// Bug 10: the old parser only stripped full-line // comments.
+/// This version handles inline //, /* */ block comments, and trailing commas.
 pub fn parse_vscode_settings(path: impl AsRef<Path>) -> anyhow::Result<VsCodeSettings> {
     let content = std::fs::read_to_string(path.as_ref())?;
-    // VS Code settings.json may have trailing commas or comments — use serde_json's lenient parser
-    let settings: VsCodeSettings = serde_json::from_str(&content).unwrap_or_else(|_| {
-        // Try stripping JS-style comments (basic)
-        let cleaned: String = content
-            .lines()
-            .filter(|l| !l.trim_start().starts_with("//"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        serde_json::from_str(&cleaned).unwrap_or_default()
-    });
+    // First try raw JSON (fast path for files without JSONC syntax).
+    if let Ok(settings) = serde_json::from_str::<VsCodeSettings>(&content) {
+        return Ok(settings);
+    }
+    // Strip JSONC syntax and retry.
+    let cleaned = strip_jsonc(&content);
+    let settings: VsCodeSettings = serde_json::from_str(&cleaned).unwrap_or_default();
     Ok(settings)
 }
 

@@ -133,6 +133,8 @@ pub struct SourceMapParams {
     pub cls_text: String,
     pub cls_name: String,
     pub workspace_path: Option<String>,
+    #[serde(default = "default_namespace")]
+    pub namespace: String,
 }
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ExecuteParams {
@@ -236,34 +238,9 @@ fn err_json_with_url(
         "hint": "Check IRIS_HOST and IRIS_WEB_PORT (and IRIS_WEB_PREFIX if using a non-root gateway)"
     }))
 }
+// Bug 20: delegate to the canonical implementation in iris::discovery instead of duplicating.
 fn score_container(name: &str, workspace_basename: &str) -> i64 {
-    if workspace_basename.is_empty() {
-        return 0;
-    }
-    let cn = name.to_lowercase();
-    let wb = workspace_basename.to_lowercase();
-    let base: i64 = if cn == wb {
-        100
-    } else if cn.starts_with(&wb) {
-        80
-    } else if cn.contains(&wb) {
-        60
-    } else {
-        0
-    };
-    if base == 0 {
-        return 0;
-    }
-    let suffix = if cn.ends_with("-iris") || cn.ends_with("_iris") {
-        10i64
-    } else {
-        0
-    } + if cn.ends_with("-test") || cn.ends_with("_test") {
-        5
-    } else {
-        0
-    };
-    base + suffix
+    crate::iris::discovery::score_container_name(name, workspace_basename) as i64
 }
 
 fn extract_port(ports: &str, container_port: &str) -> Option<u16> {
@@ -426,9 +403,10 @@ impl IrisTools {
         let iris = self.get_iris()?;
         let client = self.http_client();
 
-        // Expand wildcards: resolve "MyApp.*.cls" to a list of matching class names
+        // Expand wildcards: resolve "MyApp.*.cls" to a list of matching class names.
+        // Bug 8: use p.namespace (not iris.namespace) and the correct /docnames/CLS endpoint.
         let targets: Vec<String> = if p.target.contains('*') {
-            let list_url = iris.versioned_ns_url(&iris.namespace.clone(), "/docs?category=CLS");
+            let list_url = iris.versioned_ns_url(&p.namespace, "/docnames/CLS");
             match client
                 .get(&list_url)
                 .basic_auth(&iris.username, Some(&iris.password))
@@ -440,11 +418,12 @@ impl IrisTools {
                     let pattern = p.target.replace('.', "\\.").replace('*', ".*");
                     let re = regex::Regex::new(&format!("(?i)^{}$", pattern))
                         .unwrap_or_else(|_| regex::Regex::new(".*").unwrap());
+                    // /docnames/ returns an array of strings, not objects with a "name" key.
                     body["result"]["content"]
                         .as_array()
                         .unwrap_or(&vec![])
                         .iter()
-                        .filter_map(|d| d["name"].as_str())
+                        .filter_map(|d| d.as_str())
                         .filter(|n| re.is_match(n))
                         .map(|n| n.to_string())
                         .collect()
@@ -478,12 +457,13 @@ impl IrisTools {
             &format!("/action/compile?flags={}", urlencoding::encode(&p.flags)),
         );
 
-        // Ensure targets have extensions
+        // Ensure targets have extensions.
+        // Bug 16: the old check `t.contains('.')` skipped top-level classes (no package dot).
+        // Correct check: append .cls only when no known extension is already present.
         let targets_with_ext: Vec<String> = targets
             .iter()
             .map(|t| {
-                if t.contains('.')
-                    && !t.ends_with(".cls")
+                if !t.ends_with(".cls")
                     && !t.ends_with(".mac")
                     && !t.ends_with(".inc")
                     && !t.ends_with(".int")
@@ -503,7 +483,8 @@ impl IrisTools {
             .await
             .map_err(|e| McpError::internal_error(format!("HTTP error: {e}"), None))?;
 
-        if !resp.status().is_success() && resp.status().as_u16() != 200 {
+        // Bug 17: `&& != 200` was dead code since 200 is always is_success().
+        if !resp.status().is_success() {
             let url_str = compile_url.clone();
             let status = resp.status().as_u16();
             return err_json_with_url("IRIS_UNREACHABLE", &format!("HTTP {}", status), &url_str);
@@ -838,7 +819,7 @@ impl IrisTools {
     }
 
     #[tool(
-        description = "Switch the active IRIS container. Reconnects the MCP server to the specified container. Returns new connection info including version."
+        description = "Validate and return connection parameters for the specified IRIS container. Does NOT hot-swap the active connection (restart the MCP session to switch containers). Returns probed version and port info so the caller can configure a new session."
     )]
     async fn iris_select_container(
         &self,
@@ -870,6 +851,9 @@ impl IrisTools {
         let port_web = container["port_web"].as_u64().unwrap_or(52773) as u16;
         let base_url = format!("http://localhost:{}", port_web);
 
+        // Bug 5: the old code built new_conn and immediately dropped it without storing it.
+        // IrisTools.iris is Arc<IrisConnection> behind &self — can't be mutated here.
+        // Instead, probe the connection to verify it works and return accurate info.
         let mut new_conn = crate::iris::connection::IrisConnection::new(
             &base_url,
             &p.namespace,
@@ -880,8 +864,8 @@ impl IrisTools {
             },
         );
         new_conn.port_superserver = Some(port_superserver);
-
-        let version: Option<String> = None; // requires docker exec to probe version
+        new_conn.probe().await;
+        let version = new_conn.version.clone();
 
         ok_json(serde_json::json!({
             "status": "ok",
@@ -890,7 +874,7 @@ impl IrisTools {
             "port_web": port_web,
             "namespace": p.namespace,
             "version": version,
-            "note": "Restart session to use new container, or call iris_execute/iris_compile directly with the container's credentials.",
+            "note": "Connection parameters validated. Restart the MCP session (set IRIS_HOST/IRIS_WEB_PORT) to switch containers.",
         }))
     }
 
@@ -1024,15 +1008,16 @@ impl IrisTools {
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
         let client = self.http_client();
-        let cls = p.class_name.replace('\'', "''");
-        let methods = iris.query(&format!("SELECT Name,FormalSpec,ReturnType FROM %Dictionary.CompiledMethod WHERE parent='{}'", cls), vec![], client).await.unwrap_or_default();
+        // Bug 15: use parameterized queries instead of manual string escaping.
+        let methods = iris.query(
+            "SELECT Name,FormalSpec,ReturnType FROM %Dictionary.CompiledMethod WHERE parent=? ORDER BY Name",
+            vec![serde_json::Value::String(p.class_name.clone())],
+            client,
+        ).await.unwrap_or_default();
         let props = iris
             .query(
-                &format!(
-                    "SELECT Name,Type FROM %Dictionary.CompiledProperty WHERE parent='{}'",
-                    cls
-                ),
-                vec![],
+                "SELECT Name,Type FROM %Dictionary.CompiledProperty WHERE parent=? ORDER BY Name",
+                vec![serde_json::Value::String(p.class_name.clone())],
                 client,
             )
             .await
@@ -1121,7 +1106,8 @@ impl IrisTools {
             "set cls=\"{}\" set rtn=$translate(cls,\".\",\".\") set map=\"{{\" set first=1 set method=\"\" for {{ set method=$order(^rIndex(rtn,method)) quit:method=\"\"  set intline=$get(^rIndex(rtn,method)) if 'first {{ set map=map_\",\" }} set map=map_\"\\\"\"_method_\"\\\":\\\"\"_intline_\"\\\"\" set first=0 }} set map=map_\"}}\" write map",
             cls_name.replace('"', "\\\"")
         );
-        match iris.execute(&code, "USER").await {
+        // Bug 23: use p.namespace, not the hardcoded "USER".
+        match iris.execute(&code, &p.namespace).await {
             Ok(output) => {
                 let map: serde_json::Value =
                     serde_json::from_str(output.trim()).unwrap_or(serde_json::json!({}));
@@ -1567,17 +1553,17 @@ Methods:
     )]
     async fn interop_production_needs_update(
         &self,
-        _: Parameters<NoParams>,
+        Parameters(p): Parameters<interop::ProductionNeedsUpdateParams>,
     ) -> Result<CallToolResult, McpError> {
-        interop::interop_production_needs_update_impl(self.iris.as_deref()).await
+        interop::interop_production_needs_update_impl(self.iris.as_deref(), p).await
     }
 
     #[tool(description = "Recover a troubled IRIS Interoperability production.")]
     async fn interop_production_recover(
         &self,
-        _: Parameters<NoParams>,
+        Parameters(p): Parameters<interop::ProductionRecoverParams>,
     ) -> Result<CallToolResult, McpError> {
-        interop::interop_production_recover_impl(self.iris.as_deref()).await
+        interop::interop_production_recover_impl(self.iris.as_deref(), p).await
     }
 
     #[tool(

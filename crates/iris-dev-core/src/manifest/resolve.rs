@@ -54,11 +54,26 @@ impl Resolve {
             packages: self
                 .packages
                 .iter()
-                .map(|p| PackageLock {
-                    name: p.name.clone(),
-                    version: p.version.to_string(),
-                    repository: format!("{:?}", p.source),
-                    checksum: None,
+                .map(|p| {
+                    // Bug 11: format repository as a proper URL string, not Rust Debug output.
+                    let repository = match &p.source {
+                        ResolvedSource::GitHub { owner, repo } => {
+                            format!("https://github.com/{}/{}", owner, repo)
+                        }
+                        ResolvedSource::Git(url) => url.clone(),
+                        ResolvedSource::Local(path) => {
+                            path.to_string_lossy().into_owned()
+                        }
+                        ResolvedSource::OpenExchange(id) => {
+                            format!("openexchange:{}", id)
+                        }
+                    };
+                    PackageLock {
+                        name: p.name.clone(),
+                        version: p.version.to_string(),
+                        repository,
+                        checksum: None,
+                    }
                 })
                 .collect(),
         }
@@ -113,9 +128,12 @@ impl ResolveLock {
     pub fn to_toml(&self) -> String {
         let mut out = String::from("[metadata]\nformat-version = 1\n\n");
         for pkg in &self.packages {
+            // Bug 11: use proper TOML string quoting, not Rust Debug format ({:?}).
             out.push_str(&format!(
-                "[[package]]\nname = {:?}\nversion = {:?}\nrepository = {:?}\n\n",
-                pkg.name, pkg.version, pkg.repository
+                "[[package]]\nname = \"{}\"\nversion = \"{}\"\nrepository = \"{}\"\n\n",
+                pkg.name.replace('\\', "\\\\").replace('"', "\\\""),
+                pkg.version.replace('\\', "\\\\").replace('"', "\\\""),
+                pkg.repository.replace('\\', "\\\\").replace('"', "\\\""),
             ));
         }
         out

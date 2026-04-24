@@ -49,17 +49,29 @@ impl CompileCommand {
         let target = self.target.as_deref().unwrap_or(".");
 
         let code = if target == "." {
+            // Bug 1: CompileAll takes flags, not namespace. The namespace is selected by execute().
             format!(
                 "Set sc=$SYSTEM.OBJ.CompileAll(\"{}\") If $System.Status.IsOK(sc) {{Write \"OK\"}} Else {{Write $System.Status.GetErrorText(sc)}}",
-                self.namespace
+                self.flags
             )
         } else if target.ends_with(".cls") {
-            let cls_name = std::path::Path::new(target)
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or(target);
             let cls_text =
                 std::fs::read_to_string(target).with_context(|| format!("reading {}", target))?;
+            // Bug 2: derive class name from the "Class ..." declaration inside the file,
+            // not from the file path (which would strip package components).
+            let cls_name = cls_text
+                .lines()
+                .find(|l| l.trim_start().starts_with("Class "))
+                .and_then(|l| l.split_whitespace().nth(1))
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| {
+                    // Fallback: convert path separators to dots and strip extension
+                    target
+                        .trim_end_matches(".cls")
+                        .replace(['/', '\\'], ".")
+                        .trim_start_matches('.')
+                        .to_string()
+                });
             let cls_text_crlf = cls_text
                 .replace("\r\n", "\n")
                 .replace('\r', "\n")

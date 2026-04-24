@@ -71,32 +71,45 @@ async fn handle_get(
     client: &reqwest::Client,
     p: IrisDocParams,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-    // Batch get
+    // Batch get — Bug 19: fetch concurrently instead of sequentially.
     if !p.names.is_empty() {
-        let mut results = vec![];
-        let mut futs = vec![];
+        let mut set = tokio::task::JoinSet::new();
         for name in &p.names {
             let url =
                 iris.versioned_ns_url(&p.namespace, &format!("/doc/{}", urlencoding::encode(name)));
-            let req = client
-                .get(&url)
-                .basic_auth(&iris.username, Some(&iris.password))
-                .send();
-            futs.push((name.clone(), req));
+            let username = iris.username.clone();
+            let password = iris.password.clone();
+            let name = name.clone();
+            let client = client.clone();
+            set.spawn(async move {
+                let result = client
+                    .get(&url)
+                    .basic_auth(&username, Some(&password))
+                    .send()
+                    .await;
+                (name, result)
+            });
         }
-        for (name, fut) in futs {
-            match fut.await {
-                Ok(resp) if resp.status().is_success() => {
-                    let body: serde_json::Value = resp.json().await.unwrap_or_default();
-                    let content = doc_content_to_string(&body);
-                    results.push(serde_json::json!({"name": name, "content": content}));
-                }
-                Ok(resp) => results.push(
-                    serde_json::json!({"name": name, "error": format!("HTTP {}", resp.status())}),
-                ),
-                Err(e) => results.push(serde_json::json!({"name": name, "error": e.to_string()})),
+        // Collect results, preserving insertion order via a map then re-order.
+        let mut map: std::collections::HashMap<String, serde_json::Value> =
+            std::collections::HashMap::new();
+        while let Some(res) = set.join_next().await {
+            if let Ok((name, fetch_result)) = res {
+                let entry = match fetch_result {
+                    Ok(resp) if resp.status().is_success() => {
+                        let body: serde_json::Value = resp.json().await.unwrap_or_default();
+                        let content = doc_content_to_string(&body);
+                        serde_json::json!({"name": name, "content": content})
+                    }
+                    Ok(resp) => {
+                        serde_json::json!({"name": name, "error": format!("HTTP {}", resp.status())})
+                    }
+                    Err(e) => serde_json::json!({"name": name, "error": e.to_string()}),
+                };
+                map.insert(name, entry);
             }
         }
+        let results: Vec<_> = p.names.iter().filter_map(|n| map.remove(n)).collect();
         return ok_json(serde_json::json!({"success": true, "documents": results}));
     }
 
@@ -255,10 +268,11 @@ async fn do_write(
                     .map(|s| s.to_string())
             });
 
+        // Bug 4: Atelier uses If-Match for optimistic locking, not If-None-Match.
         let retry = client
             .put(&url)
             .basic_auth(&iris.username, Some(&iris.password))
-            .header("If-None-Match", etag.as_deref().unwrap_or(""))
+            .header("If-Match", etag.as_deref().unwrap_or(""))
             .json(&serde_json::json!({"enc": false, "content": lines}))
             .send()
             .await

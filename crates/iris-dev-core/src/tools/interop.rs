@@ -12,8 +12,14 @@ fn err_json(code: &str, msg: &str) -> Result<CallToolResult, McpError> {
 fn iris_unreachable() -> McpError {
     McpError::invalid_request("IRIS_UNREACHABLE", None)
 }
+// Bug 18: "connection" matched too broadly — e.g. "No Interoperability connection configured"
+// was misclassified as IRIS_UNREACHABLE. Use more specific network-error patterns.
 fn is_network_error(msg: &str) -> bool {
-    msg.contains("error sending") || msg.contains("connection") || msg.contains("dns")
+    msg.contains("error sending")
+        || msg.contains("connection refused")
+        || msg.contains("connection reset")
+        || msg.contains("dns error")
+        || msg.contains("timed out")
 }
 
 fn default_ns() -> String {
@@ -49,12 +55,27 @@ fn default_timeout() -> u32 {
     30
 }
 
+// Bug 7: added namespace field so update/recover/needs_update work in non-default namespaces.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ProductionUpdateParams {
+    #[serde(default = "default_ns")]
+    pub namespace: String,
     #[serde(default = "default_timeout")]
     pub timeout: u32,
     #[serde(default)]
     pub force: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ProductionNeedsUpdateParams {
+    #[serde(default = "default_ns")]
+    pub namespace: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ProductionRecoverParams {
+    #[serde(default = "default_ns")]
+    pub namespace: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -124,14 +145,15 @@ fn docker_required_interop() -> Result<CallToolResult, McpError> {
 
 pub async fn interop_production_status_impl(
     iris: Option<&IrisConnection>,
-    _params: ProductionStatusParams,
+    params: ProductionStatusParams,
 ) -> Result<CallToolResult, McpError> {
     let iris = match iris {
         Some(i) => i,
         None => return err_json("IRIS_UNREACHABLE", "No IRIS connection"),
     };
     let code = r#"Set sc=##class(Ens.Director).GetProductionStatus(.n,.s) If $$$ISERR(sc) { Write "ERROR:"_$System.Status.GetErrorText(sc) } Else { Write n_":"_s }"#;
-    match iris.execute(code, &iris.namespace).await {
+    // Bug 7: use params.namespace, not iris.namespace.
+    match iris.execute(code, &params.namespace).await {
         Ok(output) => {
             let raw = output.trim().to_string();
             match parse_status_response(&raw) {
@@ -167,7 +189,8 @@ pub async fn interop_production_start_impl(
         r#"Set sc=##class(Ens.Director).StartProduction("{}") If $$$ISERR(sc) {{ Write "ERROR:"_$System.Status.GetErrorText(sc) }} Else {{ Write "OK" }}"#,
         prod
     );
-    match iris.execute(&code, &iris.namespace).await {
+    // Bug 7: use params.namespace, not iris.namespace.
+    match iris.execute(&code, &params.namespace).await {
         Ok(output) => {
             let raw = output.trim();
             if raw == "OK" {
@@ -201,7 +224,8 @@ pub async fn interop_production_stop_impl(
         params.timeout,
         if params.force { 1 } else { 0 }
     );
-    match iris.execute(&code, &iris.namespace).await {
+    // Bug 7: use params.namespace, not iris.namespace.
+    match iris.execute(&code, &params.namespace).await {
         Ok(output) => {
             let raw = output.trim();
             if raw == "OK" {
@@ -235,7 +259,8 @@ pub async fn interop_production_update_impl(
         params.timeout,
         if params.force { 1 } else { 0 }
     );
-    match iris.execute(&code, &iris.namespace).await {
+    // Bug 7: use params.namespace.
+    match iris.execute(&code, &params.namespace).await {
         Ok(output) => {
             let raw = output.trim();
             if raw == "OK" {
@@ -258,13 +283,15 @@ pub async fn interop_production_update_impl(
 
 pub async fn interop_production_needs_update_impl(
     iris: Option<&IrisConnection>,
+    params: ProductionNeedsUpdateParams,
 ) -> Result<CallToolResult, McpError> {
     let iris = match iris {
         Some(i) => i,
         None => return err_json("IRIS_UNREACHABLE", "No IRIS connection"),
     };
     let code = r#"Write ##class(Ens.Director).ProductionNeedsUpdate()"#;
-    match iris.execute(code, &iris.namespace).await {
+    // Bug 7: use params.namespace.
+    match iris.execute(code, &params.namespace).await {
         Ok(output) => {
             ok_json(serde_json::json!({"success": true, "needs_update": output.trim() == "1"}))
         }
@@ -282,13 +309,15 @@ pub async fn interop_production_needs_update_impl(
 
 pub async fn interop_production_recover_impl(
     iris: Option<&IrisConnection>,
+    params: ProductionRecoverParams,
 ) -> Result<CallToolResult, McpError> {
     let iris = match iris {
         Some(i) => i,
         None => return err_json("IRIS_UNREACHABLE", "No IRIS connection"),
     };
     let code = r#"Set sc=##class(Ens.Director).RecoverProduction() If $$$ISERR(sc) { Write "ERROR:"_$System.Status.GetErrorText(sc) } Else { Write "OK" }"#;
-    match iris.execute(code, &iris.namespace).await {
+    // Bug 7: use params.namespace.
+    match iris.execute(code, &params.namespace).await {
         Ok(output) => {
             let raw = output.trim();
             if raw == "OK" {

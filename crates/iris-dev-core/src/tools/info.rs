@@ -44,15 +44,15 @@ pub async fn handle_iris_info(
     let ns = &p.namespace;
     let url = match p.what.as_str() {
         "documents" => {
-            // /v1/{ns}/docnames/{type} is the verified working endpoint
+            // Bug 14: use versioned_ns_url so future API versions are used automatically.
             let cat = match p.doc_type.as_deref().unwrap_or("ALL") {
                 "ALL" => "CLS".to_string(),
                 t => t.to_uppercase(),
             };
-            iris.atelier_url(&format!("/v1/{}/docnames/{}", ns, cat))
+            iris.versioned_ns_url(ns, &format!("/docnames/{}", cat))
         }
-        "modified" => iris.atelier_url(&format!("/v1/{}/modified/0", ns)),
-        "namespace" => iris.atelier_url(&format!("/v1/{}", ns)), // v1 not v8, no trailing slash
+        "modified" => iris.versioned_ns_url(ns, "/modified/0"),
+        "namespace" => iris.versioned_ns_url(ns, ""), // namespace metadata endpoint
         "metadata" => iris.atelier_url("/"), // root endpoint returns server metadata
         "jobs" => iris.versioned_ns_url(ns, "/jobs"),
         "csp_apps" => iris.versioned_ns_url(ns, "/cspapps"),
@@ -104,8 +104,8 @@ pub async fn handle_iris_macro(
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     match p.action.as_str() {
         "list" => {
-            // /macros endpoint does not exist — use docnames/INC to list include files
-            let url = iris.atelier_url(&format!("/v1/{}/docnames/INC", p.namespace));
+            // Bug 14: use versioned_ns_url instead of hardcoded /v1/.
+            let url = iris.versioned_ns_url(&p.namespace, "/docnames/INC");
             let resp = client
                 .get(&url)
                 .basic_auth(&iris.username, Some(&iris.password))

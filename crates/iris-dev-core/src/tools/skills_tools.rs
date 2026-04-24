@@ -62,7 +62,8 @@ pub async fn handle_skill(
 
     match p.action.as_str() {
         "list" => {
-            let code = "set key=\"\" set out=\"[\" for  { set key=$order(^SKILLS(key)) quit:key=\"\"  set data=$get(^SKILLS(key)) set out=out_\"{\"_\"\\\"name\\\":\\\"\"_key_\"\\\",\\\"description\\\":\\\"\"_$piece(data,\"|\",1)_\"\\\",\\\"usage_count\\\":\"_$piece(data,\"|\",3)_\"}\" set out=out_\",\" } set out=$extract(out,1,*-1)_\"]\" write out";
+            // Bug 9: use separator variable so empty global yields "[]" not "]".
+            let code = "set key=\"\" set out=\"[\" set sep=\"\" for  { set key=$order(^SKILLS(key)) quit:key=\"\"  set data=$get(^SKILLS(key)) set out=out_sep_\"{\"_\"\\\"name\\\":\\\"\"_key_\"\\\",\\\"description\\\":\\\"\"_$piece(data,\"|\",1)_\"\\\",\\\"usage_count\\\":\"_$piece(data,\"|\",3)_\"}\" set sep=\",\" } set out=out_\"]\" write out";
             let raw = xecute(iris, client, code, &ns).await.unwrap_or_default();
             let skills: serde_json::Value =
                 serde_json::from_str(&raw).unwrap_or(serde_json::json!([]));
@@ -90,8 +91,9 @@ pub async fn handle_skill(
         }
         "search" => {
             let query = p.query.as_deref().unwrap_or("").to_lowercase();
+            // Bug 9: use separator variable so empty results yield "[]" not "]".
             let code = format!(
-                "set key=\"\" set out=\"[\" for {{ set key=$order(^SKILLS(key)) quit:key=\"\"  set data=$get(^SKILLS(key)) if $find($zconvert(key_data,\"L\"),\"{}\")>0 {{ set out=out_\"{{\\\"name\\\":\\\"\"_key_\"\\\",\\\"description\\\":\\\"\"_$piece(data,\"|\",1)_\"\\\"}}\" set out=out_\",\" }} }} set out=$extract(out,1,*-1)_\"]\" write out",
+                "set key=\"\" set out=\"[\" set sep=\"\" for {{ set key=$order(^SKILLS(key)) quit:key=\"\"  set data=$get(^SKILLS(key)) if $find($zconvert(key_data,\"L\"),\"{}\")>0 {{ set out=out_sep_\"{{\\\"name\\\":\\\"\"_key_\"\\\",\\\"description\\\":\\\"\"_$piece(data,\"|\",1)_\"\\\"}}\" set sep=\",\" }} }} set out=out_\"]\" write out",
                 query.replace('"', "\\\"")
             );
             let raw = xecute(iris, client, &code, &ns).await.unwrap_or_default();
@@ -309,8 +311,9 @@ pub async fn handle_kb(
         "recall" => {
             let query = p.query.as_deref().unwrap_or("").to_lowercase();
             let top_k = p.top_k;
+            // Bug 9: use separator variable so empty results yield "[]" not "]".
             let code = format!(
-                "set key=\"\" set out=\"[\" set count=0 for {{ set key=$order(^KBCHUNKS(key)) quit:(key=\"\" || count>={top_k})  set data=$get(^KBCHUNKS(key)) if $find($zconvert(data,\"L\"),\"{query}\")>0 {{ set out=out_\"{{\\\"file\\\":\\\"\"_key_\"\\\",\\\"excerpt\\\":\\\"\"_$extract(data,1,200)_\"\\\"}}\" set out=out_\",\" set count=count+1 }} }} set out=$extract(out,1,*-1)_\"]\" write out",
+                "set key=\"\" set out=\"[\" set sep=\"\" set count=0 for {{ set key=$order(^KBCHUNKS(key)) quit:(key=\"\" || count>={top_k})  set data=$get(^KBCHUNKS(key)) if $find($zconvert(data,\"L\"),\"{query}\")>0 {{ set out=out_sep_\"{{\\\"file\\\":\\\"\"_key_\"\\\",\\\"excerpt\\\":\\\"\"_$extract(data,1,200)_\"\\\"}}\" set sep=\",\" set count=count+1 }} }} set out=out_\"]\" write out",
                 query = query.replace('"', "\\\""),
                 top_k = top_k,
             );

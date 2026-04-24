@@ -7,32 +7,62 @@ pub struct LlmClient {
     timeout_secs: u64,
 }
 
+// ── OpenAI request/response types ────────────────────────────────────────────
+
 #[derive(Serialize)]
-struct ChatRequest {
+struct OpenAiRequest {
     model: String,
-    messages: Vec<ChatMessage>,
+    messages: Vec<OpenAiMessage>,
 }
 
 #[derive(Serialize)]
-struct ChatMessage {
+struct OpenAiMessage {
     role: String,
     content: String,
 }
 
 #[derive(Deserialize)]
-struct ChatResponse {
-    choices: Vec<Choice>,
+struct OpenAiResponse {
+    choices: Vec<OpenAiChoice>,
 }
 
 #[derive(Deserialize)]
-struct Choice {
-    message: ResponseMessage,
+struct OpenAiChoice {
+    message: OpenAiResponseMessage,
 }
 
 #[derive(Deserialize)]
-struct ResponseMessage {
+struct OpenAiResponseMessage {
     content: String,
 }
+
+// ── Anthropic request/response types ─────────────────────────────────────────
+
+#[derive(Serialize)]
+struct AnthropicRequest {
+    model: String,
+    max_tokens: u32,
+    system: String,
+    messages: Vec<AnthropicMessage>,
+}
+
+#[derive(Serialize)]
+struct AnthropicMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Deserialize)]
+struct AnthropicResponse {
+    content: Vec<AnthropicContent>,
+}
+
+#[derive(Deserialize)]
+struct AnthropicContent {
+    text: String,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 impl LlmClient {
     pub fn from_env() -> Option<Self> {
@@ -56,24 +86,60 @@ impl LlmClient {
             .timeout(std::time::Duration::from_secs(self.timeout_secs))
             .build()?;
 
-        let base_url = if self.model.starts_with("claude") {
-            "https://api.anthropic.com/v1/messages"
-        } else {
-            "https://api.openai.com/v1/chat/completions"
-        };
+        if self.model.starts_with("claude") {
+            // Bug 6: Anthropic API requires:
+            //   - x-api-key header (not Authorization: Bearer)
+            //   - anthropic-version header
+            //   - max_tokens field (required, causes 400 if absent)
+            //   - system as top-level field (not in messages[])
+            //   - response is content[].text (not choices[].message.content)
+            let resp = client
+                .post("https://api.anthropic.com/v1/messages")
+                .header("x-api-key", &self.api_key)
+                .header("anthropic-version", "2023-06-01")
+                .header("content-type", "application/json")
+                .json(&AnthropicRequest {
+                    model: self.model.clone(),
+                    max_tokens: 4096,
+                    system: system.to_string(),
+                    messages: vec![AnthropicMessage {
+                        role: "user".to_string(),
+                        content: user.to_string(),
+                    }],
+                })
+                .send()
+                .await
+                .context("Anthropic API request failed")?;
 
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                anyhow::bail!("Anthropic API error {}: {}", status, body);
+            }
+
+            let parsed: AnthropicResponse =
+                resp.json().await.context("parsing Anthropic response")?;
+            return parsed
+                .content
+                .into_iter()
+                .next()
+                .map(|c| c.text)
+                .context("empty Anthropic response");
+        }
+
+        // OpenAI-compatible path
         let resp = client
-            .post(base_url)
+            .post("https://api.openai.com/v1/chat/completions")
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
-            .json(&ChatRequest {
+            .json(&OpenAiRequest {
                 model: self.model.clone(),
                 messages: vec![
-                    ChatMessage {
+                    OpenAiMessage {
                         role: "system".to_string(),
                         content: system.to_string(),
                     },
-                    ChatMessage {
+                    OpenAiMessage {
                         role: "user".to_string(),
                         content: user.to_string(),
                     },
@@ -81,7 +147,7 @@ impl LlmClient {
             })
             .send()
             .await
-            .context("LLM API request failed")?;
+            .context("OpenAI API request failed")?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -89,7 +155,7 @@ impl LlmClient {
             anyhow::bail!("LLM API error {}: {}", status, body);
         }
 
-        let parsed: ChatResponse = resp.json().await.context("parsing LLM response")?;
+        let parsed: OpenAiResponse = resp.json().await.context("parsing OpenAI response")?;
         parsed
             .choices
             .into_iter()

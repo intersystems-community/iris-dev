@@ -16,22 +16,16 @@ use std::time::Duration;
 /// The ports we scan on localhost for IRIS web servers.
 const IRIS_WEB_PORTS: &[u16] = &[52773, 41773, 51773, 8080];
 
-/// Probe a single host:port via Atelier REST. Returns Some(conn) if IRIS found.
-pub async fn probe_atelier(
+/// Inner probe using a pre-built HTTP client. Avoids creating a new client per probe (Bug 24).
+async fn probe_atelier_with_client(
+    client: &reqwest::Client,
     host: &str,
     port: u16,
     username: &str,
     password: &str,
     namespace: &str,
-    timeout_ms: u64,
 ) -> Option<IrisConnection> {
     let base_url = format!("http://{}:{}", host, port);
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_millis(timeout_ms))
-        .danger_accept_invalid_certs(true)
-        .build()
-        .ok()?;
-
     let resp = client
         .get(format!("{}/api/atelier/", base_url))
         .basic_auth(username, Some(password))
@@ -46,7 +40,6 @@ pub async fn probe_atelier(
     let body: serde_json::Value = resp.json().await.ok()?;
     let content = &body["result"]["content"];
 
-    // Fingerprint: result.content.version must contain "IRIS"
     let version = content["version"]
         .as_str()
         .filter(|v| v.to_uppercase().contains("IRIS"))
@@ -66,6 +59,25 @@ pub async fn probe_atelier(
         _ => crate::iris::connection::AtelierVersion::V1,
     };
     Some(conn)
+}
+
+/// Probe a single host:port via Atelier REST. Returns Some(conn) if IRIS found.
+pub async fn probe_atelier(
+    host: &str,
+    port: u16,
+    username: &str,
+    password: &str,
+    namespace: &str,
+    timeout_ms: u64,
+) -> Option<IrisConnection> {
+    // Bug 24: for the public API we still create a client here, but internal callers
+    // (localhost scan, docker probe) reuse a shared client via probe_atelier_with_client.
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(timeout_ms))
+        .danger_accept_invalid_certs(true)
+        .build()
+        .ok()?;
+    probe_atelier_with_client(&client, host, port, username, password, namespace).await
 }
 
 /// Full discovery cascade. Returns Ok(Some(conn)) if IRIS found, Ok(None) if not.
@@ -94,12 +106,22 @@ pub async fn discover_iris(explicit: Option<IrisConnection>) -> Result<Option<Ir
         }
     }
 
-    // 3. Localhost scan (parallel, 100ms each)
+    // 3. Localhost scan (parallel, 100ms each).
+    // Bug 24: share a single client across all port probes.
+    let scan_client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(100))
+        .danger_accept_invalid_certs(true)
+        .build()
+        .unwrap_or_default();
+    let scan_client = std::sync::Arc::new(scan_client);
+
     let scan_tasks: Vec<_> = IRIS_WEB_PORTS
         .iter()
         .map(|&port| {
+            let client = scan_client.clone();
             tokio::spawn(async move {
-                probe_atelier("localhost", port, "_SYSTEM", "SYS", "USER", 100).await
+                probe_atelier_with_client(&client, "localhost", port, "_SYSTEM", "SYS", "USER")
+                    .await
             })
         })
         .collect();
@@ -124,6 +146,7 @@ pub async fn discover_iris(explicit: Option<IrisConnection>) -> Result<Option<Ir
 }
 
 /// Score a container name against a workspace basename (spec-025 scoring rules).
+/// Returns a higher score for closer name matches to the workspace.
 pub fn score_container_name(container_name: &str, workspace_basename: &str) -> u32 {
     if workspace_basename.is_empty() {
         return 0;
@@ -214,9 +237,23 @@ async fn discover_via_docker() -> Option<IrisConnection> {
 
     candidates.sort_by_key(|b| std::cmp::Reverse(b.0));
 
+    // Bug 12: use IRIS_USERNAME/IRIS_PASSWORD env vars instead of hardcoded credentials.
+    let username = std::env::var("IRIS_USERNAME").unwrap_or_else(|_| "_SYSTEM".to_string());
+    let password = std::env::var("IRIS_PASSWORD").unwrap_or_else(|_| "SYS".to_string());
+
+    // Bug 24: create a single shared HTTP client for all docker probes.
+    let probe_client = match reqwest::Client::builder()
+        .timeout(Duration::from_millis(500))
+        .danger_accept_invalid_certs(true)
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return None,
+    };
+
     for (_score, container_name, web_port, port_ss) in candidates {
         if let Some(mut conn) =
-            probe_atelier("localhost", web_port, "_SYSTEM", "SYS", "USER", 500).await
+            probe_atelier_with_client(&probe_client, "localhost", web_port, &username, &password, "USER").await
         {
             conn.source = DiscoverySource::Docker { container_name };
             conn.port_superserver = port_ss;
