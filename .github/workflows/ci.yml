@@ -82,16 +82,6 @@ jobs:
   e2e-tests:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master'
-    services:
-      iris:
-        image: intersystemsdc/iris-community:latest
-        ports:
-          - 52773:52773
-        options: >-
-          --health-cmd "curl -sf -u _SYSTEM:SYS http://localhost:52773/api/atelier/ || exit 1"
-          --health-interval 15s
-          --health-timeout 5s
-          --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -101,6 +91,24 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install httpx pyyaml
+      - name: Start IRIS container
+        run: |
+          docker run -d --name iris-e2e \
+            -p 52773:52773 \
+            intersystemsdc/iris-community:latest
+      - name: Wait for IRIS to be ready (up to 3 minutes)
+        run: |
+          for i in $(seq 1 36); do
+            if curl -sf -u _SYSTEM:SYS http://localhost:52773/api/atelier/ > /dev/null 2>&1; then
+              echo "IRIS ready after $((i * 5))s"
+              exit 0
+            fi
+            echo "Waiting... ($((i * 5))s)"
+            sleep 5
+          done
+          echo "IRIS did not become ready in 3 minutes"
+          docker logs iris-e2e | tail -20
+          exit 1
       - name: Run E2E tool tests against live IRIS
         run: pytest tests/integration/test_022_all_tools.py --tb=short -q
         env:
