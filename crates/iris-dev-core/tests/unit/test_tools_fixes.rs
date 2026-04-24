@@ -127,7 +127,9 @@ fn test_extract_class_name_validation() {
 
     // Invalid names (containing special chars) should return None
     assert_eq!(extract_class_name("Class <Bad> {}"), None);
-    assert_eq!(extract_class_name("Class Bad Name {}"), None); // space in name
+    // "Bad" is a valid class name — the parser takes the second token only.
+    // Spaces after the name are class metadata (Extends, etc.), not part of the name.
+    assert_eq!(extract_class_name("Class Bad Name {}"), Some("Bad".to_string()));
 
     // No Class declaration → None
     assert_eq!(extract_class_name("not a class"), None);

@@ -99,11 +99,13 @@ fn iris_env() -> Vec<(&'static str, String)> {
 /// T016: iris_doc put to namespace without SCM returns success + open_uri.
 #[test]
 fn iris_doc_put_no_scm() {
-    let env = iris_env();
-    if env[0].1.is_empty() {
-        eprintln!("Skipping: IRIS_HOST not set");
+    // Skip when IRIS_HOST is not explicitly set in the environment.
+    // iris_env() defaults IRIS_HOST to "localhost", so we check the env var directly.
+    if std::env::var("IRIS_HOST").is_err() {
+        eprintln!("Skipping iris_doc_put_no_scm: IRIS_HOST env var not set");
         return;
     }
+    let env = iris_env();
     let env_refs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
     let responses = mcp_exchange(
@@ -137,8 +139,8 @@ fn iris_doc_put_no_scm() {
 #[test]
 fn iris_source_control_status_uncontrolled() {
     let env = iris_env();
-    if env[0].1.is_empty() {
-        eprintln!("Skipping: IRIS_HOST not set");
+    if std::env::var("IRIS_HOST").is_err() {
+        eprintln!("Skipping: IRIS_HOST env var not set");
         return;
     }
     let env_refs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
@@ -173,8 +175,8 @@ fn iris_source_control_status_uncontrolled() {
 #[test]
 fn iris_compile_open_uri() {
     let env = iris_env();
-    if env[0].1.is_empty() {
-        eprintln!("Skipping: IRIS_HOST not set");
+    if std::env::var("IRIS_HOST").is_err() {
+        eprintln!("Skipping: IRIS_HOST env var not set");
         return;
     }
     let env_refs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
@@ -220,8 +222,8 @@ fn iris_compile_open_uri() {
 #[test]
 fn iris_generate_returns_context_no_api_key() {
     let env = iris_env();
-    if env[0].1.is_empty() {
-        eprintln!("Skipping: IRIS_HOST not set");
+    if std::env::var("IRIS_HOST").is_err() {
+        eprintln!("Skipping: IRIS_HOST env var not set");
         return;
     }
     let env_refs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
