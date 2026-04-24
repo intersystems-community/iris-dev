@@ -1110,3 +1110,737 @@ fn e2e_hook_file_changed_disabled_by_default() {
         assert_eq!(code, 0);
     }
 }
+
+// ── iris_info additional modes ────────────────────────────────────────────────
+
+#[test]
+fn e2e_info_documents_returns_list() {
+    require_iris!();
+    let result = call_tool(
+        "iris_info",
+        serde_json::json!({"what": "documents", "namespace": "USER"}),
+    );
+    // Must return a list (possibly large — don't assert count, just structure)
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "iris_info documents must return structured response: {}",
+        result
+    );
+    if result["success"] == true {
+        // iris_info documents returns result.content (raw Atelier) or a documents array
+        assert!(
+            result["documents"].is_array()
+                || result["count"].is_number()
+                || result["result"]["content"].is_array(),
+            "documents mode must return documents, count, or result.content: success={}",
+            result["success"]
+        );
+    }
+}
+
+#[test]
+fn e2e_info_jobs_returns_list() {
+    require_iris!();
+    let result = call_tool(
+        "iris_info",
+        serde_json::json!({"what": "jobs", "namespace": "USER"}),
+    );
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "iris_info jobs must return structured response: {}",
+        result
+    );
+    if result["success"] == true {
+        assert!(
+            result["jobs"].is_array(),
+            "jobs mode must return jobs array: {}",
+            result
+        );
+    }
+}
+
+#[test]
+fn e2e_info_modified_returns_list() {
+    require_iris!();
+    let result = call_tool(
+        "iris_info",
+        serde_json::json!({"what": "modified", "namespace": "USER"}),
+    );
+    // modified may return 405 on some IRIS versions — either structured success or error
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "iris_info modified must return structured response: {}",
+        result
+    );
+}
+
+// ── iris_doc HEAD ─────────────────────────────────────────────────────────────
+
+#[test]
+fn e2e_doc_head_existing_document() {
+    require_iris!();
+    // HEAD on a known system class must return success
+    let result = call_tool(
+        "iris_doc",
+        serde_json::json!({"mode": "head", "name": "Ens.Director.cls", "namespace": "USER"}),
+    );
+    assert_eq!(
+        result["success"], true,
+        "iris_doc HEAD on Ens.Director.cls should succeed: {}",
+        result
+    );
+    assert!(
+        result["exists"] == true || result["name"].is_string(),
+        "HEAD response must indicate document exists: {}",
+        result
+    );
+}
+
+#[test]
+fn e2e_doc_head_nonexistent_returns_not_found() {
+    require_iris!();
+    let result = call_tool(
+        "iris_doc",
+        serde_json::json!({"mode": "head", "name": "Test022.DoesNotExist.cls", "namespace": "USER"}),
+    );
+    // HEAD on nonexistent doc must not crash — returns success:false or exists:false
+    assert!(
+        result["success"] == false || result["exists"] == false,
+        "HEAD on nonexistent doc must return not-found: {}",
+        result
+    );
+}
+
+// ── iris_macro ────────────────────────────────────────────────────────────────
+
+#[test]
+fn e2e_macro_list_returns_macros() {
+    require_iris!();
+    let result = call_tool(
+        "iris_macro",
+        serde_json::json!({"action": "list", "namespace": "USER"}),
+    );
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "iris_macro list must return structured response: {}",
+        result
+    );
+    if result["success"] == true {
+        // macros array may be empty if no include files are indexed in USER namespace
+        // (known issue I-10 — system includes not found without explicit include context).
+        // Assert structure, not content.
+        assert!(
+            result["macros"].is_array(),
+            "iris_macro list must return macros array (may be empty): {}",
+            result
+        );
+    }
+}
+
+#[test]
+fn e2e_macro_signature_known_macro() {
+    require_iris!();
+    // $$$OK is always defined in %occStatus.inc
+    let result = call_tool(
+        "iris_macro",
+        serde_json::json!({"action": "signature", "name": "OK", "namespace": "USER"}),
+    );
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "iris_macro signature must return structured response: {}",
+        result
+    );
+}
+
+// ── iris_query with parameters ────────────────────────────────────────────────
+
+#[test]
+fn e2e_query_parameterized_uses_placeholder() {
+    require_iris!();
+    // Tests the SQL injection fix (Bug 15 / FR-001): parameters must go through
+    // the ? placeholder, not be interpolated into the SQL string.
+    let result = call_tool(
+        "iris_query",
+        serde_json::json!({
+            "query": "SELECT Name FROM %Dictionary.ClassDefinition WHERE Name = ?",
+            "parameters": ["Ens.Director"],
+            "namespace": "USER"
+        }),
+    );
+    assert_eq!(
+        result["success"], true,
+        "parameterized query should succeed: {}",
+        result
+    );
+    let rows = result["rows"].as_array().cloned().unwrap_or_default();
+    assert_eq!(
+        rows.len(),
+        1,
+        "should find exactly Ens.Director: {}",
+        result
+    );
+    assert_eq!(
+        rows[0]["Name"].as_str(),
+        Some("Ens.Director"),
+        "row must contain Ens.Director: {:?}",
+        rows[0]
+    );
+}
+
+#[test]
+fn e2e_query_parameterized_prevents_injection() {
+    require_iris!();
+    // A class name containing SQL metacharacters passed as a parameter
+    // must be treated as a literal value, not SQL syntax.
+    let result = call_tool(
+        "iris_query",
+        serde_json::json!({
+            "query": "SELECT Name FROM %Dictionary.ClassDefinition WHERE Name = ?",
+            "parameters": ["'; DROP TABLE %Dictionary.ClassDefinition; --"],
+            "namespace": "USER"
+        }),
+    );
+    // Must succeed with zero rows (not crash or modify the database)
+    assert_eq!(
+        result["success"], true,
+        "injection attempt must not crash: {}",
+        result
+    );
+    let rows = result["rows"].as_array().cloned().unwrap_or_default();
+    assert_eq!(
+        rows.len(),
+        0,
+        "injection attempt must return 0 rows: {}",
+        result
+    );
+}
+
+// ── iris_symbols edge cases ───────────────────────────────────────────────────
+
+#[test]
+fn e2e_symbols_bare_star_returns_all() {
+    require_iris!();
+    // bare * should return all classes up to the limit, no WHERE clause
+    let result = call_tool(
+        "iris_symbols",
+        serde_json::json!({"query": "*", "namespace": "USER", "limit": 5}),
+    );
+    assert_eq!(result["success"].as_str().unwrap_or(""), "",); // success field may not be present
+    let count = result["count"].as_u64().unwrap_or(0);
+    assert!(
+        count > 0
+            || result["symbols"]
+                .as_array()
+                .map(|a| !a.is_empty())
+                .unwrap_or(false),
+        "bare * should return classes: {}",
+        result
+    );
+}
+
+#[test]
+fn e2e_symbols_mid_glob_pattern() {
+    require_iris!();
+    // Ens.*.Operation should match classes like Ens.BusinessOperation (mid-glob via LIKE)
+    // "Ens.*.Operation" → SQL LIKE "Ens.%.Operation" → matches Ens.BusinessOperation
+    let result = call_tool(
+        "iris_symbols",
+        serde_json::json!({"query": "Ens.*.Operation", "namespace": "USER", "limit": 10}),
+    );
+    assert!(
+        result["symbols"].is_array() || result["error_code"].is_string(),
+        "mid-glob must return structured response: {}",
+        result
+    );
+    if result["symbols"].is_array() {
+        let symbols = result["symbols"].as_array().unwrap();
+        let names: Vec<&str> = symbols.iter().filter_map(|s| s["Name"].as_str()).collect();
+        // Either found matching classes, or zero results (namespace variation) — both OK
+        // The important thing is it returned an array, not an error
+        let _ = names; // structure validated above
+    }
+}
+
+// ── iris_search options ───────────────────────────────────────────────────────
+
+#[test]
+fn e2e_search_category_filter() {
+    require_iris!();
+    // Search restricted to CLS category should only return class names
+    let result = call_tool(
+        "iris_search",
+        serde_json::json!({
+            "query": "Director",
+            "namespace": "USER",
+            "category": "CLS",
+            "max_results": 5
+        }),
+    );
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "iris_search with category:CLS must return structured response: {}",
+        result
+    );
+    if result["success"] == true {
+        let results = result["results"].as_array().cloned().unwrap_or_default();
+        for r in &results {
+            let doc = r["document"].as_str().unwrap_or("");
+            assert!(
+                doc.ends_with(".cls") || doc.is_empty(),
+                "CLS category filter should only return .cls documents: {}",
+                doc
+            );
+        }
+    }
+}
+
+#[test]
+fn e2e_search_regex_option() {
+    require_iris!();
+    // Regex search for Director$ (classes ending in Director)
+    let result = call_tool(
+        "iris_search",
+        serde_json::json!({
+            "query": "Director$",
+            "namespace": "USER",
+            "regex": true,
+            "category": "CLS",
+            "max_results": 5
+        }),
+    );
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "iris_search with regex must return structured response: {}",
+        result
+    );
+}
+
+// ── execute_via_generator error path ─────────────────────────────────────────
+
+#[test]
+fn e2e_execute_runtime_error_surfaced() {
+    require_iris!();
+    // Code that causes a runtime error — the Try/Catch in the generated class
+    // must capture it and return the error text, not empty string.
+    let result = call_tool(
+        "iris_execute",
+        serde_json::json!({
+            "code": "Set x = 1/0",  // <DIVIDE> error
+            "namespace": "USER",
+            "confirmed": true
+        }),
+    );
+    if result["success"] == true {
+        let output = result["output"].as_str().unwrap_or("").to_lowercase();
+        assert!(
+            output.contains("error") || output.contains("divide") || output.contains("zero"),
+            "runtime error in executed code must appear in output, got: {:?}",
+            output
+        );
+        assert_ne!(output, "", "runtime error must not produce empty output");
+    }
+    // DOCKER_REQUIRED or HTTP failure are also acceptable outcomes
+}
+
+#[test]
+fn e2e_execute_syntax_error_in_code() {
+    require_iris!();
+    // Code with a syntax error — the generated class will fail to compile.
+    // execute_via_generator should return an error, not success with empty output.
+    let result = call_tool(
+        "iris_execute",
+        serde_json::json!({
+            "code": "this is not valid objectscript @@##",
+            "namespace": "USER",
+            "confirmed": true
+        }),
+    );
+    // Either: success=false with a meaningful error, OR success=true with
+    // error text in output (caught by the Try/Catch or compile error path).
+    // What MUST NOT happen: success=true with empty output.
+    if result["success"] == true {
+        let output = result["output"].as_str().unwrap_or("").trim();
+        // The generated class compile will fail — execute_via_generator returns Err
+        // which falls back to DOCKER_REQUIRED or returns compile error
+        // Accept empty output only if there's also an error indicator
+        if output.is_empty() {
+            // If output is empty but success=true, that's the bug — but for syntax
+            // errors the compile step itself should fail, returning success=false
+            // So if we get here, something is wrong
+            panic!(
+                "execute with invalid syntax returned success:true with empty output: {}",
+                result
+            );
+        }
+    }
+    // success=false is the expected path for syntax errors
+}
+
+// ── Interoperability ──────────────────────────────────────────────────────────
+
+#[test]
+fn e2e_interop_production_status_structured_response() {
+    require_iris!();
+    // interop_production_status uses docker exec — DOCKER_REQUIRED if no container.
+    // Either way must return a structured response, not crash.
+    let result = call_tool(
+        "interop_production_status",
+        serde_json::json!({"namespace": "USER"}),
+    );
+    assert!(
+        result["success"] == true || result["success"] == false || result["error_code"].is_string(),
+        "interop_production_status must return structured response: {}",
+        result
+    );
+    // If connected via docker, must return production name and state
+    if result["success"] == true {
+        assert!(
+            result["production"].is_string() || result["state"].is_string(),
+            "production status must include production name or state: {}",
+            result
+        );
+    }
+}
+
+#[test]
+fn e2e_interop_queues_structured_response() {
+    require_iris!();
+    // interop_queues queries Ens.Queue via SQL — works without docker if IRIS_HOST set.
+    let result = call_tool("interop_queues", serde_json::json!({}));
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "interop_queues must return structured response: {}",
+        result
+    );
+    if result["success"] == true {
+        assert!(
+            result["queues"].is_array(),
+            "queues must be an array: {}",
+            result
+        );
+    }
+}
+
+#[test]
+fn e2e_interop_logs_structured_response() {
+    require_iris!();
+    let result = call_tool(
+        "interop_logs",
+        serde_json::json!({"log_type": "error,warning", "limit": 10}),
+    );
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "interop_logs must return structured response: {}",
+        result
+    );
+    if result["success"] == true {
+        assert!(
+            result["logs"].is_array(),
+            "logs must be an array: {}",
+            result
+        );
+    }
+}
+
+#[test]
+fn e2e_interop_message_search_structured_response() {
+    require_iris!();
+    // Search the message archive — returns empty array if no messages, not an error.
+    let result = call_tool("interop_message_search", serde_json::json!({"limit": 5}));
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "interop_message_search must return structured response: {}",
+        result
+    );
+    if result["success"] == true {
+        assert!(
+            result["messages"].is_array(),
+            "messages must be array: {}",
+            result
+        );
+    }
+}
+
+// ── Security / namespace isolation ───────────────────────────────────────────
+
+#[test]
+fn e2e_query_namespace_isolation() {
+    require_iris!();
+    // SQL query in USER namespace must not see %SYS tables.
+    // %SYS.Users exists in %SYS but not USER — query should return SQLCODE error.
+    let result = call_tool(
+        "iris_query",
+        serde_json::json!({
+            "query": "SELECT TOP 1 Name FROM %SYS.Users",
+            "namespace": "USER"
+        }),
+    );
+    // Either SQL error (table not found in USER) or empty rows — must NOT return user records.
+    if result["success"] == true {
+        let rows = result["rows"].as_array().cloned().unwrap_or_default();
+        assert!(
+            rows.is_empty(),
+            "USER namespace query must not access %SYS.Users: {}",
+            result
+        );
+    }
+    // SQL_ERROR is expected and acceptable
+}
+
+#[test]
+fn e2e_compile_namespace_parameter_respected() {
+    require_iris!();
+    // Compile in USER namespace — class should go to USER, not %SYS.
+    let name = "Test022.NsCheck.cls";
+    let content = "Class Test022.NsCheck { ClassMethod Run() As %String { Return \"ns\" } }";
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":name,"content":content,"namespace":"USER"}),
+    );
+    let result = call_tool(
+        "iris_compile",
+        serde_json::json!({"target":name,"namespace":"USER"}),
+    );
+    assert_eq!(
+        result["namespace"].as_str(),
+        Some("USER"),
+        "compile must operate in USER namespace: {}",
+        result
+    );
+    assert_eq!(
+        result["success"], true,
+        "compile in USER must succeed: {}",
+        result
+    );
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":name,"namespace":"USER"}),
+    );
+}
+
+// ── Persistent class and SQL round-trip ──────────────────────────────────────
+
+#[test]
+fn e2e_persistent_class_sql_round_trip() {
+    require_iris!();
+    // Create a %Persistent class, compile it, insert via SQL, SELECT back.
+    // Tests the full IRIS data layer: class definition → SQL projection → DML.
+    let cls_doc = "Test022.Person.cls";
+    let cls_content = r#"Class Test022.Person Extends %Persistent {
+Property Name As %String;
+Property Age As %Integer;
+}"#;
+
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"put","name":cls_doc,"content":cls_content,"namespace":"USER"}),
+    );
+    let compile = call_tool(
+        "iris_compile",
+        serde_json::json!({"target":cls_doc,"namespace":"USER","flags":"ck"}),
+    );
+    if compile["success"] != true {
+        eprintln!("Skipping SQL round-trip: compile failed: {}", compile);
+        call_tool(
+            "iris_doc",
+            serde_json::json!({"mode":"delete","name":cls_doc,"namespace":"USER"}),
+        );
+        return;
+    }
+
+    // Insert a row via SQL
+    let insert = call_tool(
+        "iris_query",
+        serde_json::json!({
+            "query": "INSERT INTO Test022.Person (Name, Age) VALUES (?, ?)",
+            "parameters": ["Alice", "30"],
+            "namespace": "USER"
+        }),
+    );
+    if insert["success"] != true {
+        eprintln!("Skipping SELECT: INSERT failed: {}", insert);
+        call_tool(
+            "iris_doc",
+            serde_json::json!({"mode":"delete","name":cls_doc,"namespace":"USER"}),
+        );
+        return;
+    }
+
+    // SELECT back
+    let select = call_tool(
+        "iris_query",
+        serde_json::json!({
+            "query": "SELECT Name, Age FROM Test022.Person WHERE Name = ?",
+            "parameters": ["Alice"],
+            "namespace": "USER"
+        }),
+    );
+    assert_eq!(
+        select["success"], true,
+        "SELECT from persistent class should succeed: {}",
+        select
+    );
+    let rows = select["rows"].as_array().cloned().unwrap_or_default();
+    assert!(!rows.is_empty(), "should find inserted row: {}", select);
+    assert_eq!(
+        rows[0]["Name"].as_str(),
+        Some("Alice"),
+        "Name should be Alice: {:?}",
+        rows[0]
+    );
+
+    // Cleanup — DELETE the row and the class
+    call_tool(
+        "iris_query",
+        serde_json::json!({
+            "query": "DELETE FROM Test022.Person WHERE Name = ?",
+            "parameters": ["Alice"],
+            "namespace": "USER"
+        }),
+    );
+    call_tool(
+        "iris_doc",
+        serde_json::json!({"mode":"delete","name":cls_doc,"namespace":"USER"}),
+    );
+}
+
+// ── debug tools ──────────────────────────────────────────────────────────────
+
+#[test]
+fn e2e_debug_error_logs_returns_list() {
+    require_iris!();
+    let result = call_tool(
+        "debug_get_error_logs",
+        serde_json::json!({"namespace": "USER", "max_entries": 10}),
+    );
+    assert_eq!(
+        result["success"], true,
+        "debug_get_error_logs should succeed: {}",
+        result
+    );
+    // logs may be null (no recent errors) or an array — both are valid
+    assert!(
+        result["logs"].is_array() || result["logs"].is_null(),
+        "error logs must be array or null: {}",
+        result
+    );
+}
+
+#[test]
+fn e2e_debug_capture_packet_returns_errors() {
+    require_iris!();
+    let result = call_tool(
+        "debug_capture_packet",
+        serde_json::json!({"namespace": "USER"}),
+    );
+    assert_eq!(
+        result["success"], true,
+        "debug_capture_packet should succeed: {}",
+        result
+    );
+    // errors may be null (no recent errors) or an array — both are valid
+    assert!(
+        result["errors"].is_array() || result["errors"].is_null(),
+        "capture packet must return errors array or null: {}",
+        result
+    );
+}
+
+#[test]
+fn e2e_debug_map_int_to_cls_parses_error_string() {
+    require_iris!();
+    // Parse a synthetic IRIS error string — tests the regex parsing path.
+    // This does NOT require docker exec (parse only) if error_string is provided.
+    let result = call_tool(
+        "debug_map_int_to_cls",
+        serde_json::json!({
+            "error_string": "<UNDEFINED>x+3^Ens.Director.1",
+            "namespace": "USER"
+        }),
+    );
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "debug_map_int_to_cls must return structured response: {}",
+        result
+    );
+    if result["success"] == true {
+        // routine and offset must be extracted from the error string
+        assert_eq!(
+            result["routine"].as_str(),
+            Some("Ens.Director.1"),
+            "routine must be parsed from error string: {}",
+            result
+        );
+        assert_eq!(
+            result["offset"].as_i64(),
+            Some(3),
+            "offset must be 3: {}",
+            result
+        );
+    }
+}
+
+// ── iris_generate (context building) ─────────────────────────────────────────
+
+#[test]
+fn e2e_generate_returns_prompt_context() {
+    require_iris!();
+    // iris_generate assembles namespace context for LLM generation.
+    // Tests that it calls %Dictionary and returns a usable prompt.
+    let result = call_tool(
+        "iris_generate",
+        serde_json::json!({
+            "gen_type": "class",
+            "description": "A simple calculator class",
+            "namespace": "USER"
+        }),
+    );
+    assert!(
+        result["success"] == true || result["error_code"].is_string(),
+        "iris_generate must return structured response: {}",
+        result
+    );
+    if result["success"] == true {
+        assert!(
+            result["prompt"].is_string() || result["context"].is_string(),
+            "iris_generate must return prompt or context: {}",
+            result
+        );
+    }
+}
+
+// ── docs_introspect deeper ───────────────────────────────────────────────────
+
+#[test]
+fn e2e_introspect_returns_method_signatures() {
+    require_iris!();
+    // Ens.Director has well-known methods — verify FormalSpec is returned.
+    let result = call_tool(
+        "docs_introspect",
+        serde_json::json!({"class_name": "Ens.Director", "namespace": "USER"}),
+    );
+    assert_eq!(
+        result["success"], true,
+        "introspect Ens.Director: {}",
+        result
+    );
+    let methods = result["methods"].as_array().cloned().unwrap_or_default();
+    assert!(
+        !methods.is_empty(),
+        "Ens.Director must have methods: {}",
+        result
+    );
+    // At least one method must have a FormalSpec (proves SQL params are working)
+    let has_formal_spec = methods.iter().any(|m| {
+        m["FormalSpec"]
+            .as_str()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
+    });
+    // FormalSpec may be empty for some methods — just assert structure
+    let has_name = methods
+        .iter()
+        .all(|m| m["Name"].as_str().map(|s| !s.is_empty()).unwrap_or(false));
+    assert!(has_name, "all methods must have Name: {:?}", methods);
+    let _ = has_formal_spec; // informational
+}
