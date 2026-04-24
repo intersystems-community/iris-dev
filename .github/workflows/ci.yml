@@ -95,6 +95,7 @@ jobs:
         run: |
           docker run -d --name iris-e2e \
             -p 52773:52773 \
+            -e ISC_INIT_ALLOW_EMPTY_PASSWORD=1 \
             intersystemsdc/iris-community:latest
           # Wait for container to be running
           sleep 10
