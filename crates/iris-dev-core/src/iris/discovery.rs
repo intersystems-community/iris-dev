@@ -39,7 +39,8 @@ async fn probe_atelier_with_client(
         tracing::warn!(
             "IRIS at {}:{} returned 401 — container may need IRIS_PASSWORD. \
              Restart with: docker run -e IRIS_PASSWORD=SYS ...",
-            host, port
+            host,
+            port
         );
         return None;
     }
@@ -249,8 +250,15 @@ async fn discover_via_docker_named(target: &str) -> Option<IrisConnection> {
         }
 
         if let Some(web_port) = port_web {
-            if let Some(mut conn) =
-                probe_atelier("localhost", web_port, &username, &password, &namespace, 2000).await
+            if let Some(mut conn) = probe_atelier(
+                "localhost",
+                web_port,
+                &username,
+                &password,
+                &namespace,
+                2000,
+            )
+            .await
             {
                 conn.source = DiscoverySource::Docker {
                     container_name: name,
