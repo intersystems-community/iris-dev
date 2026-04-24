@@ -138,3 +138,5 @@ docker run -d --name my-iris -p 0:1972 \
 | Missing leading space in heredoc lines | Indent each ObjectScript line with at least one space |
 | `^UnitTestRoot` wrong dir | Must be the **parent** of the test package directory |
 | Password change required on new container | Use `iris-devtester` — auto-remediates in 1.15.0+ |
+| Block-structured code via stdin fails | `iris session` REPL processes one line at a time — `If x { }` and `While x { }` cause `<SYNTAX>`. Put logic in class methods and call `do ##class(X).Method()` |
+| **Partial execution trap**: block fails but inner calls run | When a block errors in the REPL, statements INSIDE the block may still have executed. Never assume a `<SYNTAX>` means nothing ran — check side effects before retrying. |

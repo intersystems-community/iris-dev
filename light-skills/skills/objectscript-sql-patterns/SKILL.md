@@ -138,7 +138,26 @@ Set rs = stmt.%Execute(key)
 "AND (ActiveUntil IS NULL OR ActiveUntil = '' OR ActiveUntil >= ?)"
 ```
 
-## 7. $HOROLOG Date Arithmetic
+## 7. ObjectScript Operators That Break Inside SQL Strings
+
+```objectscript
+// ObjectScript '= (not-equal) is INVALID inside SQL string literals.
+// The ' character starts a SQL string, so '='' is parsed as a broken string.
+
+// WRONG — causes SQLCODE: -3 "Closing quote missing":
+Set sql = "SELECT Name FROM Items WHERE Tags '= ''"
+
+// CORRECT — use SQL standard <> for not-equal in SQL strings:
+Set sql = "SELECT Name FROM Items WHERE Tags <> ''"
+
+// WRONG — %INLIST is SQL-only; causes ERROR #1010 in ObjectScript method code:
+Return (tag %INLIST $ListFromString(..Tags, ","))
+
+// CORRECT — use $ListFind in ObjectScript:
+Return ($ListFind($ListFromString(..Tags, ","), tag) > 0)
+```
+
+## 8. $HOROLOG Date Arithmetic
 
 ```objectscript
 Set today    = +$HOROLOG           // integer date (days since Dec 31, 1840)
