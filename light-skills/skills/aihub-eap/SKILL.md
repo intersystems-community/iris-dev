@@ -1,52 +1,54 @@
 ---
 name: aihub-eap
 description: >
-  InterSystems AI Hub EAP (Early Access Program) — everything needed to get
-  started: download, docker setup, iris key, ConfigStore API, langchain wheel,
-  iris-devtester integration, and known build gaps. Load when helping EAP
-  participants set up, build, or debug AI Hub projects.
+  InterSystems AI Hub EAP (Early Access Program) — accurate API patterns for
+  build 158 (current as of 2026-04-25). Covers %AI.Agent declarative Parameters, %AI.Provider.Create,
+  ConfigStore/GetProviderForConfig, @{env/config/wallet} substitution, session
+  management, streaming, tool sets, and known breaking changes from build 141.
+  Load when helping EAP participants set up, build, or debug AI Hub projects.
 tags: [iris, aihub, eap, ai, configstore, langchain, mcp, docker]
 ---
 
-# InterSystems AI Hub — EAP Quick Reference
+# InterSystems AI Hub — EAP Reference (Build 159)
+
+> **Current build: 2026.2.0AI.158** — APIs changed significantly from build 141.
+> `LLMConfig` property is GONE. The pattern is now Parameters + `%Init()` + ConfigStore.
+
+---
 
 ## 1. Getting the Build
 
 **EAP Portal**: https://evaluation.intersystems.com/Eval/early-access/AIHub
 
-Download from the portal:
-- `iris-2026.2.0AI.<build>-docker.tar.gz` — IRIS image with AI Hub
-- `iris-container-x64.key` — license key (required; community image has connection/data limits without it)
-- `langchain_intersystems-0.0.1-py3-none-any.whl` — Python SDK
+**Current build: 2026.2.0AI.158.0** (as of 2026-04-25)
 
-Current stable EAP build: **2026.2.0AI.141.0**
+Available downloads:
+```
+iris-community-2026.2.0AI.158.0-docker.tar.gz          # x86_64 Docker (community, no key needed)
+iris_arm64-community-2026.2.0AI.158.0-docker.tar.gz    # ARM64 Docker (community)
+iris-container-x64.key                                   # License key (removes community limits)
+iris-container-arm64.key                                  # ARM64 license key
+iris.key                                                  # General license key
+langchain_intersystems-0.0.1-py3-none-any.whl           # Python SDK
+IRIS_Community-2026.2.0AI.158.0-macx64.tar.gz           # macOS Intel
+IRIS_Community-2026.2.0AI.158.0-win_x64.exe             # Windows
+```
+
+**Community builds** (`iris-community-*`) run without a license key but have connection/data limits. Use a key to remove limits — request from the EAP portal or from your ISC contact.
 
 ---
 
 ## 2. Docker Setup
 
-### Load and run (with license key)
 ```bash
-# Load the image
-docker image load -i iris-2026.2.0AI.141.0-docker.tar.gz
+docker image load -i iris-2026.2.0AI.159-docker.tar.gz
 
-# Run with license key mounted
-docker run --name iris-ai-hub \
-  -p 1972:1972 \
-  -p 52773:52773 \
-  -d \
-  --volume /path/to/key-dir:/external/keys \
-  intersystems/iris:2026.2.0AI.141.0 \
-  -k /external/keys/iris-container-x64.key
-```
-
-### Without a key (community limits apply)
-```bash
 docker run --name iris-ai-hub \
   -p 1972:1972 -p 52773:52773 \
-  -e IRIS_PASSWORD=SYS \
-  -d intersystemsdc/iris-community:2025.1
-# No %AI.* classes — need the EAP build
+  -d \
+  --volume /path/to/key-dir:/external/keys \
+  intersystems/iris:2026.2.0AI.159 \
+  -k /external/keys/iris-container-x64.key
 ```
 
 ### Fix expired default password
@@ -56,247 +58,345 @@ docker exec -it iris-ai-hub iris session iris -U %SYS
 #  write ##class(Security.Users).UnExpireUserPasswords("*")
 ```
 
-### iris-devtester integration (EAP participants)
+### iris-devtester integration
 ```python
-from iris_devtester import IRISContainer, IRISConfig
-
-# Attach to running EAP container
-container = IRISContainer.attach("iris-ai-hub")
-conn = container.get_connection()
-
-# Or start fresh with a license key
-container = (
-    IRISContainer("intersystems/iris:2026.2.0AI.141.0")
-    .with_name("iris-ai-hub")
-    .with_bind_ports(1972, 52773)
-    .with_license_key("/path/to/iris-container-x64.key")
+from iris_devtester import IRISContainer
+container = IRISContainer("intersystems/iris:2026.2.0AI.159") \
+    .with_name("iris-ai-hub") \
+    .with_bind_ports(1972, 52773) \
+    .with_license_key("/path/to/iris-container-x64.key") \
     .start()
-)
 ```
 
 ---
 
-## 3. %AI.* Class Availability (Build 141.0)
+## 3. %AI.Agent — Build 159 Patterns
 
-| Class | Purpose |
-|-------|---------|
-| `%AI.Provider` | LLM provider interface |
-| `%AI.Agent` | Execution engine |
-| `%AI.Agent.Session` | Session management (nested) |
-| `%AI.ToolMgr` | Tool registry & policy |
-| `%AI.ToolSet` | Base class for custom toolsets |
-| `%AI.Tool` | Base class for plain tool classes |
-| `%AI.Tools.SQL` | Built-in SQL tools |
-| `%AI.Policy.Discovery` | RAG-based tool selection (experimental) |
-| `%AI.Policy.InteractiveAuth` | Auth policy |
-| `%AI.Policy.ConsoleAudit` | Audit policy |
-| `%AI.MCP.Service` | MCP service dispatch |
-| `%AI.LLM.Response` | Response object |
-| `%ConfigStore.Configuration` | Config Store API |
-| `%Wallet.Collection` | Secret collection management |
-| `%Wallet.KeyValue` | Secret key-value storage |
+### Pattern A: Declarative subclass (recommended)
 
-> **Caution**: APIs subject to change before GA. Not for production.
+```objectscript
+Class MyApp.AI.MyAgent Extends %AI.Agent
+{
+    Parameter PROVIDER = "openai";           // provider name
+    Parameter MODEL = "gpt-4o";             // model id
+    Parameter APIKEY;                        // empty = read from env OPENAI_API_KEY
+    Parameter TOOLSETS = "%AI.Tools.SQL";   // comma-separated toolsets
 
----
+    XData INSTRUCTIONS [ MimeType = text/markdown ]
+    {
+    You are a helpful IRIS database assistant.
+    Use SQL tools to answer questions about the data.
+    }
 
-## 4. ConfigStore API
+    Method %OnInit() As %Status
+    {
+        // Optional: additional setup after %Init() completes
+        // Set ..Temperature = 0.7
+        Return $$$OK
+    }
+}
+```
 
-`%ConfigStore.Configuration` is the central registry for LLM provider config,
-MCP server config, and custom application config.
+**Usage:**
+```objectscript
+Set agent = ##class(MyApp.AI.MyAgent).%New()
+$$$ThrowOnError(agent.%Init())           // REQUIRED — initializes provider, tools, prompt
 
-### Store a configuration
+Set session = agent.CreateSession()
+Set response = agent.Chat(session, "How many patients are in the database?")
+Write response.Content
+```
+
+> **DO NOT** call `Chat()` without `%Init()` first — tools and provider won't be wired.
+
+### Pattern B: Programmatic (for dynamic provider selection)
+
+```objectscript
+Set settings = {}
+Do settings.%Set("api_key", apiKey)
+Set provider = ##class(%AI.Provider).Create("openai", settings)
+
+Set agent = ##class(%AI.Agent).%New(provider)
+Set agent.Model = "gpt-4o-mini"
+Set agent.SystemPrompt = "You are a helpful assistant."
+
+Set session = agent.CreateSession()
+Set response = agent.Chat(session, "Hello!")
+Write response.Content
+```
+
+### Pattern C: ConfigStore integration (production pattern)
+
+```objectscript
+Class MyApp.AI.ProdAgent Extends %AI.Agent
+{
+    Parameter MODELCONFIGNAME = "opsreview";   // name in ConfigStore
+
+    Method %OnInit() As %Status
+    {
+        Set sc = $$$OK
+        Try {
+            If ..Provider = "" && ..#MODELCONFIGNAME '= "" {
+                Set sc = ..GetProviderForConfig(..#MODELCONFIGNAME, .provider, .model)
+                Quit:$$$ISERR(sc)
+                Set ..Provider = provider
+                Set ..Model = model
+            }
+        } Catch ex {
+            Set sc = ex.AsStatus()
+        }
+        Return sc
+    }
+
+    ClassMethod GetProviderForConfig(
+        configName As %String,
+        Output provider As %AI.Provider,
+        Output model As %String) As %Status
+    {
+        Set sc = $$$OK
+        Try {
+            Set sc = ##class(%ConfigStore.Configuration).GetDetails(
+                "AI.LLM."_configName, .details, 0, 1)
+            Quit:$$$ISERR(sc)
+            Set provider = ##class(%AI.Provider).Create(details."model_provider", details)
+            Set model = details."model"
+        } Catch ex {
+            Set sc = ex.AsStatus()
+        }
+        Quit sc
+    }
+}
+```
+
+**ConfigStore entry for "opsreview":**
 ```objectscript
 Set config = {
-  "type": "AI.LLM",
-  "model": "gpt-4o",
-  "url": "https://api.openai.com/v1",
-  "APIKey": "secret://MySecrets.openai#apikey"
+    "model_provider": "anthropic",
+    "model": "claude-sonnet-4-5@20250929",
+    "api_key": "secret://MySecrets.anthropic#apikey"
 }
-Set sc = ##class(%ConfigStore.Configuration).Create(
-  "AI", "LLM", "", "openai", config)
+Do ##class(%ConfigStore.Configuration).Create("AI","LLM","","opsreview", config)
 ```
 
-### Retrieve a configuration
+---
+
+## 4. @{} Variable Substitution
+
+Used inside `PROVIDERCONFIG` parameters and ToolSet XML — NOT in ObjectScript code directly.
+
+| Syntax | Source | Example |
+|--------|--------|---------|
+| `@{env.VAR}` | OS environment variable | `@{env.OPENAI_API_KEY}` |
+| `@{config.Key}` | `^%AI.Config` global | `@{config.VertexSAPath}` |
+| `@{wallet.Col.Key}` | IRIS Secure Wallet | `@{wallet.AISecrets.anthropic}` |
+
 ```objectscript
-Set cfg = ##class(%ConfigStore.Configuration).Get("AI","LLM","","openai")
-// cfg is a %DynamicObject
+// In a declarative agent Parameter:
+Parameter PROVIDERCONFIG = "{
+    ""project_id"": ""my-gcp-project"",
+    ""region"": ""us-east5"",
+    ""service_account_path"": ""@{env.VERTEX_SA_PATH}""
+}";
+
+// In ToolSet XData (MCP remote server with token from wallet):
+<MCP Name="MyServer">
+    <Remote URL="https://mcp.example.com/mcp"
+            AuthType="bearer"
+            Token="@{wallet.MCPSecrets.token}"/>
+</MCP>
 ```
 
-### Delete
+> `@{config.AI.LLM.opsreview.APIKey}` is NOT a valid pattern.
+> Use `GetDetails()` + `%AI.Provider.Create()` for ConfigStore-backed API keys in code.
+
+---
+
+## 5. Session Management
+
 ```objectscript
-Do ##class(%ConfigStore.Configuration).Delete("AI.LLM.openai")
-// or with explicit params:
-Do ##class(%ConfigStore.Configuration).Delete("AI","LLM","","openai")
+// Create session (inherits agent's provider, model, prompt, tools)
+Set session = agent.CreateSession()
+
+// With config overrides
+Set cfg = {"max_iterations": 10, "temperature": 0.7, "max_tokens": 1000}
+Set session = agent.CreateSession(cfg)
+
+// Blocking chat
+Set response = agent.Chat(session, "Your question here")
+Write response.Content
+
+// Streaming
+Set renderer = ##class(%AI.System.StreamRenderer).%New()
+Set response = agent.StreamChat(session, "Your question", renderer, "OnChunk")
+Do renderer.Flush()
+
+// Multi-modal
+Set content = [
+    {"type": "text", "text": "What is in this image?"},
+    {"type": "image_url", "image_url": {"url": "https://example.com/img.jpg"}}
+]
+Set response = agent.ChatWithContent(session, content)
+
+// Session stats
+Set stats = session.GetStats()
+Write stats."total_interactions", " turns, ", stats."total_tool_calls", " tool calls"
+
+// Context inspection
+Set messages = session.GetContext()
+Set iter = messages.%GetIterator()
+While iter.%GetNext(.i, .msg) { Write msg.role, ": ", $EXTRACT(msg.content,1,80), ! }
+
+// Session control
+Do session.Reset()           // full reset
+Do session.ResetContext()    // messages only
+Do session.ResetStats()      // stats only
 ```
 
-### Get provider details (with secret resolution)
+---
+
+## 6. %AI.Provider — Supported Providers
+
 ```objectscript
+// OpenAI
+Set provider = ##class(%AI.Provider).Create("openai",
+    {"api_key": key, "organization": orgId})
+
+// Anthropic
+Set provider = ##class(%AI.Provider).Create("anthropic", {"api_key": key})
+
+// AWS Bedrock — bearer token (ISC SSO)
+Set provider = ##class(%AI.Provider).Create("bedrock",
+    {"region": "us-east-1", "bearer_token": token})
+// MUST use cross-region inference IDs: "us.anthropic.claude-sonnet-4-6"
+// NOT raw model IDs: "anthropic.claude-sonnet-4-6"
+
+// AWS Bedrock — SigV4 (AWS keys)
+Set provider = ##class(%AI.Provider).Create("bedrock",
+    {"region": "us-east-1"})   // reads AWS_ACCESS_KEY_ID etc from env
+
+// Google Vertex AI
+Set provider = ##class(%AI.Provider).Create("vertex",
+    {"project_id": pid, "region": "us-east5",
+     "service_account_path": saPath})
+
+// Google Gemini
+Set provider = ##class(%AI.Provider).Create("gemini", {"api_key": key})
+
+// xAI Grok
+Set provider = ##class(%AI.Provider).Create("grok", {"api_key": key})
+
+// NVIDIA NIM
+Set provider = ##class(%AI.Provider).Create("nim", {"base_url": url})
+```
+
+---
+
+## 7. ConfigStore API
+
+```objectscript
+// Store
+Set config = {"model_provider":"anthropic","model":"claude-sonnet-4-5@20250929",
+              "api_key":"secret://Secrets.ant#apikey"}
+Do ##class(%ConfigStore.Configuration).Create("AI","LLM","","myconfig", config)
+
+// Retrieve (raw)
+Set cfg = ##class(%ConfigStore.Configuration).Get("AI","LLM","","myconfig")
+
+// Retrieve with secret resolution (resolveSecrets=1)
 Set sc = ##class(%ConfigStore.Configuration).GetDetails(
-  "AI.LLM.openai", .details, 0, 1)
-// details = resolved DynamicObject with secrets substituted
-```
+    "AI.LLM.myconfig", .details, 0, 1)
+// details."model_provider", details."model", details."api_key" all resolved
 
-### Naming convention
-```
-Area    = top-level category  (e.g. "AI")
-Type    = second-level        (e.g. "LLM", "MCP")
-Subtype = third-level         (e.g. "AWSBedrock", "")
-Name    = specific instance   (e.g. "openai", "my-server")
-Full ID = Area.Type[.Subtype].Name  → "AI.LLM.openai"
+// Delete
+Do ##class(%ConfigStore.Configuration).Delete("AI.LLM.myconfig")
 ```
 
 ---
 
-## 5. Wallet (Secret Storage)
-
-Keep API keys out of config by storing them in the Wallet.
+## 8. Wallet (Secrets)
 
 ```objectscript
-// Create a collection
-Set perms = {"UseResource": "My.Resource", "EditResource": "My.Resource"}
-Do ##class(%Wallet.Collection).Create("MySecrets", perms)
-
-// Store a secret
-Set secret = {
-  "Usage": "CUSTOM",
-  "Secret": {"apikey": "sk-...actual-key..."}
-}
-Do ##class(%Wallet.KeyValue).Create("MySecrets.openai", secret)
-
-// Reference in ConfigStore config:
-// "APIKey": "secret://MySecrets.openai#apikey"
-```
-
-```objectscript
-// Create the security resource first (%SYS namespace)
+// Create security resource first (%SYS namespace)
 Set $NAMESPACE = "%SYS"
-Do ##class(Security.Resources).Create("My.Resource")
+Do ##class(Security.Resources).Create("AI.Secrets")
+
+// Create collection
+Do ##class(%Wallet.Collection).Create("AISecrets",
+    {"UseResource": "AI.Secrets", "EditResource": "AI.Secrets"})
+
+// Store secret
+Do ##class(%Wallet.KeyValue).Create("AISecrets.anthropic",
+    {"Usage": "CUSTOM", "Secret": {"apikey": "sk-ant-...actual-key..."}})
+
+// Reference in ConfigStore: "api_key": "secret://AISecrets.anthropic#apikey"
 ```
 
 ---
 
-## 6. Python (langchain-intersystems) Setup
+## 9. Python (langchain-intersystems)
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate          # macOS/Linux
-# .venv\Scripts\activate           # Windows
-
-# Install the wheel from EAP portal
+python -m venv .venv && source .venv/bin/activate
 pip install ./langchain_intersystems-0.0.1-py3-none-any.whl
-
-# Install dependencies
 pip install mcp langchain-openai langchain-ollama
 ```
-
-**Common gotchas:**
-- Wheel is `py3-none-any` — should install on any platform, but if you hit `platform mismatch` errors, add `--force-reinstall`
-- Version number must match the downloaded file exactly — check with `pip show langchain-intersystems`
-- If the wheel came from a Windows machine and you're on ARM Mac, the `none-any` tag should be fine — but check if there's a platform-specific build in the portal
 
 ```python
 from langchain_intersystems.chat_models import init_chat_model
 from langchain_intersystems import init_mcp_client
 
-# Initialize with ConfigStore entry
-llm = init_chat_model("AI.LLM.openai")
+llm = init_chat_model("AI.LLM.myconfig")    # uses ConfigStore entry
 mcp = init_mcp_client("AI.MCP.my-server")
 ```
 
+**Common issues:**
+- Version mismatch: check `pip show langchain-intersystems` matches the whl filename
+- Platform errors: add `--force-reinstall` if wheel metadata conflicts
+
 ---
 
-## 7. AWS Bedrock with Bearer Token
+## 10. Breaking Changes: Build 141 → 159
 
-AI Hub EAP typically uses Bedrock via bearer token (ISC SSO).
+| Feature | Build 141 | Build 159 |
+|---------|-----------|-----------|
+| `LLMConfig` property | Existed | **REMOVED** |
+| Agent instantiation | `##class(%AI.Agent).%New(provider)` only | Also: declarative Parameters subclass |
+| Config Store | Partial WIP | Full `%ConfigStore.Configuration` support |
+| `%Init()` requirement | Optional | **REQUIRED** before first `Chat()` |
+| Streaming | Not available | `StreamChat()` + `%AI.System.StreamRenderer` |
+| Session reset | Not available | `Reset()`, `ResetContext()`, `ResetStats()` |
+| Checkpoints | Not available | `AddCheckpoint()`, `RewindTo()` |
+| Session fork | Not available | `Fork()`, `ForkAndSummarize()` |
+| Nested agents | Not available | `CreateSubAgent()`, `DelegateTask` tool |
+| Skills | Not available | `%AI.Agent.Skill` with XData |
+| RAG | Not available | `%AI.KnowledgeBase`, `EnableSmartDiscovery()` |
+| Prompt caching | Not available | `"cache": {"enabled": 1}` in session config |
+| `@{wallet.*}` substitution | Not available | `@{wallet.Collection.Key}` |
 
+**DEAD CODE from build 141 (do not use):**
 ```objectscript
-// ConfigStore config for Bedrock bearer-token mode
-Set config = {
-  "type": "AI.LLM.AWSBedrock",
-  "model": "us.anthropic.claude-sonnet-4-6",
-  "region": "us-east-1",
-  "bearerToken": "secret://BedkrockSecrets.token#value"
-}
-```
-
-**Bearer-token Bedrock caveats:**
-- Must use cross-region inference profile IDs (e.g. `us.anthropic.claude-sonnet-4-6`) — raw model IDs (`anthropic.claude-sonnet-4-6`) will return 400
-- `ListModels()` is NOT supported in bearer-token mode
-- SigV4 mode (AWS keys) does not have these restrictions
-
----
-
-## 8. Known Gaps by Build 141.0
-
-| Gap | Status | Workaround |
-|-----|--------|-----------|
-| ToolSet definition UI | Forthcoming | Define XML in `XData ToolSet` block |
-| MCP Server config via ConfigStore | Forthcoming | Use `iris-mcp-server.config.json` XML |
-| Config Store full WIP | Partial | Use `OnInit()` with `GetProviderForConfig()` |
-| LangChain4J guide | Forthcoming | Use Python SDK or ObjectScript SDK |
-| Smart Discovery (RAG tools) | Experimental | Load `%AI.Policy.Discovery` manually |
-| Bedrock `ListModels()` in bearer mode | Not supported | Hardcode model IDs |
-| `%AI.Tools.FileSystem` | Rust-based, platform-limited | Use SQL tools or custom ObjectScript tools |
-
----
-
-## 9. MCP Server (iris-mcp-server)
-
-The MCP server is a separate Rust binary bundled with the EAP.
-
-**Config file**: `iris-mcp-server.config.json`  
-**Breaking change at build ~140**: config format changed from v0.1 — if upgrading, regenerate config.
-
-```json
-{
-  "iris": {
-    "host": "localhost",
-    "port": 52773,
-    "namespace": "USER",
-    "username": "_SYSTEM",
-    "password": "SYS"
-  }
-}
-```
-
-**Running**:
-```bash
-iris-mcp-server --config iris-mcp-server.config.json
-```
-
-**Claude Desktop / Claude Code setup**:
-```json
-{
-  "mcpServers": {
-    "iris-ai-hub": {
-      "command": "iris-mcp-server",
-      "args": ["--config", "/path/to/iris-mcp-server.config.json"]
-    }
-  }
-}
-```
-
----
-
-## 10. Common First-Session Checklist
-
-1. ✅ Downloaded EAP image + license key from portal
-2. ✅ `docker image load` succeeded (image shows in `docker images`)
-3. ✅ Container running with `-k /external/keys/iris-container-x64.key`
-4. ✅ `http://localhost:52773/csp/sys/UtilHome.csp` loads (Management Portal)
-5. ✅ Password un-expired (`UnExpireUserPasswords("*")`)
-6. ✅ `##class(%AI.Provider).%IsA("%RegisteredObject")` returns 1 in USER namespace
-7. ✅ ConfigStore has at least one LLM provider entry
-8. ✅ Wallet has secrets for that provider
-9. ✅ `langchain_intersystems` installed and importable
-10. ✅ Simple `%AI.Agent` roundtrip produces a response
-
-**Quick smoke test (ObjectScript)**:
-```objectscript
-Set agent = ##class(%AI.Agent).%New()
+// ❌ LLMConfig is gone
 Set agent.LLMConfig = "AI.LLM.openai"
+
+// ❌ Must call %Init() first
+Set agent = ##class(MyAgent).%New()
+Set response = agent.Chat(session, "hi")   // will fail — no provider wired
+```
+
+---
+
+## 11. Quick Smoke Test
+
+```objectscript
+// Verify %AI.* classes are available
+Write ##class(%AI.Provider).%IsA("%RegisteredObject"), !   // → 1
+
+// Minimal working agent (env var for key)
+Set env("OPENAI_API_KEY") = "sk-..."      // or set in OS env before starting IRIS
+Set provider = ##class(%AI.Provider).Create("openai", {"api_key": $SYSTEM.Util.GetEnviron("OPENAI_API_KEY")})
+Set agent = ##class(%AI.Agent).%New(provider)
+Set agent.Model = "gpt-4o-mini"
 Set session = agent.CreateSession()
-Set response = session.Ask("What is 2+2?")
-Write response.LastMessage
+Set r = agent.Chat(session, "Say hi")
+Write r.Content
 ```
