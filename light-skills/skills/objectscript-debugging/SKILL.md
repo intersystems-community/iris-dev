@@ -95,3 +95,30 @@ After diagnosis:
 > **Source**: `<ClassName>:<MethodName>` line `<N>`
 > **Root cause**: [explanation]
 > **Fix**: [proposed change]
+
+## Benchmark-Observed Pattern: SQL Table Name Red Herring
+
+**Symptom**: Embedded SQL compiles but returns wrong/empty results. Agent spends 20+ tool calls investigating SQLCODE, %Get patterns, cached queries — never finds root cause.
+
+**Root cause**: Wrong SQL table name derived from class name.
+
+**Fastest diagnostic step** (do this first when SQL gives unexpected results):
+```objectscript
+// Check the ACTUAL SQL table name for a class
+Set rs = ##class(%SQL.Statement).%ExecDirect(,
+  "SELECT SqlTableName FROM %Dictionary.CompiledClass WHERE Name = ?",
+  "Bench.Patient")
+If rs.%Next() { write rs.SqlTableName }
+// Output: "Bench.Patient" — use THIS in your SQL, not "Bench_Patient"
+```
+
+```objectscript
+// WRONG (common agent mistake when class has 2-level name):
+&sql(SELECT COUNT(*) INTO :n FROM Bench_Patient)
+
+// CORRECT:
+&sql(SELECT COUNT(*) INTO :n FROM Bench.Patient)
+```
+
+The rule: **last dot = schema/table separator; earlier dots → underscores**.
+`Bench.Patient` → `Bench.Patient`. `My.Deep.Patient` → `My_Deep.Patient`.

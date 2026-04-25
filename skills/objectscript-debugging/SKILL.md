@@ -1,38 +1,12 @@
 ---
-author: tleavitt
-benchmark_date: '2026-04-02'
-benchmark_iris_version: '2025.1'
-benchmark_tasks:
-- jira-001
-- jira-002
-- jira-003
-- jira-004
-- jira-005
-- jira-006
-- jira-007
-- jira-008
-- jira-009
-- jira-010
-- jira-011
-- jira-012
-- jira-013
-- jira-014
-- jira-015
-- jira-016
-- jira-017
-- jira-018
-description: Captures IRIS diagnostic packets, maps .INT offsets to .CLS source lines,
-  and correlates error logs. Use whenever an IRIS runtime error or compile failure
-  needs to be diagnosed.
-iris_version: '>=2024.1'
 name: objectscript-debugging
-pass_rate: 0.4444444444444444
-state: reviewed
-tags:
-- objectscript
-- debugging
-- errors
-trigger: Use for tleavitt/objectscript-debugging
+description: Captures IRIS diagnostic packets, maps .INT offsets to .CLS source lines, and correlates error logs. Use whenever an IRIS runtime error or compile failure needs to be diagnosed.
+license: MIT
+metadata:
+  version: "1.0.0"
+  author: InterSystems Developer Community
+  compatibility: objectscript, iris, healthconnect
+  spec: 011-debugging-analysis
 ---
 
 ## Purpose
@@ -45,6 +19,22 @@ Ground AI debugging in real IRIS signals — compiler errors, `messages.log` ent
 - Correlating multiple error log entries to a single root cause
 
 ## Workflow
+
+### Step 0 — Read the actual class source before guessing
+```
+# Preferred: structured method signatures + inheritance chain
+docs_introspect(class_name="MyPackage.MyClass")
+docs_introspect(class_name="%ASQ.Engine")   # works on system classes too
+
+# When you need full raw source with macros (e.g. $$$DISPATCH, #define):
+# Export from IRIS, then read the file:
+docker exec <container> iris session IRIS -U USER \
+  "set sc = \$system.OBJ.ExportUDL(\"MyClass.cls\",\"/tmp/out.cls\") halt"
+docker cp <container>:/tmp/out.cls /tmp/out.cls
+# Then use the Read tool on /tmp/out.cls — NEVER cat it
+```
+
+**The .INT source is not readable via $TEXT on system classes** (stored as object code). Use ExportUDL to get the .cls source instead.
 
 ### Step 1 — Capture Diagnostic Packet
 Call `debug_capture_packet` to snapshot the current IRIS error state:
@@ -73,6 +63,18 @@ Returns: unified log with timestamps, error codes, namespaces
 ```
 
 ### Step 4 — Correlate and Fix
+
+### If IRIS tools return errors — fix the connection first
+```
+# Check which containers are available:
+iris_list_containers()
+
+# Connect to the right one (no restart needed):
+iris_select_container(name="arno_iris_test")
+iris_select_container(name="arno_iris_test", password="SYS2")  # if password changed
+
+# Then retry the failing tool
+```
 Cross-reference the packet, source mapping, and logs to identify root cause. Apply fix. Recompile. Verify no new errors appear in logs.
 
 ## Common Error Patterns
@@ -93,3 +95,30 @@ After diagnosis:
 > **Source**: `<ClassName>:<MethodName>` line `<N>`
 > **Root cause**: [explanation]
 > **Fix**: [proposed change]
+
+## Benchmark-Observed Pattern: SQL Table Name Red Herring
+
+**Symptom**: Embedded SQL compiles but returns wrong/empty results. Agent spends 20+ tool calls investigating SQLCODE, %Get patterns, cached queries — never finds root cause.
+
+**Root cause**: Wrong SQL table name derived from class name.
+
+**Fastest diagnostic step** (do this first when SQL gives unexpected results):
+```objectscript
+// Check the ACTUAL SQL table name for a class
+Set rs = ##class(%SQL.Statement).%ExecDirect(,
+  "SELECT SqlTableName FROM %Dictionary.CompiledClass WHERE Name = ?",
+  "Bench.Patient")
+If rs.%Next() { write rs.SqlTableName }
+// Output: "Bench.Patient" — use THIS in your SQL, not "Bench_Patient"
+```
+
+```objectscript
+// WRONG (common agent mistake when class has 2-level name):
+&sql(SELECT COUNT(*) INTO :n FROM Bench_Patient)
+
+// CORRECT:
+&sql(SELECT COUNT(*) INTO :n FROM Bench.Patient)
+```
+
+The rule: **last dot = schema/table separator; earlier dots → underscores**.
+`Bench.Patient` → `Bench.Patient`. `My.Deep.Patient` → `My_Deep.Patient`.

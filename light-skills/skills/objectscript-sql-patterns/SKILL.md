@@ -168,3 +168,53 @@ Set lastYear = today - 365
 Set display = $ZDATE(today, 3)     // "YYYY-MM-DD"
 Set hDate   = $ZDATEH("2026-01-15", 3)  // back to $HOROLOG integer
 ```
+## 9. Embedded SQL INTO Variable — Must Be Initialized First
+
+```objectscript
+// WRONG — tCount stays empty if SELECT returns 0 rows or SQLCODE fires:
+&sql(SELECT COUNT(*) INTO :tCount FROM Bench_Patient)
+write "count="_tCount  // outputs "count=" (empty)
+
+// CORRECT — initialize the variable first:
+Set tCount = 0
+&sql(SELECT COUNT(*) INTO :tCount FROM Bench_Patient)
+If SQLCODE < 0 { write "SQL error: "_SQLMESSAGE quit }
+write "count="_tCount  // outputs "count=0" or actual count
+
+// CORRECT for %SQL.Statement path:
+Set stmt = ##class(%SQL.Statement).%New()
+Set sc = stmt.%Prepare("SELECT COUNT(*) AS cnt FROM Bench_Patient")
+Set rs = stmt.%Execute()
+If rs.%Next() { Set tCount = rs.%Get("cnt") } Else { Set tCount = 0 }
+```
+
+**Why this trips up agents**: `SELECT COUNT(*) INTO :var` always succeeds (SQLCODE=0)
+even when there are no rows — it just stores 0. But if `:var` was never declared,
+IRIS leaves it empty string `""`, not `0`. Always `Set var = 0` before the SQL call.
+
+## 10. Debugging SQL Table Name Errors — Agent Red Herring Alert
+
+When you see `SQLCODE: -30` ("Table or view not found") or the SQL appears to run
+but returns no rows when rows are expected, **check the table name first**:
+
+```objectscript
+// The IRIS SQL table name is derived from the CLASS name — NOT the global name.
+// Rule: last dot → schema/table separator; all preceding dots → underscores.
+
+// Class: Bench.Patient → SQL table: Bench.Patient  (two-level: fine)
+// Class: My.Deep.Patient → SQL table: My_Deep.Patient  (three-level: underscore!)
+
+// WRONG — class is Bench.Patient but developer uses underscore:
+&sql(SELECT COUNT(*) INTO :n FROM Bench_Patient)  // table not found or wrong table!
+
+// CORRECT:
+&sql(SELECT COUNT(*) INTO :n FROM Bench.Patient)
+
+// Verify the correct SQL table name:
+// SELECT SqlTableName FROM %Dictionary.CompiledClass WHERE Name = 'Bench.Patient'
+```
+
+**Diagnostic step when SQL returns unexpected results**:
+1. Check `SELECT SqlTableName FROM %Dictionary.CompiledClass WHERE Name = ?`
+2. Verify the table name in the SQL matches exactly
+3. Check `SELECT * FROM Bench.Patient` (works) vs `SELECT * FROM Bench_Patient` (wrong)
