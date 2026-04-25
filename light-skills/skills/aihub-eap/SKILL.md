@@ -2,7 +2,7 @@
 name: aihub-eap
 description: >
   InterSystems AI Hub EAP (Early Access Program) — accurate API patterns for
-  build 158 (current as of 2026-04-25). Covers %AI.Agent declarative Parameters, %AI.Provider.Create,
+  builds 158/159 (current). Covers %AI.Agent declarative Parameters, %AI.Provider.Create,
   ConfigStore/GetProviderForConfig, @{env/config/wallet} substitution, session
   management, streaming, tool sets, and known breaking changes from build 141.
   Load when helping EAP participants set up, build, or debug AI Hub projects.
@@ -400,3 +400,79 @@ Set session = agent.CreateSession()
 Set r = agent.Chat(session, "Say hi")
 Write r.Content
 ```
+
+---
+
+## 12. Verified-on-Build-159 Findings (2026-04-25)
+
+### `@{}` substitution — `wallet` prefix NOT registered on 159
+
+Only `env` and `config` prefixes work. `wallet` causes an error at runtime.
+
+```objectscript
+// ✅ Works on 159:
+Parameter APIKEY = "@{env.OPENAI_API_KEY}";
+
+// ❌ Fails on 159 — wallet not registered:
+Parameter APIKEY = "@{wallet.AISecrets.openai}";
+```
+
+Use env vars or store keys directly in `PROVIDERCONFIG` referencing `@{env.*}`.
+
+### `%AI.LLM.Response` — use `.Content`, never `.%Get("content")`
+
+`response.Content` is a typed `%String` property. `response.%Get()` throws `<METHOD DOES NOT EXIST>`.
+
+```objectscript
+// ✅ Correct:
+Write response.Content
+
+// ❌ Throws <METHOD DOES NOT EXIST>:
+Write response.%Get("content")
+```
+
+Available properties on the response object:
+- `.Content` — `%String` — the assistant's text reply
+- `.ToolCalls` — `%DynamicArray` — tool call requests from the model
+- `.Usage` — `%DynamicObject` — token usage (`prompt_tokens`, `completion_tokens`)
+
+### `LLMConfig` property is gone on 159 (confirmed)
+
+The `LLMConfig` property documented for build 141 does NOT exist on 159.
+Using it causes `<PROPERTY DOES NOT EXIST>`. Use declarative Parameters or programmatic `%AI.Provider.Create()`.
+
+### `irishealth` vs `iris` image — use `irishealth` for MCP over HTTP
+
+| Image | WebServer | CSPServer binary | Use for |
+|-------|-----------|-----------------|---------|
+| `irishealth-community-*` | 1 (enabled) | Yes | MCP over HTTP, REST, web apps |
+| `iris-community-*` | 0 (disabled) | No | ObjectScript/CLI only, no HTTP tools |
+
+```bash
+# ✅ For MCP over HTTP:
+docker image load -i irishealth-community-2026.2.0AI.158.0-docker.tar.gz
+docker run --name iris-ai-hub -p 1972:1972 -p 52773:52773 -d \
+  irishealth/iris-community:2026.2.0AI.158.0
+
+# ⚠️ Plain iris image has no web gateway — iris_execute HTTP path won't work
+```
+
+### Empty `Parameter APIKEY` auto-reads from OS environment
+
+When `APIKEY` parameter is empty (the default), `%Init()` automatically resolves
+`@{env.OPENAI_API_KEY}` (or the provider-appropriate env var).
+
+```objectscript
+Class MyAgent Extends %AI.Agent {
+    Parameter PROVIDER = "openai";
+    Parameter APIKEY;   // empty = reads OPENAI_API_KEY from OS env automatically
+}
+
+// Set in shell before starting IRIS:
+// export OPENAI_API_KEY=sk-...
+
+Set agent = ##class(MyAgent).%New()
+$$$ThrowOnError(agent.%Init())   // picks up OPENAI_API_KEY from env
+```
+
+This is the recommended pattern for local dev. For production, use ConfigStore + Wallet.
