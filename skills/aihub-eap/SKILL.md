@@ -2,17 +2,19 @@
 name: aihub-eap
 description: >
   InterSystems AI Hub EAP (Early Access Program) — accurate API patterns for
-  builds 158/159 (current). Covers %AI.Agent declarative Parameters, %AI.Provider.Create,
+  builds 158/159/161/162 (current). Covers %AI.Agent declarative Parameters, %AI.Provider.Create,
   ConfigStore/GetProviderForConfig, @{env/config/wallet} substitution, session
   management, streaming, tool sets, and known breaking changes from build 141.
   Load when helping EAP participants set up, build, or debug AI Hub projects.
 tags: [iris, aihub, eap, ai, configstore, langchain, mcp, docker]
 ---
 
-# InterSystems AI Hub — EAP Reference (Build 159)
+# InterSystems AI Hub — EAP Reference (Build 162)
 
-> **Current build: 2026.2.0AI.158** — APIs changed significantly from build 141.
+> **Current build: 2026.2.0AI.162** (community image available; enterprise pending)
 > `LLMConfig` property is GONE. The pattern is now Parameters + `%Init()` + ConfigStore.
+> Build 161 has MCP server breaking changes — see section 13.
+> Build 162 adds 13 new `%AI` classes vs 161 — see section 14.
 
 ---
 
@@ -20,7 +22,7 @@ tags: [iris, aihub, eap, ai, configstore, langchain, mcp, docker]
 
 **EAP Portal**: https://evaluation.intersystems.com/Eval/early-access/AIHub
 
-**Current build: 2026.2.0AI.158.0** (as of 2026-04-25)
+**Current build: 2026.2.0AI.162.0** (as of 2026-04-26)
 
 Available downloads:
 ```
@@ -403,6 +405,89 @@ Write r.Content
 
 ---
 
+## 13. Build 161 MCP Server Breaking Changes (2026-04-26)
+
+> **Proven working** in `~/mindwalk-test2/` on EC2 with 18/18 tools discovered and `%Invoke` executing correctly.
+
+### `%AI.MCP.Service.Utils` is GONE in build 161
+
+`LoadToolSetsToManager` was available in builds 147–159. It does not exist in 161.
+
+```objectscript
+// ❌ Build 161 — class does not exist:
+do ##class(%AI.MCP.Service.Utils).LoadToolSetsToManager("My.ToolSet","/mcp/myapp")
+// → <CLASS DOES NOT EXIST> *%AI.MCP.Service.Utils
+```
+
+**This is fine** — iris-mcp-server in build 161 discovers tools directly from the compiled class
+via wgproto without needing the cache pre-populated. **Do not call it, do not add workarounds.**
+
+### Compile order is critical in build 161
+
+`%AI.ToolSet.Specification.Compiler` validates all referenced classes **at compile time**.
+If `ToolSet` compiles before its `<Include Class="...">` targets are loaded, it discovers 0 tools.
+
+```objectscript
+// ❌ WRONG — compiles ToolSet too early (flag "ck" = load + compile):
+do $system.OBJ.LoadDir("/src/Mindwalk","ck",,1)
+
+// ✅ CORRECT — three-step pattern:
+do $system.OBJ.LoadDir("/src/Mindwalk","k",,0)          // 1. load all, no compile
+do $system.OBJ.CompilePackage("Mindwalk","ck")           // 2. compile everything
+do $system.OBJ.Compile("Mindwalk.ToolSet","ck")          // 3. recompile ToolSet last
+```
+
+The batch compile (`CompilePackage`) may still emit `<CLASS DOES NOT EXIST> *Mindwalk.GraphToolsPy`
+during the ToolSet sub-compile — this is benign as long as the final explicit `Compile("Mindwalk.ToolSet","ck")`
+succeeds. Check that the last compile outputs `Compilation finished successfully`.
+
+### `iris session IRIS -U USER "..."` hangs in build 161
+
+Inline single-command `iris session` calls hang indefinitely in build 161.
+
+```bash
+# ❌ Hangs — do not use for readiness checks:
+iris session IRIS -U USER "write 1,! halt" >/dev/null 2>&1 && break
+
+# ✅ TCP probe — works reliably:
+bash -c 'cat < /dev/null > /dev/tcp/localhost/1972' 2>/dev/null && break
+
+# ✅ Script file via irissession — works for class loading:
+cat > /tmp/init.script << 'EOF'
+zn "MINDWALK"
+do $system.OBJ.LoadDir("/src/Mindwalk","k",,0)
+halt
+EOF
+/usr/irissys/bin/irissession IRIS < /tmp/init.script 2>&1
+```
+
+### iris-mcp-server binary is architecture-specific
+
+The binary at `services/iris-mcp-sidecar/iris-mcp-server` in some repos is **ARM64**.
+It will silently fail on x86_64 EC2. Always use the binary inside the IRIS image:
+
+```dockerfile
+# ✅ Sidecar pattern — gets the right binary for the right arch:
+FROM ${IRIS_IMAGE}    # same image as the IRIS container
+ENTRYPOINT ["/usr/irissys/bin/iris-mcp-server"]
+CMD ["--config", "/etc/iris-mcp/config.toml", "run"]
+```
+
+### `AutheEnabled=96` — must patch if iris.script ran at image build time
+
+If your `iris.script` baked `AutheEnabled=64` into the image, patch it at container start:
+
+```objectscript
+zn "%SYS"
+set appProps("AutheEnabled") = 96
+do ##class(Security.Applications).Modify("/mcp/myapp", .appProps)
+```
+
+The iris-mcp-server `GET /mcp/myapp/v1/services` request arrives **unauthenticated**.
+`AutheEnabled=64` (Password only) returns HTTP 500. `96` (Password + Unauthenticated) allows it through.
+
+---
+
 ## 12. Verified-on-Build-159 Findings (2026-04-25)
 
 ### `@{}` substitution — `wallet` prefix NOT registered on 159
@@ -476,3 +561,125 @@ $$$ThrowOnError(agent.%Init())   // picks up OPENAI_API_KEY from env
 ```
 
 This is the recommended pattern for local dev. For production, use ConfigStore + Wallet.
+
+---
+
+## 14. Build 162 New Classes (community 2026-04-26; enterprise pending)
+
+Build 162 community has **51 `%AI` classes** vs **38 in enterprise 161**. The 13 additions:
+
+### RAG stack (new in 162)
+```
+%AI.RAG.Embedding
+%AI.RAG.Embedding.FastEmbed
+%AI.RAG.Embedding.OpenAI
+%AI.RAG.KnowledgeBase
+%AI.RAG.VectorStore.IRIS
+```
+
+### MCP client in ToolSet XData (consume external MCP servers, new in 162)
+```
+%AI.ToolSet.Specification.MCP
+%AI.ToolSet.Specification.MCP.Remote
+%AI.ToolSet.Specification.MCP.Stdio
+%AI.ToolSet.Specification.Utils
+```
+
+### Built-in tool providers (new in 162)
+```
+%AI.Tools.FileSystem
+%AI.Tools.ShellTools
+%AI.Tools.SQL
+```
+
+### Agent composition (new in 162)
+```
+%AI.Agent.Skill
+%AI.Agent.SubAgent
+%AI.Tool
+%AI.Tool.Resolver
+%AI.Tool.Schema
+```
+
+### ConfigStore/Wallet API (new in 162, NOT in enterprise 161)
+```
+%AI.Utils.ConfigStore
+%AI.Utils.SettingStore
+%AI.Utils.WalletStore
+```
+
+**Important**: The `aihub-eap` skill documents `%AI.Utils.ConfigStore` patterns — these
+only work on **community 162+** or when enterprise catches up. On enterprise 161, calling
+any `%AI.Utils.*` method throws `<CLASS DOES NOT EXIST>`.
+
+### MCP client in ToolSet (162 only) — consume external MCP servers
+
+Build 162 adds `<MCP>` elements to the ToolSet XData, letting IRIS act as an MCP **client**
+and expose remote MCP server tools as local tools:
+
+```xml
+<ToolSet Name="MyToolSet">
+    <Include Class="MyApp.LocalTools"/>
+    <MCP>
+        <Remote Name="external" URL="https://example.com/mcp"/>
+        <Stdio Name="local-tool" Command="/usr/bin/my-mcp-tool"/>
+    </MCP>
+</ToolSet>
+```
+
+### docker pull for 162 community
+
+The tags list API has a pagination bug — `162.0` doesn't appear but pulls fine directly:
+
+```bash
+docker pull docker.iscinternal.com/docker-intersystems/intersystems/irishealth-community:2026.2.0AI.162.0
+```
+
+---
+
+## 13. Linux Docker Volume Permissions (from READY 2026 hackathon — Anthony Master)
+
+**Symptom**: IRIS container exits immediately on Linux with:
+```
+terminate called after throwing an instance of 'std::runtime_error'
+what(): Unable to find/open file iris-main.log in current directory /home/irisowner/dev
+```
+
+**Root cause**: ALL IRIS container editions (community, enterprise, irishealth, ai_hub) run as UID 51773 (`irisowner`). When you bind-mount a host directory owned by UID 1000 (typical Linux user), the container can read the volume but cannot write to it — and IRIS needs to write `iris-main.log` at startup.
+
+**Not affected**: macOS (VirtioFS translates permissions transparently).
+
+### Fix options
+
+**Option 1 — POSIX ACLs (recommended, minimal footprint)**
+```bash
+setfacl -R -m u:51773:rwX <repo-dir>
+setfacl -R -d -m u:51773:rwX <repo-dir>
+```
+The `-d` flag makes new files/dirs inherit the rule automatically.
+Verify with: `getfacl <repo-dir>`
+
+**Option 2 — tmpfs (no persistence)**
+```yaml
+# docker-compose.yml
+volumes:
+  - type: tmpfs
+    target: /home/irisowner/dev
+```
+
+**Option 3 — chown on host (broad)**
+```bash
+sudo chown -R 51773:51773 <repo-dir>
+```
+
+**Option 4 — Docker named volume (avoid bind-mount entirely)**
+```yaml
+volumes:
+  iris-data:
+services:
+  iris:
+    volumes:
+      - iris-data:/home/irisowner/dev
+```
+
+**Team note**: If you re-clone or a new team member sets up the repo on Linux, they must re-run the `setfacl` commands. Add this to your project README or Makefile setup target.
