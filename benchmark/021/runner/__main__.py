@@ -63,7 +63,11 @@ def main():
     print(f"Running {len(tasks)} task(s) | path={args.path} | harness={args.harness}")
 
     from .namespace import ensure_benchmark_namespace
-    ensure_benchmark_namespace()
+    try:
+        ensure_benchmark_namespace()
+    except Exception as e:
+        # BENCHMARK may already exist (created manually) — continue
+        print(f"Note: namespace setup skipped ({e.__class__.__name__}: {e})")
 
     from .result_writer import ResultWriter
     writer = ResultWriter()

@@ -24,3 +24,4 @@ Thumbs.db
 *.log
 target/
 .claude/settings.local.json
+benchmark/021/results/

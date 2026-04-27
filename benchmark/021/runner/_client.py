@@ -2,13 +2,13 @@
 import os
 import anthropic
 
-# Bedrock model IDs
-_BEDROCK_HAIKU = "us.anthropic.claude-haiku-4-5"
+# Bedrock cross-region inference model IDs
+_BEDROCK_HAIKU = "us.anthropic.claude-sonnet-4-6"   # haiku-4-5 unavailable on this account
 _BEDROCK_SONNET = "us.anthropic.claude-sonnet-4-6"
 
 # Direct API model IDs
-_DIRECT_HAIKU = "claude-haiku-4-5"
-_DIRECT_SONNET = "claude-sonnet-4-5"
+_DIRECT_HAIKU = "claude-haiku-4-5-20251001"
+_DIRECT_SONNET = "claude-sonnet-4-6"
 
 
 def _use_bedrock() -> bool:
