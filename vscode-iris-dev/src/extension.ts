@@ -90,15 +90,21 @@ export class IrisDevMcpProvider
       return [];
     }
 
-    // Resolve named server if using intersystems.servers
-    // Use workspace folder scope so .vscode/settings.json is included
+    // Resolve named server if using intersystems.servers.
+    // Server Manager writes server definitions to user settings, so we must
+    // check both workspace-scoped config (for .vscode/settings.json) and
+    // global (null) scope. Workspace scope alone misses user-level entries
+    // when the workspace has no intersystems config of its own.
     let named: NamedServer | null = null;
     if (conn.server) {
       const wsFolder = vscode.workspace.workspaceFolders?.[0];
-      const scope = wsFolder ?? null;
-      const servers = vscode.workspace
-        .getConfiguration('intersystems', scope)
+      const wsServers = vscode.workspace
+        .getConfiguration('intersystems', wsFolder ?? null)
         .get<Record<string, NamedServer>>('servers');
+      const globalServers = vscode.workspace
+        .getConfiguration('intersystems', null)
+        .get<Record<string, NamedServer>>('servers');
+      const servers = { ...globalServers, ...wsServers };
       if (!servers || !servers[conn.server]) {
         vscode.window.showWarningMessage(
           `iris-dev: named connection "${conn.server}" not found in intersystems.servers. Check your .vscode/settings.json or user settings.`
