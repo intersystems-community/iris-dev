@@ -82,6 +82,17 @@ Your `objectscript.conn` should reference a named server (not a direct host/port
 }
 ```
 
+**How server lookup works — important if you have many servers defined:**
+
+The InterSystems Server Manager extension stores server definitions in VS Code **user settings** (global). Some teams also define servers in **workspace settings** (`.vscode/settings.json`). iris-dev reads both and merges them — workspace settings take precedence over user settings when the same server name appears in both.
+
+This means:
+- Servers defined only in user settings are found automatically — no extra config needed
+- Servers defined in workspace settings override user-level definitions of the same name
+- The `server` name in `objectscript.conn` is looked up in the merged result
+
+If iris-dev can't find your named server, open `View > Output > iris-dev` — the log shows which server names were found in user settings vs workspace settings, and which name it was looking for.
+
 > **Non-standard web gateway path**: If your IRIS is served at a URL prefix (e.g. `http://host:80/myprefix/api/atelier/...`), add `"pathPrefix": "myprefix"` to the `webServer` block of your named server in `intersystems.servers`.
 
 > **Troubleshooting**: Open `View > Output` and select **iris-dev** from the dropdown. The log shows exactly what config was read and what env vars were passed to the binary.
