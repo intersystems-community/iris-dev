@@ -1,0 +1,72 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "iris-dev mcp (debug)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/iris-dev",
+      "args": ["mcp", "--verbose"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "RUST_LOG": "iris_dev=debug,iris_dev_core=debug",
+        "IRIS_CONTAINER": "iris-dev-iris",
+        "IRIS_NAMESPACE": "USER"
+      },
+      "preLaunchTask": "cargo build (debug)"
+    },
+    {
+      "name": "iris-dev mcp — web prefix (debug)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/iris-dev",
+      "args": ["mcp", "--verbose"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "RUST_LOG": "iris_dev=debug,iris_dev_core=debug",
+        "IRIS_HOST": "localhost",
+        "IRIS_WEB_PORT": "80",
+        "IRIS_WEB_PREFIX": "irisaicore",
+        "IRIS_NAMESPACE": "USER"
+      },
+      "preLaunchTask": "cargo build (debug)"
+    },
+    {
+      "name": "iris-dev compile <class> (debug)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/iris-dev",
+      "args": ["compile", "${input:className}"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "RUST_LOG": "iris_dev=debug,iris_dev_core=debug",
+        "IRIS_CONTAINER": "iris-dev-iris",
+        "IRIS_NAMESPACE": "USER"
+      },
+      "preLaunchTask": "cargo build (debug)"
+    },
+    {
+      "name": "Run tests (debug)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/deps/test_workspace_config-${input:testBinary}",
+      "args": ["--nocapture"],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "cargo test build (debug)"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "className",
+      "type": "promptString",
+      "description": "ObjectScript class name to compile",
+      "default": "Test.Hello"
+    },
+    {
+      "id": "testBinary",
+      "type": "promptString",
+      "description": "Test binary hash suffix (from target/debug/deps/test_*)",
+      "default": ""
+    }
+  ]
+}

@@ -15,12 +15,12 @@ Thumbs.db
 
 # IDE
 .idea/
-.vscode/
+.vscode/*.code-workspace
+# Note: .vscode/launch.json and tasks.json ARE committed (debug support for contributors)
 *.iml
 
 # Profiling / logs
 *.prof*
 *.log
-.vscode/
 target/
 .claude/settings.local.json

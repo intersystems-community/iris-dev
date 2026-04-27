@@ -1,3 +1,10 @@
+[profile.dev]
+debug = true          # full debug info — required for stepping in VS Code / lldb
+
+[profile.dev-fast]
+inherits = "dev"
+opt-level = 1         # faster compile, still debuggable
+
 [workspace]
 members = [
     "crates/iris-dev-core",
