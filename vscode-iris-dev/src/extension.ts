@@ -43,6 +43,7 @@ export class IrisDevMcpProvider
 {
   private readonly emitter = new vscode.EventEmitter<void>();
   private readonly watcher: vscode.Disposable;
+  private readonly log = vscode.window.createOutputChannel('iris-dev', { log: true });
 
   public readonly onDidChangeMcpServerDefinitions = this.emitter.event;
 
@@ -62,6 +63,7 @@ export class IrisDevMcpProvider
   dispose() {
     this.watcher.dispose();
     this.emitter.dispose();
+    this.log.dispose();
   }
 
   refresh() { this.emitter.fire(); }
@@ -69,11 +71,16 @@ export class IrisDevMcpProvider
   public provideMcpServerDefinitions(
     _token: vscode.CancellationToken
   ): vscode.ProviderResult<vscode.McpStdioServerDefinition[]> {
+    this.log.info('iris-dev: provideMcpServerDefinitions called');
+
     const conn = vscode.workspace
       .getConfiguration('objectscript', null)
       .get<ObjectScriptConn>('conn');
 
+    this.log.info(`iris-dev: objectscript.conn = ${JSON.stringify(conn)}`);
+
     if (!conn || conn.active === false) {
+      this.log.warn('iris-dev: ObjectScript connection is not configured or inactive');
       vscode.window.showWarningMessage(
         'iris-dev: ObjectScript connection is not configured or inactive.'
       );
@@ -81,6 +88,7 @@ export class IrisDevMcpProvider
     }
 
     const command = findIrisDev();
+    this.log.info(`iris-dev: binary path = ${command ?? '(not found)'}`);
     if (!command) {
       vscode.window.showErrorMessage(
         'iris-dev: binary not found. ' +
@@ -104,20 +112,24 @@ export class IrisDevMcpProvider
       const globalServers = vscode.workspace
         .getConfiguration('intersystems', null)
         .get<Record<string, NamedServer>>('servers');
+      this.log.info(`iris-dev: globalServers keys = ${Object.keys(globalServers ?? {}).join(', ') || '(none)'}`);
+      this.log.info(`iris-dev: wsServers keys = ${Object.keys(wsServers ?? {}).join(', ') || '(none)'}`);
       const servers = { ...globalServers, ...wsServers };
+      this.log.info(`iris-dev: looking for server "${conn.server}" in merged servers: ${Object.keys(servers).join(', ') || '(none)'}`);
       if (!servers || !servers[conn.server]) {
+        this.log.warn(`iris-dev: named connection "${conn.server}" not found`);
         vscode.window.showWarningMessage(
           `iris-dev: named connection "${conn.server}" not found in intersystems.servers. Check your .vscode/settings.json or user settings.`
         );
         return [];
       }
       named = servers[conn.server];
+      this.log.info(`iris-dev: named server resolved = ${JSON.stringify(named)}`);
     }
 
     const host = conn.host ?? 'localhost';
     const webPort = conn.port ?? 52773;
     const namespace = conn.ns ?? 'USER';
-
 
     const resolvedHost = (named?.superServer?.host ?? named?.webServer?.host) ?? host;
     const webPrefix = named?.webServer?.pathPrefix ?? null;
@@ -147,6 +159,8 @@ export class IrisDevMcpProvider
     const env: Record<string, string | number> = Object.fromEntries(
       Object.entries(envRaw).filter(([, v]) => v !== undefined && v !== null)
     ) as Record<string, string | number>;
+
+    this.log.info(`iris-dev: launching binary with env = ${JSON.stringify(env)}`);
 
     const definition = new vscode.McpStdioServerDefinition(
       'iris-dev (IRIS)',
