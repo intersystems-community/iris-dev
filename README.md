@@ -26,22 +26,32 @@ Download binaries and `.vsix` from the [latest release](https://github.com/inter
 ```bash
 # macOS Apple Silicon:
 curl -fsSL https://github.com/intersystems-community/iris-dev/releases/latest/download/iris-dev-macos-arm64 -o /usr/local/bin/iris-dev && chmod +x /usr/local/bin/iris-dev
+xattr -d com.apple.quarantine /usr/local/bin/iris-dev 2>/dev/null   # remove Gatekeeper flag
 
 code --install-extension vscode-iris-dev-*.vsix
 ```
 
 **Windows:**
-```powershell
-# Download iris-dev-windows-x86_64.exe, place on PATH as iris-dev.exe
-code --install-extension vscode-iris-dev-*.vsix
-```
 
-Reload VS Code. Open Copilot Chat → Agent mode → tools icon → **iris-dev (IRIS)** appears automatically, reading your existing `objectscript.conn`.
+1. Download `iris-dev-windows-x86_64.exe` from the [releases page](https://github.com/intersystems-community/iris-dev/releases/latest) and save it somewhere permanent (e.g. `C:\Users\yourname\bin\iris-dev.exe`)
+2. Download `vscode-iris-dev-*.vsix` from the same release
+3. In VS Code: Extensions panel (`Ctrl+Shift+X`) → `...` menu → **Install from VSIX** → select the file
+4. Reload VS Code
+5. Tell the extension where the binary is — add to VS Code **User** settings (`Ctrl+Shift+P` → "Open User Settings (JSON)"):
 
-If the extension can't find the binary, set in VS Code settings:
 ```json
-"iris-dev.serverPath": "/full/path/to/iris-dev"
+"iris-dev.serverPath": "C:\\Users\\yourname\\bin\\iris-dev.exe"
 ```
+
+Reload VS Code. Open Copilot Chat → Agent mode → tools icon → **iris-dev (IRIS)** appears automatically.
+
+**The extension reads your existing `objectscript.conn` and `intersystems.servers` config** — no duplicate setup needed. It picks up host, port, namespace, username, password, and `pathPrefix` from your Server Manager server definition automatically.
+
+> **Tip**: If your IRIS web gateway uses a non-standard URL prefix (e.g. `http://host:80/irisaicore/api/atelier/...`), add `"pathPrefix": "irisaicore"` to the `webServer` block of your named server in `intersystems.servers`. The extension passes this to the binary as `IRIS_WEB_PREFIX`.
+
+> **WSL2**: If you're running VS Code with the WSL extension and IRIS is on the Windows host, use the Windows binary (not the Linux one) and set `iris-dev.serverPath` to the Windows path. From WSL2, `localhost` resolves to the Linux VM — use `$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}')` or the fixed Windows host IP to reach IRIS running on Windows. Alternatively, run the Linux binary and point `IRIS_HOST` at the Windows host IP.
+
+> **Troubleshooting**: If the extension can't reach IRIS, open the **Output** panel (`View > Output`) and select **iris-dev** from the dropdown. The log shows exactly what server config was read and what env vars were passed to the binary.
 
 ### Claude Code setup
 
