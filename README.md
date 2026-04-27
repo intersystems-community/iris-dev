@@ -18,11 +18,12 @@ For questions, bug reports, or feedback, use the **Issues** tab on this reposito
 
 ## Getting Access
 
-This is a private repository. To get access:
+This is a private repository. Here's how access works:
 
-1. **Reply to the EAP invitation email** from thomas.dyar@intersystems.com with your **GitHub username(s)** — one per line if you have multiple, or if you're adding teammates.
-2. You'll receive a GitHub repository invitation within one business day.
-3. Once accepted, you can access the repo and download releases at: https://github.com/intersystems-community/iris-dev
+1. **Sign up** at [evaluation.intersystems.com](https://evaluation.intersystems.com) and request access to the iris-dev EAP.
+2. **You'll receive an email** from thomas.dyar@intersystems.com asking for your GitHub username.
+3. **Reply with your GitHub username** (and any teammates' usernames you'd like to add — one per line).
+4. **GitHub will send you a repository invitation.** Accept it and you'll have access to the repo and all releases at https://github.com/intersystems-community/iris-dev.
 
 ---
 
@@ -257,4 +258,4 @@ File issues on this repository's **Issues** tab — this makes them visible to t
 
 For anything that shouldn't be public (credentials, customer details, urgent blockers): email [thomas.dyar@intersystems.com](mailto:thomas.dyar@intersystems.com).
 
-To add teammates to this EAP, reply to the original invitation email with their GitHub usernames.
+To add teammates to this EAP, reply to the email from thomas.dyar@intersystems.com with their GitHub usernames.
