@@ -25,3 +25,5 @@ Thumbs.db
 target/
 .claude/settings.local.json
 benchmark/021/results/
+docs/*.txt
+docs/*.md
