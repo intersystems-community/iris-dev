@@ -108,6 +108,25 @@ pub async fn discover_iris(explicit: Option<IrisConnection>) -> Result<Option<Ir
         let username = std::env::var("IRIS_USERNAME").unwrap_or_else(|_| "_SYSTEM".to_string());
         let password = std::env::var("IRIS_PASSWORD").unwrap_or_else(|_| "SYS".to_string());
         let namespace = std::env::var("IRIS_NAMESPACE").unwrap_or_else(|_| "USER".to_string());
+        let prefix = std::env::var("IRIS_WEB_PREFIX")
+            .ok()
+            .map(|p| p.trim_matches('/').to_string())
+            .filter(|p| !p.is_empty());
+
+        // When a web prefix is set, build the base_url directly — probe_atelier
+        // doesn't support prefixes (it probes /api/atelier/ which would be wrong).
+        if let Some(ref pfx) = prefix {
+            let base_url = format!("http://{}:{}/{}", host, port, pfx);
+            let mut conn = IrisConnection::new(
+                base_url,
+                namespace,
+                username,
+                password,
+                DiscoverySource::EnvVar,
+            );
+            conn.probe().await;
+            return Ok(Some(conn));
+        }
 
         if let Some(mut conn) =
             probe_atelier(&host, port, &username, &password, &namespace, 5000).await

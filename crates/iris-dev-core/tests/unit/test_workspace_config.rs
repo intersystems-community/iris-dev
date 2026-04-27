@@ -253,6 +253,118 @@ fn test_workspace_config_field_shape() {
     assert_eq!(json["running"], false);
 }
 
+// ── T030: web_prefix field ────────────────────────────────────────────────────
+
+#[test]
+fn test_load_parses_web_prefix_field() {
+    let dir = tempfile::TempDir::new().unwrap();
+    write_toml(
+        &dir,
+        r#"
+host = "iris.example.com"
+web_port = 80
+web_prefix = "irisaicore"
+"#,
+    );
+    let cfg = load_workspace_config(Some(dir.path().to_str().unwrap())).unwrap();
+    assert_eq!(cfg.web_prefix.as_deref(), Some("irisaicore"));
+}
+
+#[test]
+fn test_web_prefix_included_in_base_url() {
+    let cfg = iris_dev_core::iris::workspace_config::WorkspaceConfig {
+        host: Some("localhost".to_string()),
+        web_port: Some(80),
+        web_prefix: Some("irisaicore".to_string()),
+        ..Default::default()
+    };
+    let conn = workspace_config_to_connection(&cfg, "USER").unwrap();
+    assert_eq!(
+        conn.base_url, "http://localhost:80/irisaicore",
+        "base_url should include web_prefix, got: {}",
+        conn.base_url
+    );
+}
+
+#[test]
+fn test_web_prefix_strips_leading_trailing_slashes() {
+    let cfg = iris_dev_core::iris::workspace_config::WorkspaceConfig {
+        host: Some("localhost".to_string()),
+        web_port: Some(52773),
+        web_prefix: Some("/irisaicore/".to_string()),
+        ..Default::default()
+    };
+    let conn = workspace_config_to_connection(&cfg, "USER").unwrap();
+    assert_eq!(
+        conn.base_url, "http://localhost:52773/irisaicore",
+        "leading/trailing slashes should be stripped, got: {}",
+        conn.base_url
+    );
+}
+
+#[test]
+fn test_no_web_prefix_gives_clean_base_url() {
+    std::env::remove_var("IRIS_WEB_PREFIX");
+    let cfg = iris_dev_core::iris::workspace_config::WorkspaceConfig {
+        host: Some("localhost".to_string()),
+        web_port: Some(52773),
+        web_prefix: None,
+        ..Default::default()
+    };
+    let conn = workspace_config_to_connection(&cfg, "USER").unwrap();
+    assert_eq!(
+        conn.base_url, "http://localhost:52773",
+        "base_url without prefix should have no trailing slash, got: {}",
+        conn.base_url
+    );
+}
+
+#[test]
+fn test_iris_web_prefix_env_var_used_when_no_toml_prefix() {
+    std::env::set_var("IRIS_WEB_PREFIX", "myprefix");
+    let cfg = iris_dev_core::iris::workspace_config::WorkspaceConfig {
+        host: Some("localhost".to_string()),
+        web_port: Some(52773),
+        web_prefix: None,
+        ..Default::default()
+    };
+    let conn = workspace_config_to_connection(&cfg, "USER").unwrap();
+    std::env::remove_var("IRIS_WEB_PREFIX");
+    assert_eq!(
+        conn.base_url, "http://localhost:52773/myprefix",
+        "IRIS_WEB_PREFIX env var should be used when web_prefix not in config, got: {}",
+        conn.base_url
+    );
+}
+
+#[test]
+fn test_toml_web_prefix_overrides_env_var() {
+    std::env::set_var("IRIS_WEB_PREFIX", "envprefix");
+    let cfg = iris_dev_core::iris::workspace_config::WorkspaceConfig {
+        host: Some("localhost".to_string()),
+        web_port: Some(52773),
+        web_prefix: Some("tomlprefix".to_string()),
+        ..Default::default()
+    };
+    let conn = workspace_config_to_connection(&cfg, "USER").unwrap();
+    std::env::remove_var("IRIS_WEB_PREFIX");
+    assert_eq!(
+        conn.base_url, "http://localhost:52773/tomlprefix",
+        "TOML web_prefix should override IRIS_WEB_PREFIX env var, got: {}",
+        conn.base_url
+    );
+}
+
+#[test]
+fn test_generate_toml_contains_web_prefix_comment() {
+    let content =
+        iris_dev_core::iris::workspace_config::generate_toml_content("myapp-iris", "USER");
+    assert!(
+        content.contains("web_prefix"),
+        "generated TOML should document the web_prefix field"
+    );
+}
+
 // ── Container scoring: hyphen/underscore normalization (#19) ─────────────────
 
 #[test]

@@ -13,6 +13,10 @@ pub struct WorkspaceConfig {
     pub namespace: Option<String>,
     pub host: Option<String>,
     pub web_port: Option<u16>,
+    /// URL path prefix for the IRIS web gateway, e.g. "irisaicore" when the
+    /// Atelier API is served at http://host:port/irisaicore/api/atelier/...
+    /// Corresponds to intersystems.servers[x].webServer.pathPrefix in VS Code settings.
+    pub web_prefix: Option<String>,
     pub username: Option<String>,
     pub password: Option<String>,
 }
@@ -87,7 +91,16 @@ pub fn workspace_config_to_connection(
     // host + web_port → explicit HTTP connection (highest priority, no docker needed)
     if let Some(ref host) = cfg.host {
         let port = cfg.web_port.unwrap_or(52773);
-        let base_url = format!("http://{}:{}", host, port);
+        let prefix = cfg
+            .web_prefix
+            .clone()
+            .or_else(|| std::env::var("IRIS_WEB_PREFIX").ok())
+            .map(|p| p.trim_matches('/').to_string())
+            .filter(|p| !p.is_empty());
+        let base_url = match prefix {
+            Some(p) => format!("http://{}:{}/{}", host, port, p),
+            None => format!("http://{}:{}", host, port),
+        };
         let namespace = cfg
             .namespace
             .clone()
@@ -165,6 +178,7 @@ namespace = "{namespace}"
 # Alternative: direct host connection (for remote or CI IRIS)
 # host = "iris.example.com"
 # web_port = 52773
+# web_prefix = ""  # URL path prefix, e.g. "irisaicore" when Atelier is at /irisaicore/api/atelier/
 
 # Credentials (optional)
 # Use IRIS_USERNAME / IRIS_PASSWORD env vars instead of committing credentials.
