@@ -71,6 +71,7 @@ export class IrisDevMcpProvider
   public provideMcpServerDefinitions(
     _token: vscode.CancellationToken
   ): vscode.ProviderResult<vscode.McpStdioServerDefinition[]> {
+    this.log.show(true);   // reveal without stealing focus
     this.log.info('iris-dev: provideMcpServerDefinitions called');
 
     const conn = vscode.workspace
