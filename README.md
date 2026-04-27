@@ -1,61 +1,97 @@
-# iris-dev
+# iris-dev — Early Access Program
 
-Single Rust binary that connects AI coding assistants (VS Code Copilot, Claude Code, Cursor, etc.) to a live InterSystems IRIS instance via the Model Context Protocol (MCP).
+Welcome to the Early Access Program for **iris-dev**, an AI coding tool for InterSystems IRIS developers.
 
-**No Python. No npm. No API keys.** Drop the binary on your PATH, install the VS Code extension, and your AI assistant can compile, test, search, read, write, and manage ObjectScript — all without leaving the chat.
+iris-dev is a single binary that connects GitHub Copilot, Claude Code, and other AI coding assistants directly to a live IRIS instance via the Model Context Protocol (MCP). Your AI assistant can compile, test, search, read, write, and debug ObjectScript — all without leaving the chat.
 
-## Why iris-dev
+**No Python. No pip. No npm. No API keys.**
 
-AI coding assistants assume a local file system. IRIS developers don't always have one. iris-dev gives the AI a native IRIS interface so it can compile, test, and debug without guessing — it works against the real live system. The result is fewer compile-fail cycles, fewer hallucinated APIs, and an assistant that actually knows what's in your codebase.
+> [!IMPORTANT]
+> This is pre-release software. APIs and behavior may change between releases. We're looking for feedback on real codebases — what breaks, what's missing, how it compares to your current workflow.
 
-A built-in skills system learns from agent sessions and synthesizes reusable ObjectScript workflows. Skills can be shared across the community. A compile-on-save hook auto-compiles `.cls`, `.mac`, and `.inc` files every time the agent writes one — no manual "now compile it" step.
+> [!CAUTION]
+> This software is not meant for production environments.
 
-## Early Access
-
-This is an Early Access Program. We're looking for feedback on real codebases — what breaks, what's missing, how it compares to your current workflow. File issues on GitHub or email thomas.dyar@intersystems.com.
-
-Bigger community and customer push is coming at READY 2026. Try it now and help shape what ships.
+For questions, bug reports, or feedback, use the **Issues** tab on this repository, or email [thomas.dyar@intersystems.com](mailto:thomas.dyar@intersystems.com).
 
 ---
 
-## Quick Start
+## Getting Access
 
-Download binaries and `.vsix` from the [latest release](https://github.com/intersystems-community/iris-dev/releases/latest).
+This is a private repository. To get access:
 
-**Mac / Linux:**
+1. **Reply to the EAP invitation email** from thomas.dyar@intersystems.com with your **GitHub username(s)** — one per line if you have multiple, or if you're adding teammates.
+2. You'll receive a GitHub repository invitation within one business day.
+3. Once accepted, you can access the repo and download releases at: https://github.com/intersystems-community/iris-dev
+
+---
+
+## Installation
+
+Download the binary and VS Code extension from the [latest release](https://github.com/intersystems-community/iris-dev/releases/latest).
+
+### Mac
+
 ```bash
-# macOS Apple Silicon:
-curl -fsSL https://github.com/intersystems-community/iris-dev/releases/latest/download/iris-dev-macos-arm64 -o /usr/local/bin/iris-dev && chmod +x /usr/local/bin/iris-dev
-xattr -d com.apple.quarantine /usr/local/bin/iris-dev 2>/dev/null   # remove Gatekeeper flag
+# Apple Silicon (M1/M2/M3):
+curl -fsSL https://github.com/intersystems-community/iris-dev/releases/latest/download/iris-dev-macos-arm64 \
+  -o /usr/local/bin/iris-dev && chmod +x /usr/local/bin/iris-dev
+xattr -d com.apple.quarantine /usr/local/bin/iris-dev 2>/dev/null
 
-code --install-extension vscode-iris-dev-*.vsix
+# Intel Mac:
+curl -fsSL https://github.com/intersystems-community/iris-dev/releases/latest/download/iris-dev-macos-x86_64 \
+  -o /usr/local/bin/iris-dev && chmod +x /usr/local/bin/iris-dev
+xattr -d com.apple.quarantine /usr/local/bin/iris-dev 2>/dev/null
 ```
 
-**Windows:**
+### Linux
+
+```bash
+curl -fsSL https://github.com/intersystems-community/iris-dev/releases/latest/download/iris-dev-linux-x86_64 \
+  -o /usr/local/bin/iris-dev && chmod +x /usr/local/bin/iris-dev
+```
+
+### Windows
 
 1. Download `iris-dev-windows-x86_64.exe` from the [releases page](https://github.com/intersystems-community/iris-dev/releases/latest) and save it somewhere permanent (e.g. `C:\Users\yourname\bin\iris-dev.exe`)
-2. Download `vscode-iris-dev-*.vsix` from the same release
-3. In VS Code: Extensions panel (`Ctrl+Shift+X`) → `...` menu → **Install from VSIX** → select the file
-4. Reload VS Code
-5. Tell the extension where the binary is — add to VS Code **User** settings (`Ctrl+Shift+P` → "Open User Settings (JSON)"):
+2. Open VS Code settings (`Ctrl+Shift+P` → "Open User Settings (JSON)") and add:
 
 ```json
 "iris-dev.serverPath": "C:\\Users\\yourname\\bin\\iris-dev.exe"
 ```
 
-Reload VS Code. Open Copilot Chat → Agent mode → tools icon → **iris-dev (IRIS)** appears automatically.
+> **WSL2**: If VS Code runs in WSL2 and IRIS is on the Windows host, use the Windows binary and set `iris-dev.serverPath` to the Windows path. `localhost` in WSL2 resolves to the Linux VM — set `IRIS_HOST` to the Windows host IP instead.
 
-**The extension reads your existing `objectscript.conn` and `intersystems.servers` config** — no duplicate setup needed. It picks up host, port, namespace, username, password, and `pathPrefix` from your Server Manager server definition automatically.
+---
 
-> **Tip**: If your IRIS web gateway uses a non-standard URL prefix (e.g. `http://host:80/irisaicore/api/atelier/...`), add `"pathPrefix": "irisaicore"` to the `webServer` block of your named server in `intersystems.servers`. The extension passes this to the binary as `IRIS_WEB_PREFIX`.
+## VS Code Setup (Copilot Agent Mode)
 
-> **WSL2**: If you're running VS Code with the WSL extension and IRIS is on the Windows host, use the Windows binary (not the Linux one) and set `iris-dev.serverPath` to the Windows path. From WSL2, `localhost` resolves to the Linux VM — use `$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}')` or the fixed Windows host IP to reach IRIS running on Windows. Alternatively, run the Linux binary and point `IRIS_HOST` at the Windows host IP.
+1. Download `vscode-iris-dev-*.vsix` from the [latest release](https://github.com/intersystems-community/iris-dev/releases/latest)
+2. In VS Code: Extensions panel (`Ctrl+Shift+X`) → `...` menu → **Install from VSIX** → select the file
+3. Reload VS Code
+4. Open Copilot Chat → Agent mode → click the tools icon (plug) → **iris-dev (IRIS)** should appear
 
-> **Troubleshooting**: If the extension can't reach IRIS, open the **Output** panel (`View > Output`) and select **iris-dev** from the dropdown. The log shows exactly what server config was read and what env vars were passed to the binary.
+**The extension reads your existing `objectscript.conn` and `intersystems.servers` config automatically** — no duplicate setup. It picks up host, port, namespace, username, password, and `pathPrefix` from your existing Server Manager server definition.
 
-### Claude Code setup
+Your `objectscript.conn` should reference a named server (not a direct host/port) so the full server definition is picked up:
 
-**Single project** — add to `~/.claude/settings.json`:
+```json
+"objectscript.conn": {
+    "active": true,
+    "server": "your-server-name"
+}
+```
+
+> **Non-standard web gateway path**: If your IRIS is served at a URL prefix (e.g. `http://host:80/myprefix/api/atelier/...`), add `"pathPrefix": "myprefix"` to the `webServer` block of your named server in `intersystems.servers`.
+
+> **Troubleshooting**: Open `View > Output` and select **iris-dev** from the dropdown. The log shows exactly what config was read and what env vars were passed to the binary.
+
+---
+
+## Claude Code Setup
+
+Add to `~/.claude/settings.json` (or `.claude/settings.json` in the project root):
+
 ```json
 {
   "mcpServers": {
@@ -75,35 +111,36 @@ Reload VS Code. Open Copilot Chat → Agent mode → tools icon → **iris-dev (
 }
 ```
 
-**Multiple projects** — use `.iris-dev.toml` in each project root (`iris-dev init` to generate). Then a single MCP entry covers all projects via `OBJECTSCRIPT_WORKSPACE`:
-```json
-{
-  "mcpServers": {
-    "iris-dev": {
-      "type": "stdio",
-      "command": "iris-dev",
-      "args": ["mcp"],
-      "env": {
-        "OBJECTSCRIPT_WORKSPACE": "/path/to/current/project"
-      }
-    }
-  }
-}
-```
-The VS Code extension sets `OBJECTSCRIPT_WORKSPACE` automatically to the current workspace folder.
-
-On Windows, use the full path to the binary:
+On Windows, use the full path:
 ```json
 "command": "C:\\Users\\yourname\\bin\\iris-dev.exe"
 ```
 
-> **Note**: `"args": ["mcp"]` is required. Use `env` not `args` for connection settings — Claude Code does not expand `${VAR}` in `args`.
+**Multiple projects** — use `.iris-dev.toml` in each project root (`iris-dev init` to generate one), then a single generic MCP entry covers all projects:
+
+```json
+{
+  "mcpServers": {
+    "iris-dev": {
+      "command": "iris-dev",
+      "args": ["mcp"],
+      "env": { "OBJECTSCRIPT_WORKSPACE": "${workspaceFolder}" }
+    }
+  }
+}
+```
+
+> **Note**: `"args": ["mcp"]` is required. Use `env` not `args` for connection settings.
 
 ---
 
-## Tools (21 total — no API key required for any of them)
+## What iris-dev Does
 
-### Compile, Execute, Test
+AI coding assistants assume a local filesystem. IRIS developers don't always have one. iris-dev gives the AI a native IRIS interface — compile, test, and debug against the real live system. The result is fewer compile-fail cycles, fewer hallucinated APIs, and an assistant that actually knows what's in your codebase.
+
+### Tools (21 total)
+
+**Compile, Execute, Test**
 | Tool | What it does |
 |------|-------------|
 | `iris_compile` | Compile a class, routine, or wildcard package (`MyApp.*.cls`). Returns structured errors with line numbers. |
@@ -111,80 +148,81 @@ On Windows, use the full path to the binary:
 | `iris_query` | Execute SQL, return rows as JSON. |
 | `iris_test` | Run `%UnitTest` tests, return structured pass/fail counts and trace. |
 
-### Documents
+**Documents**
 | Tool | What it does |
 |------|-------------|
 | `iris_doc` | Read, write, delete, or check any IRIS document (`mode=get/put/delete/head`). Write triggers automatic SCM checkout if needed — handled via chat dialog, not a popup. |
 
-### Search & Discovery
+**Search & Discovery**
 | Tool | What it does |
 |------|-------------|
-| `iris_search` | Full-text search across the namespace. Supports regex, category filter, wildcard scope. Auto-upgrades to async for large codebases. |
+| `iris_search` | Full-text search across the namespace. Supports regex, category filter, wildcard scope. |
 | `iris_symbols` | Symbol search via `%Dictionary` — class names, methods, properties. |
 | `iris_symbols_local` | Parse local `.cls` files offline (no IRIS required). |
 | `iris_introspect` | Deep class inspection: methods, properties, XData, superclasses. |
 | `iris_info` | Namespace discovery (`what=documents/modified/namespace/metadata/jobs/csp_apps`). |
 | `iris_macro` | Macro inspection (`action=list/signature/location/definition/expand`). |
 
-### Debug
+**Debug**
 | Tool | What it does |
 |------|-------------|
-| `iris_debug` | Map INT errors to source lines, fetch error logs, capture error state (`action=map_int/error_logs/capture/source_map`). |
+| `iris_debug` | Map INT errors to source lines, fetch error logs, capture error state. |
 
-### Generate
+**Generate**
 | Tool | What it does |
 |------|-------------|
-| `iris_generate` | Returns a ready-to-use prompt and IRIS context (existing class names, method signatures) so the AI agent can generate an ObjectScript class or `%UnitTest` itself. No API key needed — the calling agent does the generation. |
+| `iris_generate` | Returns a ready-to-use prompt and IRIS context so the AI agent can generate ObjectScript. No API key needed on the server side. |
 
-### Source Control
+**Source Control**
 | Tool | What it does |
 |------|-------------|
-| `iris_source_control` | Check lock status, list available SCM actions, check out, execute SCM actions (`action=status/menu/checkout/execute`). Handles interactive SCM dialogs via chat instead of popups. |
+| `iris_source_control` | Check lock status, list SCM actions, check out, execute SCM actions. Handles interactive SCM dialogs via chat instead of popups. |
 
-### Interoperability
+**Interoperability**
 | Tool | What it does |
 |------|-------------|
-| `interop_production` | Start, stop, check status, update, recover productions (`action=status/start/stop/update/needs_update/recover`). |
-| `interop_query` | Query logs, queue depths, message archive (`what=logs/queues/messages`). |
+| `interop_production` | Start, stop, check status, update, recover productions. |
+| `interop_query` | Query logs, queue depths, message archive. |
 
-### Skills & Learning
+**Skills & Learning**
 | Tool | What it does |
 |------|-------------|
-| `skill` | Manage the learning agent skills registry (`action=list/describe/search/forget/propose`). |
-| `skill_community` | Browse and install community skills (`action=list/install`). |
-| `kb` | Index markdown files and search the knowledge base (`action=index/recall`). |
-| `agent_info` | Session stats and recent tool call history (`what=stats/history`). |
+| `skill` | Manage the learning agent skills registry. |
+| `skill_community` | Browse and install community skills. |
+| `kb` | Index markdown files and search the knowledge base. |
+| `agent_info` | Session stats and recent tool call history. |
 
-### Containers
+**Containers**
 | Tool | What it does |
 |------|-------------|
-| `iris_containers` | List, select, or start IRIS Docker containers (`action=list/select/start`). |
+| `iris_containers` | List, select, or start IRIS Docker containers. |
 
 ---
 
 ## Configuration
 
-IRIS connection auto-discovered in this order:
+IRIS connection is auto-discovered in this order:
+
 1. Explicit flags (`--host`, `--web-port`)
-2. **`.iris-dev.toml`** in the workspace root (see [Per-workspace config](#per-workspace-config) below)
+2. `.iris-dev.toml` in the workspace root
 3. Env vars: `IRIS_HOST`, `IRIS_WEB_PORT`, `IRIS_USERNAME`, `IRIS_PASSWORD`, `IRIS_NAMESPACE`
-4. `IRIS_WEB_PREFIX` — set this if your IRIS is behind a non-root web gateway (e.g. `irisaicore` for `http://host:80/irisaicore/api/atelier`)
+4. `IRIS_WEB_PREFIX` — set if IRIS is behind a non-root web gateway (e.g. `"irisaicore"` for `http://host:80/irisaicore/api/atelier`)
 5. VS Code `settings.json` (`objectscript.conn` / `intersystems.servers` including `pathPrefix`)
 6. Docker containers (scored by workspace name similarity)
 7. Localhost port scan (52773, 41773, 51773, 8080)
 
-### Per-workspace config
+### Per-workspace config (`.iris-dev.toml`)
 
-Drop an `.iris-dev.toml` in your project root to declare which IRIS container or host that project uses. This file is committed to version control so teammates get the same connection automatically — no per-machine env var setup.
+Drop an `.iris-dev.toml` in your project root. Commit it so teammates get the same connection automatically.
 
 ```toml
-# .iris-dev.toml
 container = "myapp-iris"   # Docker container name
-namespace = "USER"          # Default namespace
+namespace = "USER"
 
-# Or for remote/CI IRIS:
+# Or for remote/non-Docker IRIS:
 # host = "iris.example.com"
 # web_port = 52773
+# web_prefix = ""  # e.g. "irisaicore" if needed
 ```
 
 Generate a starter file from running containers:
@@ -192,97 +230,20 @@ Generate a starter file from running containers:
 iris-dev init
 ```
 
-The generated file includes inline comments and intentionally omits the `password` field (use `IRIS_PASSWORD` env var instead). With this in place, your IDE MCP config can use a single generic entry for all projects:
-
-```json
-{
-  "mcpServers": {
-    "iris-dev": {
-      "command": "iris-dev",
-      "args": ["mcp"],
-      "env": { "OBJECTSCRIPT_WORKSPACE": "${workspaceFolder}" }
-    }
-  }
-}
-```
-
-iris-dev reads `.iris-dev.toml` from `OBJECTSCRIPT_WORKSPACE` (set automatically by the VS Code extension) or the current directory. The `iris_list_containers` tool shows which container your config selects and whether it is running.
-
-### Source Control
-
-When writing documents with `iris_doc(mode=put)`, if IRIS server-side source control is enabled:
-- The tool automatically checks whether the document needs checkout
-- If a dialog is needed, it returns a chat question instead of a popup
-- You answer yes/no in the chat, and the write completes
-
-No `IRIS_SOURCE_CONTROL` env var needed — it's detected automatically.
-
-### Auto-open in VS Code
-
-After a successful `iris_doc(mode=put)` or `iris_compile`, the document opens automatically in VS Code if an ISFS workspace folder is active. This uses a sentinel file at `~/.iris-dev/open-hint.json` watched by the extension.
-
----
-
-## Build from source
-
-```bash
-git clone https://github.com/intersystems-community/iris-dev
-cd iris-dev
-cargo build --release
-# Binary at: target/release/iris-dev
-```
-
-Requires Rust stable. No other dependencies.
-
----
-
-## Working with multiple IRIS instances or namespaces
-
-**Recommended: `.iris-dev.toml` per project** — the simplest approach. Add an `.iris-dev.toml` to each project root (see [Per-workspace config](#per-workspace-config) above). One generic MCP entry covers all projects:
-
-```json
-{
-  "mcpServers": {
-    "iris-dev": {
-      "command": "iris-dev",
-      "args": ["mcp"],
-      "env": { "OBJECTSCRIPT_WORKSPACE": "${workspaceFolder}" }
-    }
-  }
-}
-```
-
-**Alternative: env vars per project** — set `IRIS_HOST` + `IRIS_WEB_PORT` per project in `.claude/settings.json` or your IDE workspace settings:
-
-```json
-{
-  "mcpServers": {
-    "iris-dev-myapp": {
-      "type": "stdio",
-      "command": "iris-dev",
-      "args": ["mcp"],
-      "env": {
-        "IRIS_HOST": "prod-iris.example.com",
-        "IRIS_WEB_PORT": "52773",
-        "IRIS_WEB_PREFIX": "myapp",
-        "IRIS_USERNAME": "devuser",
-        "IRIS_PASSWORD": "devpass",
-        "IRIS_NAMESPACE": "MYAPP"
-      }
-    }
-  }
-}
-```
-
-**Limiting to a specific namespace** — set `IRIS_NAMESPACE`. All tools (`iris_symbols`, `iris_search`, `iris_info`, `iris_compile`, etc.) scope to this namespace by default. Each tool also accepts an explicit `namespace` parameter to override per-call. This keeps the context window small — `iris_symbols` only searches your namespace, not all of `%SYS`.
-
-**Non-root web gateway** — set `IRIS_WEB_PREFIX` to the path prefix (e.g. `"irisaicore"` for `http://host:80/irisaicore/api/atelier`).
-
 ---
 
 ## Commands
 
 - `iris-dev mcp` — Start the MCP server
-- `iris-dev compile [target]` — Compile ObjectScript directly from terminal
-- `iris-dev init` — Generate `.iris-dev.toml` in the current directory from running containers
-- `iris-dev --list-plugins` — List iris-dev-* plugins on PATH
+- `iris-dev compile [target]` — Compile ObjectScript from terminal
+- `iris-dev init` — Generate `.iris-dev.toml` from running containers
+
+---
+
+## How to Reach Out
+
+File issues on this repository's **Issues** tab — this makes them visible to the team and helps us prioritize.
+
+For anything that shouldn't be public (credentials, customer details, urgent blockers): email [thomas.dyar@intersystems.com](mailto:thomas.dyar@intersystems.com).
+
+To add teammates to this EAP, reply to the original invitation email with their GitHub usernames.
