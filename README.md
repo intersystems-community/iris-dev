@@ -25,6 +25,8 @@ This is a private repository. Here's how access works:
 3. **Reply with your GitHub username** (and any teammates' usernames you'd like to add — one per line).
 4. **GitHub will send you a repository invitation.** Accept it and you'll have access to the repo and all releases at https://github.com/intersystems-community/iris-dev.
 
+> **Note**: The download links in the Installation section below require GitHub access. They will work once you have accepted your repository invitation.
+
 ---
 
 ## Installation
