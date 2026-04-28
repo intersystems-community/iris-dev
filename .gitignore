@@ -16,6 +16,7 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/*.code-workspace
+.vscode/settings.json
 # Note: .vscode/launch.json and tasks.json ARE committed (debug support for contributors)
 *.iml
 
