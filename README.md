@@ -16,16 +16,11 @@ For questions, bug reports, or feedback, use the **Issues** tab on this reposito
 
 ---
 
-## Getting Access
+## Getting Started
 
-This is a private repository. Here's how access works:
+This is a **public Early Access Program**. No sign-up or invitation required — download the binary and install the VS Code extension directly from the [releases page](https://github.com/intersystems-community/iris-dev/releases/latest).
 
-1. **Sign up** at [evaluation.intersystems.com](https://evaluation.intersystems.com) and request access to the iris-dev EAP.
-2. **You'll receive an email** from thomas.dyar@intersystems.com asking for your GitHub username.
-3. **Reply with your GitHub username** (and any teammates' usernames you'd like to add — one per line).
-4. **GitHub will send you a repository invitation.** Accept it and you'll have access to the repo and all releases at https://github.com/intersystems-community/iris-dev.
-
-> **Note**: The download links in the Installation section below require GitHub access. They will work once you have accepted your repository invitation.
+If you found this through [evaluation.intersystems.com](https://evaluation.intersystems.com), you're in the right place. Jump straight to [Installation](#installation) below.
 
 ---
 
@@ -260,4 +255,4 @@ File issues on this repository's **Issues** tab — this makes them visible to t
 
 For anything that shouldn't be public (credentials, customer details, urgent blockers): email [thomas.dyar@intersystems.com](mailto:thomas.dyar@intersystems.com).
 
-To add teammates to this EAP, reply to the email from thomas.dyar@intersystems.com with their GitHub usernames.
+The repo is public — share https://github.com/intersystems-community/iris-dev with anyone who wants to try it.
