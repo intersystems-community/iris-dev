@@ -2,7 +2,7 @@
 
 **Benchmark-validated AI coding support for ObjectScript / IRIS.**
 
-**Primary path**: Use the [VS Code ObjectScript MCP extension](https://github.com/intersystems-community/vscode-objectscript-mcp) — it wires compile, test, introspect, and Interoperability tools into Copilot agent mode with zero extra configuration, reading your existing `objectscript.conn`.
+**Primary path**: Use the [iris-dev VS Code extension](https://github.com/intersystems-community/iris-dev) — it wires compile, test, introspect, and Interoperability tools into Copilot agent mode with zero extra configuration, reading your existing `objectscript.conn`.
 
 **This repo** (`light-skills/`) provides the skill files and AGENTS.md that make any AI agent — with or without the MCP extension — write better ObjectScript.
 
@@ -51,7 +51,7 @@ The top-scoring skill on the repair benchmark is **`objectscript-review`** by [T
 ### Step 1: Copy AGENTS.md to your repo
 
 ```bash
-curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/AGENTS.md \
+curl -sL https://raw.githubusercontent.com/intersystems-community/iris-dev/master/light-skills/AGENTS.md \
   > AGENTS.md
 ```
 
@@ -62,14 +62,14 @@ That's it for the baseline (+14%). Your AI agent now knows the top 10 ObjectScri
 **Claude Code:**
 ```bash
 mkdir -p .claude/skills/objectscript-review
-curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/skills/objectscript-review/SKILL.md \
+curl -sL https://raw.githubusercontent.com/intersystems-community/iris-dev/master/light-skills/skills/objectscript-review/SKILL.md \
   > .claude/skills/objectscript-review/SKILL.md
 ```
 
 **opencode:**
 ```bash
 mkdir -p ~/.config/opencode/skills/objectscript-review
-curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/skills/objectscript-review/SKILL.md \
+curl -sL https://raw.githubusercontent.com/intersystems-community/iris-dev/master/light-skills/skills/objectscript-review/SKILL.md \
   > ~/.config/opencode/skills/objectscript-review/SKILL.md
 ```
 
@@ -77,7 +77,7 @@ curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objects
 
 ```bash
 SKILLS_DIR=~/.config/opencode/skills   # or ~/.claude/skills for Claude Code
-BASE=https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/skills
+BASE=https://raw.githubusercontent.com/intersystems-community/iris-dev/master/light-skills/skills
 
 for skill in objectscript-review objectscript-list-patterns objectscript-sql-patterns \
              objectscript-loop-patterns objectscript-unit-test objectscript-navigation \
@@ -115,13 +115,13 @@ echo "Done. $(ls $SKILLS_DIR | wc -l) skills installed."
 
 ```bash
 # 1. Copy AGENTS.md to your project
-curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/AGENTS.md > AGENTS.md
+curl -sL https://raw.githubusercontent.com/intersystems-community/iris-dev/master/light-skills/AGENTS.md > AGENTS.md
 
 # 2. Install top skills globally
 mkdir -p ~/.claude/skills
 for skill in objectscript-review objectscript-sql-patterns objectscript-guardrails; do
   mkdir -p ~/.claude/skills/$skill
-  curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/skills/$skill/SKILL.md \
+  curl -sL https://raw.githubusercontent.com/intersystems-community/iris-dev/master/light-skills/skills/$skill/SKILL.md \
     > ~/.claude/skills/$skill/SKILL.md
 done
 ls ~/.claude/skills/
@@ -130,19 +130,19 @@ ls ~/.claude/skills/
 ### If you use opencode
 
 ```bash
-curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/AGENTS.md > AGENTS.md
+curl -sL https://raw.githubusercontent.com/intersystems-community/iris-dev/master/light-skills/AGENTS.md > AGENTS.md
 
 mkdir -p ~/.config/opencode/skills
 for skill in objectscript-review objectscript-sql-patterns objectscript-guardrails; do
   mkdir -p ~/.config/opencode/skills/$skill
-  curl -sL https://raw.githubusercontent.com/intersystems-community/vscode-objectscript-mcp/master/light-skills/skills/$skill/SKILL.md \
+  curl -sL https://raw.githubusercontent.com/intersystems-community/iris-dev/master/light-skills/skills/$skill/SKILL.md \
     > ~/.config/opencode/skills/$skill/SKILL.md
 done
 ```
 
 ### If you use VS Code Copilot
 
-The [VS Code ObjectScript MCP extension](https://github.com/intersystems-community/vscode-objectscript-mcp) wires skills into Copilot agent mode automatically.
+The [iris-dev VS Code extension](https://github.com/intersystems-community/iris-dev) wires skills into Copilot agent mode automatically.
 
 ### Connect to IRIS (for compile/introspect skills)
 
@@ -165,7 +165,7 @@ export IRIS_NS=USER
 3. With `objectscript-review` loaded, the AI runs the 10-item checklist and corrects issues before showing you anything
 4. Ask it to *"write a unit test for this class"* — with `objectscript-unit-test`, it reads the actual IRIS class definition first
 
-**Tell us what you find.** File issues at [intersystems-community/vscode-objectscript-mcp](https://github.com/intersystems-community/vscode-objectscript-mcp) or ping `@tdyar` / `@tleavitt` on Teams.
+**Tell us what you find.** File issues at [intersystems-community/iris-dev](https://github.com/intersystems-community/iris-dev) or ping `@tdyar` / `@tleavitt` on Teams.
 
 ---
 
@@ -193,8 +193,8 @@ state: draft
 
 ```bash
 # See BENCHMARKING.md for full instructions — takes ~5 minutes
-git clone https://github.com/intersystems-community/vscode-objectscript-mcp
-cd vscode-objectscript-mcp/light-skills
+git clone https://github.com/intersystems-community/iris-dev
+cd iris-dev/light-skills
 ./bench/run_benchmark.sh --skill path/to/your/SKILL.md --baseline
 ```
 
