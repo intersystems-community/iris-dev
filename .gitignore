@@ -27,3 +27,9 @@ target/
 benchmark/021/results/
 docs/*.txt
 docs/*.md
+*.profraw
+.specify/
+.opencode/
+.claude/
+vscode-iris-dev/*.vsix
+specs/
