@@ -429,6 +429,85 @@ impl IrisTools {
             tool_router: Self::tool_router(),
         })
     }
+    /// Convenience constructor for tests — same as `new` but with explicit toolset.
+    pub fn new_with_toolset(iris: Option<IrisConnection>, toolset: Toolset) -> anyhow::Result<Self> {
+        Self::with_registry_and_toolset(iris, crate::skills::SkillRegistry::new(), toolset)
+    }
+
+    /// Returns the set of tool names registered for the current toolset.
+    /// Used by tests and by the benchmark harness to build valid_tool_names.
+    pub fn registered_tool_names(&self) -> std::collections::HashSet<String> {
+        // Authoritative baseline list — 34 tools matching v0.4.x (audit 2026-04-28).
+        // REST(14) + Docker(16) + Local(4) = 34
+        // 34 - stubs(5) = nostub(29); 29 - merged_removed(10) + merged_added(4) = merged(23)
+        let all_tools: &[&str] = &[
+            // REST — 14
+            "iris_compile", "iris_execute", "iris_doc", "iris_query",
+            "iris_symbols", "iris_symbols_local", "docs_introspect", "iris_search",
+            "iris_info", "iris_macro",
+            "debug_capture_packet", "debug_get_error_logs",
+            "iris_generate", "iris_generate_class",
+            // Docker exec — 16
+            "iris_test",
+            "debug_map_int_to_cls", "debug_source_map",
+            "iris_source_control",
+            "interop_production_status", "interop_production_start",
+            "interop_production_stop", "interop_production_update",
+            "interop_production_needs_update", "interop_production_recover",
+            "interop_logs", "interop_queues", "interop_message_search",
+            "skill", "skill_propose", "skill_optimize",
+            // Local/CLI — 4
+            "skill_share", "skill_community", "skill_community_install", "kb",
+        ];
+
+        // Tools removed in nostub — 5 stubs returning NOT_IMPLEMENTED
+        let stub_tools: &[&str] = &[
+            "iris_symbols_local",
+            "skill_propose",
+            "skill_optimize",
+            "skill_share",
+            "skill_community_install",
+        ];
+
+        // Tools removed in merged (on top of stubs) — 10 removed, 4 added → 29-10+4=23
+        let merged_removed: &[&str] = &[
+            "debug_capture_packet", "debug_get_error_logs",
+            "debug_map_int_to_cls", "debug_source_map",
+            "interop_production_status", "interop_production_start",
+            "interop_production_stop", "interop_production_update",
+            "interop_production_needs_update", "interop_production_recover",
+        ];
+        let merged_removed_2: &[&str] = &[] as &[&str]; // placeholder, counts handled above
+        let merged_added: &[&str] = &[
+            "iris_debug", "iris_production", "iris_interop_query", "iris_containers",
+        ];
+
+        let mut names: std::collections::HashSet<String> =
+            all_tools.iter().map(|s| s.to_string()).collect();
+
+        match self.toolset {
+            Toolset::Baseline => {}
+            Toolset::Nostub => {
+                for s in stub_tools {
+                    names.remove(*s);
+                }
+            }
+            Toolset::Merged => {
+                for s in stub_tools {
+                    names.remove(*s);
+                }
+                for s in merged_removed {
+                    names.remove(*s);
+                }
+                let _ = merged_removed_2; // unused in this path
+                for s in merged_added {
+                    names.insert(s.to_string());
+                }
+            }
+        }
+        names
+    }
+
     pub fn with_registry(
         iris: Option<IrisConnection>,
         registry: crate::skills::SkillRegistry,

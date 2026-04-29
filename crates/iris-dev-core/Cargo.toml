@@ -139,3 +139,7 @@ path = "tests/unit/test_generate_unit.rs"
 [[test]]
 name = "test_discovery_unit"
 path = "tests/unit/test_discovery_unit.rs"
+
+[[test]]
+name = "test_toolset"
+path = "tests/unit/test_toolset.rs"

@@ -1,0 +1,202 @@
+// T015–T027: Toolset unit tests.
+// Tests for Nostub and Merged toolset configurations.
+// Written FIRST — must FAIL until T017–T033 are implemented.
+
+use iris_dev_core::tools::{IrisTools, Toolset};
+
+// ── Toolset::from_str ────────────────────────────────────────────────────────
+
+#[test]
+fn test_toolset_from_str_baseline() {
+    assert_eq!(Toolset::from_str("baseline"), Toolset::Baseline);
+    assert_eq!(Toolset::from_str(""), Toolset::Baseline);
+    assert_eq!(Toolset::from_str("unknown"), Toolset::Baseline);
+}
+
+#[test]
+fn test_toolset_from_str_nostub() {
+    assert_eq!(Toolset::from_str("nostub"), Toolset::Nostub);
+    assert_eq!(Toolset::from_str("NOSTUB"), Toolset::Nostub);
+}
+
+#[test]
+fn test_toolset_from_str_merged() {
+    assert_eq!(Toolset::from_str("merged"), Toolset::Merged);
+    assert_eq!(Toolset::from_str("MERGED"), Toolset::Merged);
+}
+
+// ── T015: Nostub — stub tools absent ────────────────────────────────────────
+
+/// iris_symbols_local must NOT be in the nostub tool list (FR-004).
+#[test]
+fn test_nostub_excludes_iris_symbols_local() {
+    let tools = IrisTools::new_with_toolset(None, Toolset::Nostub).expect("IrisTools::new");
+    let names = tools.registered_tool_names();
+    assert!(
+        !names.contains("iris_symbols_local"),
+        "iris_symbols_local must not be registered in nostub toolset. Found: {:?}",
+        names.iter().filter(|n| n.contains("symbol")).collect::<Vec<_>>()
+    );
+}
+
+/// skill tool must not expose propose/optimize/share actions in nostub (FR-005).
+#[test]
+fn test_nostub_skill_excludes_stub_actions() {
+    let tools = IrisTools::new_with_toolset(None, Toolset::Nostub).expect("IrisTools::new");
+    let names = tools.registered_tool_names();
+    for stub_action in &["skill_propose", "skill_optimize", "skill_share"] {
+        assert!(
+            !names.contains(*stub_action),
+            "{} must not be registered in nostub toolset",
+            stub_action
+        );
+    }
+}
+
+/// skill_community must not expose install action in nostub (FR-006).
+#[test]
+fn test_nostub_skill_community_excludes_install() {
+    let tools = IrisTools::new_with_toolset(None, Toolset::Nostub).expect("IrisTools::new");
+    let names = tools.registered_tool_names();
+    assert!(
+        !names.contains("skill_community_install"),
+        "skill_community_install must not be registered in nostub toolset"
+    );
+}
+
+/// Nostub must preserve all non-stub tools (not accidentally remove real ones).
+#[test]
+fn test_nostub_preserves_core_tools() {
+    let tools = IrisTools::new_with_toolset(None, Toolset::Nostub).expect("IrisTools::new");
+    let names = tools.registered_tool_names();
+    for required in &["iris_compile", "iris_execute", "iris_doc", "iris_query",
+                       "iris_symbols", "docs_introspect", "iris_search", "iris_info"] {
+        assert!(
+            names.contains(*required),
+            "Core tool {} must still be registered in nostub toolset",
+            required
+        );
+    }
+}
+
+/// Nostub should have exactly 5 fewer tools than baseline (iris_symbols_local +
+/// skill_propose + skill_optimize + skill_share + skill_community_install = 5 stubs removed).
+#[test]
+fn test_nostub_tool_count() {
+    let baseline = IrisTools::new_with_toolset(None, Toolset::Baseline)
+        .expect("baseline IrisTools")
+        .registered_tool_names()
+        .len();
+    let nostub = IrisTools::new_with_toolset(None, Toolset::Nostub)
+        .expect("nostub IrisTools")
+        .registered_tool_names()
+        .len();
+    assert_eq!(
+        nostub,
+        baseline - 5,
+        "Nostub should have exactly 5 fewer tools than baseline (got baseline={}, nostub={})",
+        baseline,
+        nostub
+    );
+}
+
+// ── T020–T027: Merged — parity stubs (full parity tests require live IRIS) ──
+
+/// iris_debug must be registered in merged toolset (FR-007).
+#[test]
+fn test_merged_registers_iris_debug() {
+    let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
+    let names = tools.registered_tool_names();
+    assert!(
+        names.contains("iris_debug"),
+        "iris_debug must be registered in merged toolset. Found tools: {:?}",
+        names.iter().filter(|n| n.contains("debug")).collect::<Vec<_>>()
+    );
+}
+
+/// iris_production must be registered in merged toolset (FR-008).
+#[test]
+fn test_merged_registers_iris_production() {
+    let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
+    let names = tools.registered_tool_names();
+    assert!(
+        names.contains("iris_production"),
+        "iris_production must be registered in merged toolset"
+    );
+}
+
+/// iris_interop_query must be registered in merged toolset (FR-009).
+#[test]
+fn test_merged_registers_iris_interop_query() {
+    let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
+    let names = tools.registered_tool_names();
+    assert!(
+        names.contains("iris_interop_query"),
+        "iris_interop_query must be registered in merged toolset"
+    );
+}
+
+/// iris_containers must be registered in merged toolset (FR-010).
+#[test]
+fn test_merged_registers_iris_containers() {
+    let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
+    let names = tools.registered_tool_names();
+    assert!(
+        names.contains("iris_containers"),
+        "iris_containers must be registered in merged toolset"
+    );
+}
+
+/// agent_info must NOT be registered in merged toolset (FR-011).
+#[test]
+fn test_merged_excludes_agent_info() {
+    let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
+    let names = tools.registered_tool_names();
+    assert!(
+        !names.contains("agent_info"),
+        "agent_info must not be registered in merged toolset"
+    );
+}
+
+/// Merged must exclude all original debug tools (replaced by iris_debug).
+#[test]
+fn test_merged_excludes_original_debug_tools() {
+    let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
+    let names = tools.registered_tool_names();
+    for replaced in &["debug_capture_packet", "debug_get_error_logs",
+                       "debug_map_int_to_cls", "debug_source_map"] {
+        assert!(
+            !names.contains(*replaced),
+            "{} must not be registered in merged toolset (replaced by iris_debug)",
+            replaced
+        );
+    }
+}
+
+/// Merged must exclude all original interop production tools (replaced by iris_production).
+#[test]
+fn test_merged_excludes_original_interop_production_tools() {
+    let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
+    let names = tools.registered_tool_names();
+    for replaced in &["interop_production_status", "interop_production_start",
+                       "interop_production_stop", "interop_production_update",
+                       "interop_production_needs_update", "interop_production_recover"] {
+        assert!(
+            !names.contains(*replaced),
+            "{} must not be registered in merged toolset (replaced by iris_production)",
+            replaced
+        );
+    }
+}
+
+/// Merged must have exactly 23 tools.
+#[test]
+fn test_merged_tool_count_is_23() {
+    let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
+    let count = tools.registered_tool_names().len();
+    assert_eq!(
+        count, 23,
+        "Merged toolset must have exactly 23 tools, got {}",
+        count
+    );
+}
