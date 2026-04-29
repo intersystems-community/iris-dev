@@ -55,6 +55,35 @@ def _mcp_call(tool: str, args: dict) -> dict:
     return {}
 
 
+def reset_benchmark_namespace():
+    """Drop and recreate the BENCHMARK namespace to eliminate carry-over between conditions.
+
+    Called before each condition's 15-task run (FR-001b).
+    """
+    # Drop: kill all globals and delete the namespace
+    drop_code = (
+        'set sc=##class(%SYS.Namespace).Delete("BENCHMARK")'
+        ' if $system.Status.IsError(sc) && $system.Status.GetErrorText(sc) \'[ "not exist" {'
+        '  write "ERROR:"_$system.Status.GetErrorText(sc)'
+        ' } else { write "DROPPED" }'
+    )
+    resp = _mcp_call("iris_execute", {"code": drop_code, "namespace": "%SYS", "confirmed": True})
+    content = resp.get("result", {}).get("content", [{}])[0].get("text", "")
+    if "ERROR" in content:
+        raise RuntimeError(f"Failed to drop BENCHMARK namespace: {content}")
+
+    # Recreate
+    create_code = (
+        'set sc=##class(%SYS.Namespace).Create("BENCHMARK")'
+        ' if $system.Status.IsError(sc) { write "ERROR:"_$system.Status.GetErrorText(sc) }'
+        ' else { write "CREATED" }'
+    )
+    resp = _mcp_call("iris_execute", {"code": create_code, "namespace": "%SYS", "confirmed": True})
+    content = resp.get("result", {}).get("content", [{}])[0].get("text", "")
+    if "ERROR" in content:
+        raise RuntimeError(f"Failed to create BENCHMARK namespace: {content}")
+
+
 def ensure_benchmark_namespace():
     """Create BENCHMARK namespace if it does not exist."""
     code = (

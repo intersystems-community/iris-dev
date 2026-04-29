@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Args;
-use iris_dev_core::{iris::discovery::discover_iris, skills::SkillRegistry, tools::IrisTools};
+use iris_dev_core::{iris::discovery::discover_iris, skills::SkillRegistry, tools::{IrisTools, Toolset}};
 use rmcp::{transport::stdio, ServiceExt};
 use tokio::sync::watch;
 
@@ -33,11 +33,16 @@ pub struct McpCommand {
     pub subscribe: Vec<String>,
     #[arg(long, default_value = ".")]
     pub workspace: String,
+    /// Tool set to register: baseline (all 34 tools), nostub (stubs removed),
+    /// or merged (stubs removed + consolidated tools). Also read from IRIS_TOOLSET env var.
+    #[arg(long, env = "IRIS_TOOLSET", default_value = "baseline")]
+    pub toolset: String,
 }
 
 impl McpCommand {
     pub async fn run(self) -> Result<()> {
-        tracing::info!("iris-dev mcp starting");
+        let toolset = Toolset::from_str(&self.toolset);
+        tracing::info!("iris-dev mcp starting — toolset={}", toolset.as_str());
 
         let explicit = if let Some(host) = self.host.clone() {
             use iris_dev_core::iris::connection::{DiscoverySource, IrisConnection};
@@ -125,7 +130,7 @@ impl McpCommand {
             _setmode(1, O_BINARY); // stdout
         }
 
-        let tools = IrisTools::with_registry(iris, registry)?;
+        let tools = IrisTools::with_registry_and_toolset(iris, registry, toolset)?;
 
         // FR-007: periodically sweep expired elicitation entries.
         {

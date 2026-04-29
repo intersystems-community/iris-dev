@@ -22,19 +22,26 @@ class ResultWriter:
         self._flush()
 
     def record(self, task_id: str, category: str, path: str, harness: str,
-               scored: dict, result: dict):
+               scored: dict, result: dict, condition: str = "baseline"):
         entry = {
             "task_id": task_id,
             "category": category,
             "path": path,
             "harness": harness,
+            "condition": condition,
             "score": scored["score"],
             "reasoning": scored.get("reasoning", ""),
             "tool_call_count": result.get("tool_call_count", 0),
+            "stub_error_count": result.get("stub_error_count", 0),
+            "wrong_tool_count": result.get("wrong_tool_count", 0),
             "scm_elicitation_triggered": _scm_triggered(result.get("transcript", [])),
         }
         self._run["tasks"].append(entry)
         self._flush()
+
+    def set_condition_metadata(self, condition: str, wall_clock_seconds: float):
+        self._run["condition"] = condition
+        self._run["wall_clock_seconds"] = wall_clock_seconds
 
     def finalize(self):
         self._run["summary"] = _compute_summary(self._run["tasks"])

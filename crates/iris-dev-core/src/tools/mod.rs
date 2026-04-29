@@ -18,6 +18,36 @@ pub mod skills_tools;
 pub use doc::{DocMode, IrisDocParams};
 pub use scm::ScmParams;
 
+/// Controls which tools are registered at startup.
+/// Read from `IRIS_TOOLSET` env var or `--toolset` CLI flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Toolset {
+    /// All 34 tools — current behavior (default when IRIS_TOOLSET unset).
+    Baseline,
+    /// 29 tools — stub tools/actions removed; no merged tools.
+    Nostub,
+    /// 23 tools — stubs removed + 4 merger groups consolidated.
+    Merged,
+}
+
+impl Toolset {
+    pub fn from_str(s: &str) -> Self {
+        match s.trim().to_lowercase().as_str() {
+            "nostub" => Toolset::Nostub,
+            "merged" => Toolset::Merged,
+            _ => Toolset::Baseline,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Toolset::Baseline => "baseline",
+            Toolset::Nostub => "nostub",
+            Toolset::Merged => "merged",
+        }
+    }
+}
+
 /// A single tool call entry for the session history ring buffer.
 #[derive(Debug, Clone)]
 pub struct ToolCallEntry {
@@ -380,6 +410,8 @@ pub struct IrisTools {
     pub history: Arc<std::sync::Mutex<VecDeque<ToolCallEntry>>>,
     /// Pending elicitation state for SCM dialogs.
     pub elicitation_store: Arc<ElicitationStore>,
+    /// Active toolset — controls which tools are registered.
+    pub toolset: Toolset,
     tool_router: ToolRouter<IrisTools>,
 }
 
@@ -393,12 +425,20 @@ impl IrisTools {
             client,
             history: Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(50))),
             elicitation_store: Arc::new(ElicitationStore::new()),
+            toolset: Toolset::Baseline,
             tool_router: Self::tool_router(),
         })
     }
     pub fn with_registry(
         iris: Option<IrisConnection>,
         registry: crate::skills::SkillRegistry,
+    ) -> anyhow::Result<Self> {
+        Self::with_registry_and_toolset(iris, registry, Toolset::Baseline)
+    }
+    pub fn with_registry_and_toolset(
+        iris: Option<IrisConnection>,
+        registry: crate::skills::SkillRegistry,
+        toolset: Toolset,
     ) -> anyhow::Result<Self> {
         let client = Arc::new(IrisConnection::http_client()?);
         Ok(Self {
@@ -407,6 +447,7 @@ impl IrisTools {
             client,
             history: Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(50))),
             elicitation_store: Arc::new(ElicitationStore::new()),
+            toolset,
             tool_router: Self::tool_router(),
         })
     }

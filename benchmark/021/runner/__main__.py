@@ -2,6 +2,7 @@
 import argparse
 import os
 import sys
+import time
 
 
 def parse_args():
@@ -14,6 +15,9 @@ def parse_args():
                    help="Run a single task by ID, e.g. GEN-01")
     p.add_argument("--harness", choices=["claude-code", "copilot", "both"], default="claude-code",
                    help="Which AI harness to use (default: claude-code)")
+    p.add_argument("--toolset", choices=["baseline", "nostub", "merged"], default=None,
+                   help="Tool set condition to run. Sets IRIS_TOOLSET env var for iris-dev. "
+                        "If omitted, uses current IRIS_TOOLSET or defaults to baseline.")
     p.add_argument("--report-only", metavar="SCORES_JSON",
                    help="Generate report from an existing scores.json, skip running tasks")
     p.add_argument("--dry-run", action="store_true",
@@ -45,6 +49,10 @@ def main():
         generate_report(args.report_only)
         return
 
+    # Set IRIS_TOOLSET before any subprocess or discovery runs
+    if args.toolset:
+        os.environ["IRIS_TOOLSET"] = args.toolset
+
     check_env()
 
     from .task_loader import load_tasks
@@ -62,18 +70,29 @@ def main():
 
     print(f"Running {len(tasks)} task(s) | path={args.path} | harness={args.harness}")
 
-    from .namespace import ensure_benchmark_namespace
+    active_condition = os.environ.get("IRIS_TOOLSET", "baseline")
+    print(f"Condition: {active_condition}")
+
+    # Reset namespace before the condition run (FR-001b)
+    from .namespace import reset_benchmark_namespace, ensure_benchmark_namespace
     try:
-        ensure_benchmark_namespace()
+        reset_benchmark_namespace()
+        print(f"BENCHMARK namespace reset for condition={active_condition}")
     except Exception as e:
-        # BENCHMARK may already exist (created manually) — continue
-        print(f"Note: namespace setup skipped ({e.__class__.__name__}: {e})")
+        # Fallback: ensure namespace exists if reset fails (e.g. first run)
+        try:
+            ensure_benchmark_namespace()
+        except Exception:
+            pass
+        print(f"Note: namespace reset skipped ({e.__class__.__name__}: {e}), using ensure instead")
 
     from .result_writer import ResultWriter
     writer = ResultWriter()
 
     paths = (["A", "B"] if args.path == "both" else [args.path])
     harnesses = (["claude-code", "copilot"] if args.harness == "both" else [args.harness])
+
+    condition_start = time.time()
 
     for path in paths:
         for harness in harnesses:
@@ -91,13 +110,16 @@ def main():
                 result = run_task(task, path)
                 from .judge import score_result
                 scored = score_result(task, result)
-                writer.record(task["id"], task["category"], path, harness, scored, result)
+                writer.record(task["id"], task["category"], path, harness, scored, result,
+                               condition=active_condition)
                 from .namespace import wipe_benchmark_namespace
                 wipe_benchmark_namespace()
                 print(f"score={scored['score']}")
 
+    condition_wall_clock = round(time.time() - condition_start, 1)
+    writer.set_condition_metadata(active_condition, condition_wall_clock)
     writer.finalize()
-    print(f"\nResults: {writer.run_dir}")
+    print(f"\nResults: {writer.run_dir} (wall_clock={condition_wall_clock}s)")
 
 
 if __name__ == "__main__":
