@@ -32,9 +32,11 @@ Download the binary and VS Code extension from the [latest release](https://gith
 
 ```bash
 # Apple Silicon (M1/M2/M3):
+# If /usr/local/bin doesn't exist: sudo mkdir -p /usr/local/bin
 curl -fsSL https://github.com/intersystems-community/iris-dev/releases/latest/download/iris-dev-macos-arm64 \
   -o /usr/local/bin/iris-dev && chmod +x /usr/local/bin/iris-dev
 xattr -d com.apple.quarantine /usr/local/bin/iris-dev 2>/dev/null
+# Alternative without sudo: install to ~/.local/bin (ensure it's on your PATH)
 
 # Intel Mac:
 curl -fsSL https://github.com/intersystems-community/iris-dev/releases/latest/download/iris-dev-macos-x86_64 \
