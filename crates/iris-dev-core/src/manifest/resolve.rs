@@ -104,24 +104,96 @@ fn dep_to_source(name: &str, dep: &DependencySpec) -> Result<ResolvedSource> {
 }
 
 fn resolve_version(req: &VersionReq, source: &ResolvedSource) -> Result<Version> {
-    // FR-019/Mo5: return explicit error instead of stub version.
-    anyhow::bail!(
-        "version resolution not yet implemented for source {:?} (requirement: {})",
-        source,
-        req
-    )
+    // Sync wrapper — spins up a tokio runtime for the async GitHub fetch.
+    // Called from Resolve::from_manifest which is sync.
+    match source {
+        ResolvedSource::GitHub { .. } => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            rt.block_on(resolve_github_version_async(req, source))
+        }
+        ResolvedSource::Local(path) => {
+            // Read version from a local iris-dev.toml or Cargo.toml
+            let manifest_path = path.join("iris-dev.toml");
+            if manifest_path.exists() {
+                let content = std::fs::read_to_string(&manifest_path)?;
+                let parsed: toml::Value = toml::from_str(&content)?;
+                let v_str = parsed
+                    .get("package")
+                    .and_then(|p| p.get("version"))
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow!("no [package].version in {:?}", manifest_path))?;
+                let v = Version::parse(v_str)?;
+                if req.matches(&v) {
+                    return Ok(v);
+                }
+                anyhow::bail!("local version {} does not satisfy {}", v, req);
+            }
+            anyhow::bail!("local source {:?} has no iris-dev.toml", path)
+        }
+        _ => anyhow::bail!(
+            "version resolution not yet implemented for source {:?} (requirement: {})",
+            source,
+            req
+        ),
+    }
 }
 
-/// Test accessor for resolve_version. Exposed for integration tests.
-#[doc(hidden)]
-pub fn resolve_version_for_test(req: &semver::VersionReq) -> anyhow::Result<semver::Version> {
-    resolve_version(
-        req,
-        &ResolvedSource::GitHub {
-            owner: "test".into(),
-            repo: "test".into(),
-        },
-    )
+/// Fetch GitHub tags and return the highest version satisfying `req`.
+/// Exported for use in async tests.
+pub async fn resolve_github_version_async(
+    req: &VersionReq,
+    source: &ResolvedSource,
+) -> Result<Version> {
+    let (owner, repo) = match source {
+        ResolvedSource::GitHub { owner, repo } => (owner.as_str(), repo.as_str()),
+        _ => anyhow::bail!("resolve_github_version_async called with non-GitHub source"),
+    };
+
+    let url = format!("https://api.github.com/repos/{}/{}/tags?per_page=100", owner, repo);
+    let client = reqwest::Client::builder()
+        .user_agent("iris-dev/resolver")
+        .build()?;
+
+    let resp = client.get(&url).send().await?;
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        anyhow::bail!("GitHub repo {}/{} not found", owner, repo);
+    }
+    if !resp.status().is_success() {
+        anyhow::bail!(
+            "GitHub API returned {} for {}/{}",
+            resp.status(),
+            owner,
+            repo
+        );
+    }
+
+    let tags: serde_json::Value = resp.json().await?;
+    let tag_array = tags.as_array().ok_or_else(|| anyhow!("unexpected GitHub tags response"))?;
+
+    let mut candidates: Vec<Version> = tag_array
+        .iter()
+        .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
+        .filter_map(|name| {
+            // Accept "v1.2.3" and "1.2.3" tag formats
+            let stripped = name.strip_prefix('v').unwrap_or(name);
+            Version::parse(stripped).ok()
+        })
+        .filter(|v| req.matches(v))
+        .collect();
+
+    if candidates.is_empty() {
+        anyhow::bail!(
+            "no tags in {}/{} satisfy version requirement {}",
+            owner,
+            repo,
+            req
+        );
+    }
+
+    candidates.sort();
+    Ok(candidates.into_iter().last().unwrap())
 }
 
 pub struct ResolveLock {

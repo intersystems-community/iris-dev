@@ -194,16 +194,63 @@ bad-dep = { version = "not-a-semver-version!!", github = "owner/repo" }
     let _ = resolve; // don't assert yet — resolver is a stub
 }
 
-// ── T041: resolve_version stub is honest ────────────────────────────────────
+// ── T041: resolve_version GitHub integration ────────────────────────────────
 
-#[test]
-fn test_resolve_version_stub_is_honest() {
-    use iris_dev_core::manifest::resolve::resolve_version_for_test;
+/// GitHub tag resolution picks the highest matching version.
+/// Uses intersystems-community/iris-dev which has known tags v0.2.0..v0.4.7.
+#[tokio::test]
+async fn test_resolve_github_any_version_succeeds() {
+    use iris_dev_core::manifest::resolve::{resolve_github_version_async, ResolvedSource};
     use semver::VersionReq;
-    let req = VersionReq::parse("^1.0").unwrap();
-    let result = resolve_version_for_test(&req);
-    assert!(
-        result.is_err(),
-        "resolve_version must return Err when resolution is not implemented"
-    );
+    let req = VersionReq::parse("*").unwrap();
+    let source = ResolvedSource::GitHub {
+        owner: "intersystems-community".to_string(),
+        repo: "iris-dev".to_string(),
+    };
+    let result = resolve_github_version_async(&req, &source).await;
+    assert!(result.is_ok(), "should resolve at least one version: {:?}", result);
+    let v = result.unwrap();
+    assert!(v.major > 0 || v.minor >= 2, "resolved version should be >= 0.2.0, got {}", v);
+}
+
+#[tokio::test]
+async fn test_resolve_github_specific_range() {
+    use iris_dev_core::manifest::resolve::{resolve_github_version_async, ResolvedSource};
+    use semver::VersionReq;
+    let req = VersionReq::parse("^0.4").unwrap();
+    let source = ResolvedSource::GitHub {
+        owner: "intersystems-community".to_string(),
+        repo: "iris-dev".to_string(),
+    };
+    let result = resolve_github_version_async(&req, &source).await;
+    assert!(result.is_ok(), "should resolve ^0.4: {:?}", result);
+    let v = result.unwrap();
+    assert_eq!(v.major, 0);
+    assert_eq!(v.minor, 4);
+}
+
+#[tokio::test]
+async fn test_resolve_github_unsatisfiable_range_errors() {
+    use iris_dev_core::manifest::resolve::{resolve_github_version_async, ResolvedSource};
+    use semver::VersionReq;
+    let req = VersionReq::parse("^99.0").unwrap();
+    let source = ResolvedSource::GitHub {
+        owner: "intersystems-community".to_string(),
+        repo: "iris-dev".to_string(),
+    };
+    let result = resolve_github_version_async(&req, &source).await;
+    assert!(result.is_err(), "unsatisfiable range should return Err");
+}
+
+#[tokio::test]
+async fn test_resolve_github_nonexistent_repo_errors() {
+    use iris_dev_core::manifest::resolve::{resolve_github_version_async, ResolvedSource};
+    use semver::VersionReq;
+    let req = VersionReq::parse("*").unwrap();
+    let source = ResolvedSource::GitHub {
+        owner: "intersystems-community".to_string(),
+        repo: "this-repo-does-not-exist-xyz123".to_string(),
+    };
+    let result = resolve_github_version_async(&req, &source).await;
+    assert!(result.is_err(), "nonexistent repo should return Err");
 }
