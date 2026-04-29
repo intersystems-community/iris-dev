@@ -365,6 +365,122 @@ fn test_generate_toml_contains_web_prefix_comment() {
     );
 }
 
+// ── T031: scheme field (https support) ───────────────────────────────────────
+
+#[test]
+fn test_load_parses_scheme_field() {
+    let dir = tempfile::TempDir::new().unwrap();
+    write_toml(
+        &dir,
+        r#"
+host = "iris.example.com"
+web_port = 443
+scheme = "https"
+"#,
+    );
+    let cfg = load_workspace_config(Some(dir.path().to_str().unwrap())).unwrap();
+    assert_eq!(cfg.scheme.as_deref(), Some("https"));
+}
+
+#[test]
+fn test_https_scheme_in_base_url() {
+    std::env::remove_var("IRIS_SCHEME");
+    let cfg = iris_dev_core::iris::workspace_config::WorkspaceConfig {
+        host: Some("iris.example.com".to_string()),
+        web_port: Some(443),
+        scheme: Some("https".to_string()),
+        ..Default::default()
+    };
+    let conn = workspace_config_to_connection(&cfg, "USER").unwrap();
+    assert!(
+        conn.base_url.starts_with("https://"),
+        "base_url should use https, got: {}",
+        conn.base_url
+    );
+    assert_eq!(conn.base_url, "https://iris.example.com:443");
+}
+
+#[test]
+fn test_https_scheme_with_prefix() {
+    std::env::remove_var("IRIS_SCHEME");
+    let cfg = iris_dev_core::iris::workspace_config::WorkspaceConfig {
+        host: Some("dem".to_string()),
+        web_port: Some(443),
+        scheme: Some("https".to_string()),
+        web_prefix: Some("dev".to_string()),
+        ..Default::default()
+    };
+    let conn = workspace_config_to_connection(&cfg, "USER").unwrap();
+    assert_eq!(
+        conn.base_url, "https://dem:443/dev",
+        "https + prefix should combine correctly, got: {}",
+        conn.base_url
+    );
+}
+
+#[test]
+fn test_default_scheme_is_http() {
+    std::env::remove_var("IRIS_SCHEME");
+    let cfg = iris_dev_core::iris::workspace_config::WorkspaceConfig {
+        host: Some("localhost".to_string()),
+        web_port: Some(52773),
+        scheme: None,
+        ..Default::default()
+    };
+    let conn = workspace_config_to_connection(&cfg, "USER").unwrap();
+    assert!(
+        conn.base_url.starts_with("http://"),
+        "default scheme should be http, got: {}",
+        conn.base_url
+    );
+}
+
+#[test]
+fn test_iris_scheme_env_var() {
+    std::env::set_var("IRIS_SCHEME", "https");
+    let cfg = iris_dev_core::iris::workspace_config::WorkspaceConfig {
+        host: Some("localhost".to_string()),
+        web_port: Some(443),
+        scheme: None,
+        ..Default::default()
+    };
+    let conn = workspace_config_to_connection(&cfg, "USER").unwrap();
+    std::env::remove_var("IRIS_SCHEME");
+    assert!(
+        conn.base_url.starts_with("https://"),
+        "IRIS_SCHEME env var should set https, got: {}",
+        conn.base_url
+    );
+}
+
+#[test]
+fn test_toml_scheme_overrides_env_var() {
+    std::env::set_var("IRIS_SCHEME", "http");
+    let cfg = iris_dev_core::iris::workspace_config::WorkspaceConfig {
+        host: Some("localhost".to_string()),
+        web_port: Some(443),
+        scheme: Some("https".to_string()),
+        ..Default::default()
+    };
+    let conn = workspace_config_to_connection(&cfg, "USER").unwrap();
+    std::env::remove_var("IRIS_SCHEME");
+    assert!(
+        conn.base_url.starts_with("https://"),
+        "TOML scheme should override IRIS_SCHEME env var, got: {}",
+        conn.base_url
+    );
+}
+
+#[test]
+fn test_generate_toml_contains_scheme_comment() {
+    let content =
+        iris_dev_core::iris::workspace_config::generate_toml_content("myapp-iris", "USER");
+    assert!(
+        content.contains("scheme"),
+        "generated TOML should document the scheme field"
+    );
+}
+
 // ── Container scoring: hyphen/underscore normalization (#19) ─────────────────
 
 #[test]

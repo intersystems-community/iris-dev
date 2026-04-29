@@ -2,7 +2,7 @@
   "name": "vscode-iris-dev",
   "displayName": "iris-dev for IRIS",
   "description": "Wires iris-dev MCP tools into VS Code Copilot agent mode — automatically picks up your objectscript.conn connection. Requires the iris-dev binary on PATH.",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "publisher": "intersystems-community",
   "engines": {
     "vscode": "^1.99.0"

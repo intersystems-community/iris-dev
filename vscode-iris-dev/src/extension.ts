@@ -134,6 +134,7 @@ export class IrisDevMcpProvider
 
     const resolvedHost = (named?.superServer?.host ?? named?.webServer?.host) ?? host;
     const webPrefix = named?.webServer?.pathPrefix ?? null;
+    const webScheme = named?.webServer?.scheme ?? null;
 
     const isIsfs = vscode.workspace.workspaceFolders?.some(
       f => f.uri.scheme === 'isfs' || f.uri.scheme === 'isfs-readonly'
@@ -151,6 +152,7 @@ export class IrisDevMcpProvider
       IRIS_HOST: resolvedHost,
       IRIS_WEB_PORT: named?.webServer?.port ?? webPort,
       IRIS_WEB_PREFIX: webPrefix ?? undefined,
+      IRIS_SCHEME: webScheme ?? undefined,
       IRIS_USERNAME: named?.username ?? conn.username ?? undefined,
       IRIS_PASSWORD: named?.password ?? conn.password ?? undefined,
       IRIS_NAMESPACE: named?.ns ?? namespace,
@@ -161,6 +163,7 @@ export class IrisDevMcpProvider
       Object.entries(envRaw).filter(([, v]) => v !== undefined && v !== null)
     ) as Record<string, string | number>;
 
+    this.log.info(`iris-dev: scheme=${webScheme ?? 'http'} prefix=${webPrefix ?? '(none)'}`);
     this.log.info(`iris-dev: launching binary with env = ${JSON.stringify(env)}`);
 
     const definition = new vscode.McpStdioServerDefinition(

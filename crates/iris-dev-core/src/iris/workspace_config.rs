@@ -17,6 +17,9 @@ pub struct WorkspaceConfig {
     /// Atelier API is served at http://host:port/irisaicore/api/atelier/...
     /// Corresponds to intersystems.servers[x].webServer.pathPrefix in VS Code settings.
     pub web_prefix: Option<String>,
+    /// URL scheme: "http" or "https". Defaults to "http".
+    /// Set to "https" for TLS-protected IRIS web gateways.
+    pub scheme: Option<String>,
     pub username: Option<String>,
     pub password: Option<String>,
 }
@@ -88,9 +91,16 @@ pub fn workspace_config_to_connection(
     cfg: &WorkspaceConfig,
     namespace_default: &str,
 ) -> Option<IrisConnection> {
-    // host + web_port → explicit HTTP connection (highest priority, no docker needed)
+    // host + web_port → explicit HTTP/HTTPS connection (highest priority, no docker needed)
     if let Some(ref host) = cfg.host {
         let port = cfg.web_port.unwrap_or(52773);
+        let scheme = cfg
+            .scheme
+            .clone()
+            .or_else(|| std::env::var("IRIS_SCHEME").ok())
+            .map(|s| s.trim_matches('/').to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "http".to_string());
         let prefix = cfg
             .web_prefix
             .clone()
@@ -98,8 +108,8 @@ pub fn workspace_config_to_connection(
             .map(|p| p.trim_matches('/').to_string())
             .filter(|p| !p.is_empty());
         let base_url = match prefix {
-            Some(p) => format!("http://{}:{}/{}", host, port, p),
-            None => format!("http://{}:{}", host, port),
+            Some(p) => format!("{}://{}:{}/{}", scheme, host, port, p),
+            None => format!("{}://{}:{}", scheme, host, port),
         };
         let namespace = cfg
             .namespace
@@ -179,6 +189,7 @@ namespace = "{namespace}"
 # host = "iris.example.com"
 # web_port = 52773
 # web_prefix = ""  # URL path prefix, e.g. "irisaicore" when Atelier is at /irisaicore/api/atelier/
+# scheme = "http"  # Use "https" for TLS-protected IRIS web gateways
 
 # Credentials (optional)
 # Use IRIS_USERNAME / IRIS_PASSWORD env vars instead of committing credentials.

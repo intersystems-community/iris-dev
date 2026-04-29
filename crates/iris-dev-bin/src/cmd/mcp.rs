@@ -16,6 +16,9 @@ pub struct McpCommand {
     pub web_port: Option<u16>,
     #[arg(long, env = "IRIS_WEB_PREFIX", default_value = "")]
     pub web_prefix: String,
+    /// URL scheme: http or https (default: http)
+    #[arg(long, env = "IRIS_SCHEME", default_value = "http")]
+    pub scheme: String,
     #[arg(long, env = "IRIS_USERNAME")]
     pub username: Option<String>,
     #[arg(long, env = "IRIS_PASSWORD")]
@@ -40,10 +43,11 @@ impl McpCommand {
             use iris_dev_core::iris::connection::{DiscoverySource, IrisConnection};
             let port = self.web_port.unwrap_or(52773);
             let prefix = self.web_prefix.trim_matches('/');
+            let scheme = self.scheme.trim_matches('/');
             let base_url = if prefix.is_empty() {
-                format!("http://{}:{}", host, port)
+                format!("{}://{}:{}", scheme, host, port)
             } else {
-                format!("http://{}:{}/{}", host, port, prefix)
+                format!("{}://{}:{}/{}", scheme, host, port, prefix)
             };
             let username = self.username.as_deref().unwrap_or("_SYSTEM");
             let password = self.password.as_deref().unwrap_or("SYS");
