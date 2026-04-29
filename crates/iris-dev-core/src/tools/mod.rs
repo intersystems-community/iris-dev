@@ -522,20 +522,57 @@ impl IrisTools {
         let client = Arc::new(IrisConnection::http_client()?);
         let mut router = Self::tool_router();
 
-        // Remove stub tools from MCP tool list based on toolset (T017–T019, FR-004–006).
-        // The `#[tool_router]` macro registers all tools; we prune based on toolset.
+        // Remove tools from MCP tool list based on toolset (T017–T019, T033, FR-004–011).
+        // The `#[tool_router]` macro registers all tools; we prune at construction time.
         let stubs_to_remove: &[&str] = match toolset {
             Toolset::Baseline => &[],
             Toolset::Nostub | Toolset::Merged => &[
-                "iris_symbols_local",  // FR-004
-                "skill_propose",       // FR-005
-                "skill_optimize",      // FR-005
-                "skill_share",         // FR-005
+                "iris_symbols_local",      // FR-004
+                "skill_propose",           // FR-005
+                "skill_optimize",          // FR-005
+                "skill_share",             // FR-005
                 "skill_community_install", // FR-006
             ],
         };
         for name in stubs_to_remove {
             router.remove_route(name);
+        }
+
+        // For merged toolset: remove original tools replaced by merged dispatchers (T033).
+        if toolset == Toolset::Merged {
+            let merged_replaced: &[&str] = &[
+                // Replaced by iris_debug (FR-007)
+                "debug_capture_packet", "debug_get_error_logs",
+                "debug_map_int_to_cls", "debug_source_map",
+                // Replaced by iris_production (FR-008)
+                "interop_production_status", "interop_production_start",
+                "interop_production_stop", "interop_production_update",
+                "interop_production_needs_update", "interop_production_recover",
+                // agent_info removed (FR-011)
+                "agent_info",
+            ];
+            for name in merged_replaced {
+                router.remove_route(name);
+            }
+            // Note: iris_interop_query and iris_containers are added via #[tool_router];
+            // interop_logs/queues/message_search and list/select/start_sandbox remain in
+            // the router for baseline/nostub but are removed here for merged.
+            let interop_query_replaced: &[&str] = &[
+                "interop_logs", "interop_queues", "interop_message_search",
+                "iris_list_containers", "iris_select_container", "iris_start_sandbox",
+            ];
+            for name in interop_query_replaced {
+                router.remove_route(name);
+            }
+        } else {
+            // For baseline and nostub: remove the merged dispatcher tools
+            // (they're registered by #[tool_router] but shouldn't appear in these toolsets)
+            let merged_tools: &[&str] = &[
+                "iris_debug", "iris_production", "iris_interop_query", "iris_containers",
+            ];
+            for name in merged_tools {
+                router.remove_route(name);
+            }
         }
 
         Ok(Self {
@@ -1998,6 +2035,129 @@ Methods:
             scm::handle_iris_source_control(iris, self.http_client(), p, &self.elicitation_store)
                 .await;
         self.record_call("iris_source_control", result.is_ok());
+        result
+    }
+
+    // ── Merged tools (T029–T032, registered only when IRIS_TOOLSET=merged) ─────
+    // These are always present in the #[tool_router] but removed via remove_route()
+    // for Baseline and Nostub toolsets in with_registry_and_toolset().
+    // Note: iris_debug already exists above as a real tool — it IS the merged debug dispatcher.
+
+    #[tool(
+        description = "Interoperability production lifecycle (merged). action: status=get current state, start=start named production, stop=stop production, update=hot-apply config, check=check if update needed, recover=recover troubled production."
+    )]
+    async fn iris_production(
+        &self,
+        Parameters(p): Parameters<serde_json::Value>,
+    ) -> Result<CallToolResult, McpError> {
+        let action = p.get("action").and_then(|v| v.as_str()).unwrap_or("status");
+        let iris_opt = self.iris.as_deref();
+        let result = match action {
+            "status"  => interop::interop_production_status_impl(iris_opt,
+                interop::ProductionStatusParams {
+                    namespace: p.get("namespace").and_then(|v| v.as_str()).unwrap_or("USER").to_string(),
+                    full_status: p.get("full").and_then(|v| v.as_bool()).unwrap_or(false),
+                }).await,
+            "start"   => interop::interop_production_start_impl(iris_opt,
+                interop::ProductionNameParams {
+                    production: p.get("production_name").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    namespace: p.get("namespace").and_then(|v| v.as_str()).unwrap_or("USER").to_string(),
+                }).await,
+            "stop"    => interop::interop_production_stop_impl(iris_opt,
+                interop::ProductionStopParams {
+                    production: p.get("production_name").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    namespace: p.get("namespace").and_then(|v| v.as_str()).unwrap_or("USER").to_string(),
+                    timeout: p.get("timeout").and_then(|v| v.as_u64()).unwrap_or(30) as u32,
+                    force: p.get("force").and_then(|v| v.as_bool()).unwrap_or(false),
+                }).await,
+            "update"  => interop::interop_production_update_impl(iris_opt,
+                interop::ProductionUpdateParams {
+                    namespace: p.get("namespace").and_then(|v| v.as_str()).unwrap_or("USER").to_string(),
+                    timeout: 30,
+                    force: false,
+                }).await,
+            "check"   => interop::interop_production_needs_update_impl(iris_opt,
+                interop::ProductionNeedsUpdateParams {
+                    namespace: p.get("namespace").and_then(|v| v.as_str()).unwrap_or("USER").to_string(),
+                }).await,
+            "recover" => interop::interop_production_recover_impl(iris_opt,
+                interop::ProductionRecoverParams {
+                    namespace: p.get("namespace").and_then(|v| v.as_str()).unwrap_or("USER").to_string(),
+                }).await,
+            _ => err_json("INVALID_ACTION",
+                "iris_production: action must be status, start, stop, update, check, or recover"),
+        };
+        self.record_call("iris_production", result.is_ok());
+        result
+    }
+
+    #[tool(
+        description = "Interoperability query dispatcher (merged). what: logs=recent log entries, queues=message queue depths, messages=search message archive."
+    )]
+    async fn iris_interop_query(
+        &self,
+        Parameters(p): Parameters<serde_json::Value>,
+    ) -> Result<CallToolResult, McpError> {
+        let what = p.get("what").and_then(|v| v.as_str()).unwrap_or("logs");
+        let iris_opt = self.iris.as_deref();
+        #[allow(unused_variables)]
+        let result = match what {
+            "logs" => interop::interop_logs_impl(iris_opt,
+                interop::LogsParams {
+                    item_name: p.get("component").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    log_type: p.get("log_type").and_then(|v| v.as_str()).unwrap_or("error,warning").to_string(),
+                    limit: p.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as u32,
+                }).await,
+            "queues" => interop::interop_queues_impl(iris_opt).await,
+            "messages" => interop::interop_message_search_impl(iris_opt,
+                interop::MessageSearchParams {
+                    source: p.get("source").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    target: p.get("target").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    class_name: p.get("message_class").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    limit: p.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as u32,
+                }).await,
+            _ => err_json("INVALID_ACTION",
+                "iris_interop_query: what must be logs, queues, or messages"),
+        };
+        self.record_call("iris_interop_query", result.is_ok());
+        result
+    }
+
+    #[tool(
+        description = "Container lifecycle dispatcher (merged). action: list=list running IRIS containers, select=validate container connection, start=start sandbox container via iris-devtester."
+    )]
+    async fn iris_containers(
+        &self,
+        Parameters(p): Parameters<serde_json::Value>,
+    ) -> Result<CallToolResult, McpError> {
+        let action = p.get("action").and_then(|v| v.as_str()).unwrap_or("list");
+        let name = p.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let workspace = std::env::var("OBJECTSCRIPT_WORKSPACE").ok();
+        let result = match action {
+            "list" => {
+                let params = ListContainersParams { workspace_root: workspace };
+                self.iris_list_containers(Parameters(params)).await
+            }
+            "select" => {
+                let params = SelectContainerParams {
+                    name: name.unwrap_or_default(),
+                    namespace: default_namespace(),
+                    username: default_username(),
+                    password: default_password(),
+                };
+                self.iris_select_container(Parameters(params)).await
+            }
+            "start" => {
+                let params = StartSandboxParams {
+                    name: name.unwrap_or_default(),
+                    edition: default_edition(),
+                };
+                self.iris_start_sandbox(Parameters(params)).await
+            }
+            _ => err_json("INVALID_ACTION",
+                "iris_containers: action must be list, select, or start"),
+        };
+        self.record_call("iris_containers", result.is_ok());
         result
     }
 }
