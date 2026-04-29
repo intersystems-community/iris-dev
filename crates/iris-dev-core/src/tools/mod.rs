@@ -520,6 +520,24 @@ impl IrisTools {
         toolset: Toolset,
     ) -> anyhow::Result<Self> {
         let client = Arc::new(IrisConnection::http_client()?);
+        let mut router = Self::tool_router();
+
+        // Remove stub tools from MCP tool list based on toolset (T017–T019, FR-004–006).
+        // The `#[tool_router]` macro registers all tools; we prune based on toolset.
+        let stubs_to_remove: &[&str] = match toolset {
+            Toolset::Baseline => &[],
+            Toolset::Nostub | Toolset::Merged => &[
+                "iris_symbols_local",  // FR-004
+                "skill_propose",       // FR-005
+                "skill_optimize",      // FR-005
+                "skill_share",         // FR-005
+                "skill_community_install", // FR-006
+            ],
+        };
+        for name in stubs_to_remove {
+            router.remove_route(name);
+        }
+
         Ok(Self {
             iris: iris.map(Arc::new),
             registry: Arc::new(registry),
@@ -527,7 +545,7 @@ impl IrisTools {
             history: Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(50))),
             elicitation_store: Arc::new(ElicitationStore::new()),
             toolset,
-            tool_router: Self::tool_router(),
+            tool_router: router,
         })
     }
     fn get_iris(&self) -> Result<&IrisConnection, McpError> {
