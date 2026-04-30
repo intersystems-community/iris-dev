@@ -34,3 +34,9 @@ docs/*.md
 .claude/
 vscode-iris-dev/*.vsix
 specs/
+*.exe
+iris-dev-macos*
+iris-dev-linux*
+*.vsix
+run_benchmark.py
+*.pptx
