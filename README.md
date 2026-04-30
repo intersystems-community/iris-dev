@@ -1,16 +1,8 @@
-# iris-dev — Early Access Program
+# iris-dev
 
-Welcome to the Early Access Program for **iris-dev**, an AI coding tool for InterSystems IRIS developers.
-
-iris-dev is a single binary that connects GitHub Copilot, Claude Code, and other AI coding assistants directly to a live IRIS instance via the Model Context Protocol (MCP). Your AI assistant can compile, test, search, read, write, and debug ObjectScript — all without leaving the chat.
+**iris-dev** is a single binary that connects GitHub Copilot, Claude Code, and other AI coding assistants directly to a live InterSystems IRIS instance via the Model Context Protocol (MCP). Your AI assistant can compile, test, search, read, write, and debug ObjectScript — all without leaving the chat.
 
 **No Python. No pip. No npm. No API keys.**
-
-> [!IMPORTANT]
-> This is pre-release software. APIs and behavior may change between releases. We're looking for feedback on real codebases — what breaks, what's missing, how it compares to your current workflow.
-
-> [!CAUTION]
-> This software is not meant for production environments.
 
 For questions, bug reports, or feedback, use the **Issues** tab on this repository, or email [thomas.dyar@intersystems.com](mailto:thomas.dyar@intersystems.com).
 
@@ -18,9 +10,7 @@ For questions, bug reports, or feedback, use the **Issues** tab on this reposito
 
 ## Getting Started
 
-This is a **public Early Access Program**. No sign-up or invitation required — download the binary and install the VS Code extension directly from the [releases page](https://github.com/intersystems-community/iris-dev/releases/latest).
-
-If you found this through [evaluation.intersystems.com](https://evaluation.intersystems.com), you're in the right place. Jump straight to [Installation](#installation) below.
+Download the binary and VS Code extension directly from the [releases page](https://github.com/intersystems-community/iris-dev/releases/latest).
 
 ---
 
