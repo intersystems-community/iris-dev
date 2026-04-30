@@ -218,6 +218,7 @@ IRIS connection is auto-discovered in this order:
 2. `.iris-dev.toml` in the workspace root
 3. Env vars: `IRIS_HOST`, `IRIS_WEB_PORT`, `IRIS_USERNAME`, `IRIS_PASSWORD`, `IRIS_NAMESPACE`
 4. `IRIS_WEB_PREFIX` — set if IRIS is behind a non-root web gateway (e.g. `"irisaicore"` for `http://host:80/irisaicore/api/atelier`)
+5. `IRIS_TOOLSET` — control which tools are registered: `baseline` (all 34, default), `nostub` (29, stubs removed), `merged` (23, consolidated tool set for ablation study)
 5. VS Code `settings.json` (`objectscript.conn` / `intersystems.servers` including `pathPrefix`)
 6. Docker containers (scored by workspace name similarity)
 7. Localhost port scan (52773, 41773, 51773, 8080)
