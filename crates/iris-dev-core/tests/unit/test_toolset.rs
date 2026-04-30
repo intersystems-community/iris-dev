@@ -35,7 +35,10 @@ fn test_nostub_excludes_iris_symbols_local() {
     assert!(
         !names.contains("iris_symbols_local"),
         "iris_symbols_local must not be registered in nostub toolset. Found: {:?}",
-        names.iter().filter(|n| n.contains("symbol")).collect::<Vec<_>>()
+        names
+            .iter()
+            .filter(|n| n.contains("symbol"))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -69,8 +72,16 @@ fn test_nostub_skill_community_excludes_install() {
 fn test_nostub_preserves_core_tools() {
     let tools = IrisTools::new_with_toolset(None, Toolset::Nostub).expect("IrisTools::new");
     let names = tools.registered_tool_names();
-    for required in &["iris_compile", "iris_execute", "iris_doc", "iris_query",
-                       "iris_symbols", "docs_introspect", "iris_search", "iris_info"] {
+    for required in &[
+        "iris_compile",
+        "iris_execute",
+        "iris_doc",
+        "iris_query",
+        "iris_symbols",
+        "docs_introspect",
+        "iris_search",
+        "iris_info",
+    ] {
         assert!(
             names.contains(*required),
             "Core tool {} must still be registered in nostub toolset",
@@ -110,7 +121,10 @@ fn test_merged_registers_iris_debug() {
     assert!(
         names.contains("iris_debug"),
         "iris_debug must be registered in merged toolset. Found tools: {:?}",
-        names.iter().filter(|n| n.contains("debug")).collect::<Vec<_>>()
+        names
+            .iter()
+            .filter(|n| n.contains("debug"))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -163,8 +177,12 @@ fn test_merged_excludes_agent_info() {
 fn test_merged_excludes_original_debug_tools() {
     let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
     let names = tools.registered_tool_names();
-    for replaced in &["debug_capture_packet", "debug_get_error_logs",
-                       "debug_map_int_to_cls", "debug_source_map"] {
+    for replaced in &[
+        "debug_capture_packet",
+        "debug_get_error_logs",
+        "debug_map_int_to_cls",
+        "debug_source_map",
+    ] {
         assert!(
             !names.contains(*replaced),
             "{} must not be registered in merged toolset (replaced by iris_debug)",
@@ -178,9 +196,14 @@ fn test_merged_excludes_original_debug_tools() {
 fn test_merged_excludes_original_interop_production_tools() {
     let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
     let names = tools.registered_tool_names();
-    for replaced in &["interop_production_status", "interop_production_start",
-                       "interop_production_stop", "interop_production_update",
-                       "interop_production_needs_update", "interop_production_recover"] {
+    for replaced in &[
+        "interop_production_status",
+        "interop_production_start",
+        "interop_production_stop",
+        "interop_production_update",
+        "interop_production_needs_update",
+        "interop_production_recover",
+    ] {
         assert!(
             !names.contains(*replaced),
             "{} must not be registered in merged toolset (replaced by iris_production)",

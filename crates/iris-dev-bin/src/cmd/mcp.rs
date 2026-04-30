@@ -1,6 +1,10 @@
 use anyhow::Result;
 use clap::Args;
-use iris_dev_core::{iris::discovery::discover_iris, skills::SkillRegistry, tools::{IrisTools, Toolset}};
+use iris_dev_core::{
+    iris::discovery::discover_iris,
+    skills::SkillRegistry,
+    tools::{IrisTools, Toolset},
+};
 use rmcp::{transport::stdio, ServiceExt};
 use tokio::sync::watch;
 

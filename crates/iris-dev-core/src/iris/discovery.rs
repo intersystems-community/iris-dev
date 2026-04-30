@@ -123,7 +123,7 @@ pub async fn discover_iris(explicit: Option<IrisConnection>) -> Result<Option<Ir
         if scheme != "http" || prefix.is_some() {
             let base_url = match &prefix {
                 Some(p) => format!("{}://{}:{}/{}", scheme, host, port, p),
-                None    => format!("{}://{}:{}", scheme, host, port),
+                None => format!("{}://{}:{}", scheme, host, port),
             };
             let mut conn = IrisConnection::new(
                 base_url,

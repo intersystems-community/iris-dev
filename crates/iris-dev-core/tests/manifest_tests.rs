@@ -208,9 +208,17 @@ async fn test_resolve_github_any_version_succeeds() {
         repo: "iris-dev".to_string(),
     };
     let result = resolve_github_version_async(&req, &source).await;
-    assert!(result.is_ok(), "should resolve at least one version: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "should resolve at least one version: {:?}",
+        result
+    );
     let v = result.unwrap();
-    assert!(v.major > 0 || v.minor >= 2, "resolved version should be >= 0.2.0, got {}", v);
+    assert!(
+        v.major > 0 || v.minor >= 2,
+        "resolved version should be >= 0.2.0, got {}",
+        v
+    );
 }
 
 #[tokio::test]

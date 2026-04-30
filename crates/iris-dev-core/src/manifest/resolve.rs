@@ -151,7 +151,10 @@ pub async fn resolve_github_version_async(
         _ => anyhow::bail!("resolve_github_version_async called with non-GitHub source"),
     };
 
-    let url = format!("https://api.github.com/repos/{}/{}/tags?per_page=100", owner, repo);
+    let url = format!(
+        "https://api.github.com/repos/{}/{}/tags?per_page=100",
+        owner, repo
+    );
     let client = reqwest::Client::builder()
         .user_agent("iris-dev/resolver")
         .build()?;
@@ -170,7 +173,9 @@ pub async fn resolve_github_version_async(
     }
 
     let tags: serde_json::Value = resp.json().await?;
-    let tag_array = tags.as_array().ok_or_else(|| anyhow!("unexpected GitHub tags response"))?;
+    let tag_array = tags
+        .as_array()
+        .ok_or_else(|| anyhow!("unexpected GitHub tags response"))?;
 
     let mut candidates: Vec<Version> = tag_array
         .iter()

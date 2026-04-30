@@ -430,7 +430,10 @@ impl IrisTools {
         })
     }
     /// Convenience constructor for tests — same as `new` but with explicit toolset.
-    pub fn new_with_toolset(iris: Option<IrisConnection>, toolset: Toolset) -> anyhow::Result<Self> {
+    pub fn new_with_toolset(
+        iris: Option<IrisConnection>,
+        toolset: Toolset,
+    ) -> anyhow::Result<Self> {
         Self::with_registry_and_toolset(iris, crate::skills::SkillRegistry::new(), toolset)
     }
 
@@ -442,22 +445,42 @@ impl IrisTools {
         // 34 - stubs(5) = nostub(29); 29 - merged_removed(10) + merged_added(4) = merged(23)
         let all_tools: &[&str] = &[
             // REST — 14
-            "iris_compile", "iris_execute", "iris_doc", "iris_query",
-            "iris_symbols", "iris_symbols_local", "docs_introspect", "iris_search",
-            "iris_info", "iris_macro",
-            "debug_capture_packet", "debug_get_error_logs",
-            "iris_generate", "iris_generate_class",
+            "iris_compile",
+            "iris_execute",
+            "iris_doc",
+            "iris_query",
+            "iris_symbols",
+            "iris_symbols_local",
+            "docs_introspect",
+            "iris_search",
+            "iris_info",
+            "iris_macro",
+            "debug_capture_packet",
+            "debug_get_error_logs",
+            "iris_generate",
+            "iris_generate_class",
             // Docker exec — 16
             "iris_test",
-            "debug_map_int_to_cls", "debug_source_map",
+            "debug_map_int_to_cls",
+            "debug_source_map",
             "iris_source_control",
-            "interop_production_status", "interop_production_start",
-            "interop_production_stop", "interop_production_update",
-            "interop_production_needs_update", "interop_production_recover",
-            "interop_logs", "interop_queues", "interop_message_search",
-            "skill", "skill_propose", "skill_optimize",
+            "interop_production_status",
+            "interop_production_start",
+            "interop_production_stop",
+            "interop_production_update",
+            "interop_production_needs_update",
+            "interop_production_recover",
+            "interop_logs",
+            "interop_queues",
+            "interop_message_search",
+            "skill",
+            "skill_propose",
+            "skill_optimize",
             // Local/CLI — 4
-            "skill_share", "skill_community", "skill_community_install", "kb",
+            "skill_share",
+            "skill_community",
+            "skill_community_install",
+            "kb",
         ];
 
         // Tools removed in nostub — 5 stubs returning NOT_IMPLEMENTED
@@ -471,15 +494,23 @@ impl IrisTools {
 
         // Tools removed in merged (on top of stubs) — 10 removed, 4 added → 29-10+4=23
         let merged_removed: &[&str] = &[
-            "debug_capture_packet", "debug_get_error_logs",
-            "debug_map_int_to_cls", "debug_source_map",
-            "interop_production_status", "interop_production_start",
-            "interop_production_stop", "interop_production_update",
-            "interop_production_needs_update", "interop_production_recover",
+            "debug_capture_packet",
+            "debug_get_error_logs",
+            "debug_map_int_to_cls",
+            "debug_source_map",
+            "interop_production_status",
+            "interop_production_start",
+            "interop_production_stop",
+            "interop_production_update",
+            "interop_production_needs_update",
+            "interop_production_recover",
         ];
         let merged_removed_2: &[&str] = &[] as &[&str]; // placeholder, counts handled above
         let merged_added: &[&str] = &[
-            "iris_debug", "iris_production", "iris_interop_query", "iris_containers",
+            "iris_debug",
+            "iris_production",
+            "iris_interop_query",
+            "iris_containers",
         ];
 
         let mut names: std::collections::HashSet<String> =
@@ -542,12 +573,17 @@ impl IrisTools {
         if toolset == Toolset::Merged {
             let merged_replaced: &[&str] = &[
                 // Replaced by iris_debug (FR-007)
-                "debug_capture_packet", "debug_get_error_logs",
-                "debug_map_int_to_cls", "debug_source_map",
+                "debug_capture_packet",
+                "debug_get_error_logs",
+                "debug_map_int_to_cls",
+                "debug_source_map",
                 // Replaced by iris_production (FR-008)
-                "interop_production_status", "interop_production_start",
-                "interop_production_stop", "interop_production_update",
-                "interop_production_needs_update", "interop_production_recover",
+                "interop_production_status",
+                "interop_production_start",
+                "interop_production_stop",
+                "interop_production_update",
+                "interop_production_needs_update",
+                "interop_production_recover",
                 // agent_info removed (FR-011)
                 "agent_info",
             ];
@@ -558,8 +594,12 @@ impl IrisTools {
             // interop_logs/queues/message_search and list/select/start_sandbox remain in
             // the router for baseline/nostub but are removed here for merged.
             let interop_query_replaced: &[&str] = &[
-                "interop_logs", "interop_queues", "interop_message_search",
-                "iris_list_containers", "iris_select_container", "iris_start_sandbox",
+                "interop_logs",
+                "interop_queues",
+                "interop_message_search",
+                "iris_list_containers",
+                "iris_select_container",
+                "iris_start_sandbox",
             ];
             for name in interop_query_replaced {
                 router.remove_route(name);
@@ -568,7 +608,10 @@ impl IrisTools {
             // For baseline and nostub: remove the merged dispatcher tools
             // (they're registered by #[tool_router] but shouldn't appear in these toolsets)
             let merged_tools: &[&str] = &[
-                "iris_debug", "iris_production", "iris_interop_query", "iris_containers",
+                "iris_debug",
+                "iris_production",
+                "iris_interop_query",
+                "iris_containers",
             ];
             for name in merged_tools {
                 router.remove_route(name);
@@ -2053,39 +2096,101 @@ Methods:
         let action = p.get("action").and_then(|v| v.as_str()).unwrap_or("status");
         let iris_opt = self.iris.as_deref();
         let result = match action {
-            "status"  => interop::interop_production_status_impl(iris_opt,
-                interop::ProductionStatusParams {
-                    namespace: p.get("namespace").and_then(|v| v.as_str()).unwrap_or("USER").to_string(),
-                    full_status: p.get("full").and_then(|v| v.as_bool()).unwrap_or(false),
-                }).await,
-            "start"   => interop::interop_production_start_impl(iris_opt,
-                interop::ProductionNameParams {
-                    production: p.get("production_name").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                    namespace: p.get("namespace").and_then(|v| v.as_str()).unwrap_or("USER").to_string(),
-                }).await,
-            "stop"    => interop::interop_production_stop_impl(iris_opt,
-                interop::ProductionStopParams {
-                    production: p.get("production_name").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                    namespace: p.get("namespace").and_then(|v| v.as_str()).unwrap_or("USER").to_string(),
-                    timeout: p.get("timeout").and_then(|v| v.as_u64()).unwrap_or(30) as u32,
-                    force: p.get("force").and_then(|v| v.as_bool()).unwrap_or(false),
-                }).await,
-            "update"  => interop::interop_production_update_impl(iris_opt,
-                interop::ProductionUpdateParams {
-                    namespace: p.get("namespace").and_then(|v| v.as_str()).unwrap_or("USER").to_string(),
-                    timeout: 30,
-                    force: false,
-                }).await,
-            "check"   => interop::interop_production_needs_update_impl(iris_opt,
-                interop::ProductionNeedsUpdateParams {
-                    namespace: p.get("namespace").and_then(|v| v.as_str()).unwrap_or("USER").to_string(),
-                }).await,
-            "recover" => interop::interop_production_recover_impl(iris_opt,
-                interop::ProductionRecoverParams {
-                    namespace: p.get("namespace").and_then(|v| v.as_str()).unwrap_or("USER").to_string(),
-                }).await,
-            _ => err_json("INVALID_ACTION",
-                "iris_production: action must be status, start, stop, update, check, or recover"),
+            "status" => {
+                interop::interop_production_status_impl(
+                    iris_opt,
+                    interop::ProductionStatusParams {
+                        namespace: p
+                            .get("namespace")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("USER")
+                            .to_string(),
+                        full_status: p.get("full").and_then(|v| v.as_bool()).unwrap_or(false),
+                    },
+                )
+                .await
+            }
+            "start" => {
+                interop::interop_production_start_impl(
+                    iris_opt,
+                    interop::ProductionNameParams {
+                        production: p
+                            .get("production_name")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
+                        namespace: p
+                            .get("namespace")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("USER")
+                            .to_string(),
+                    },
+                )
+                .await
+            }
+            "stop" => {
+                interop::interop_production_stop_impl(
+                    iris_opt,
+                    interop::ProductionStopParams {
+                        production: p
+                            .get("production_name")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
+                        namespace: p
+                            .get("namespace")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("USER")
+                            .to_string(),
+                        timeout: p.get("timeout").and_then(|v| v.as_u64()).unwrap_or(30) as u32,
+                        force: p.get("force").and_then(|v| v.as_bool()).unwrap_or(false),
+                    },
+                )
+                .await
+            }
+            "update" => {
+                interop::interop_production_update_impl(
+                    iris_opt,
+                    interop::ProductionUpdateParams {
+                        namespace: p
+                            .get("namespace")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("USER")
+                            .to_string(),
+                        timeout: 30,
+                        force: false,
+                    },
+                )
+                .await
+            }
+            "check" => {
+                interop::interop_production_needs_update_impl(
+                    iris_opt,
+                    interop::ProductionNeedsUpdateParams {
+                        namespace: p
+                            .get("namespace")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("USER")
+                            .to_string(),
+                    },
+                )
+                .await
+            }
+            "recover" => {
+                interop::interop_production_recover_impl(
+                    iris_opt,
+                    interop::ProductionRecoverParams {
+                        namespace: p
+                            .get("namespace")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("USER")
+                            .to_string(),
+                    },
+                )
+                .await
+            }
+            _ => err_json(
+                "INVALID_ACTION",
+                "iris_production: action must be status, start, stop, update, check, or recover",
+            ),
         };
         self.record_call("iris_production", result.is_ok());
         result
@@ -2102,22 +2207,50 @@ Methods:
         let iris_opt = self.iris.as_deref();
         #[allow(unused_variables)]
         let result = match what {
-            "logs" => interop::interop_logs_impl(iris_opt,
-                interop::LogsParams {
-                    item_name: p.get("component").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                    log_type: p.get("log_type").and_then(|v| v.as_str()).unwrap_or("error,warning").to_string(),
-                    limit: p.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as u32,
-                }).await,
+            "logs" => {
+                interop::interop_logs_impl(
+                    iris_opt,
+                    interop::LogsParams {
+                        item_name: p
+                            .get("component")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
+                        log_type: p
+                            .get("log_type")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("error,warning")
+                            .to_string(),
+                        limit: p.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as u32,
+                    },
+                )
+                .await
+            }
             "queues" => interop::interop_queues_impl(iris_opt).await,
-            "messages" => interop::interop_message_search_impl(iris_opt,
-                interop::MessageSearchParams {
-                    source: p.get("source").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                    target: p.get("target").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                    class_name: p.get("message_class").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                    limit: p.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as u32,
-                }).await,
-            _ => err_json("INVALID_ACTION",
-                "iris_interop_query: what must be logs, queues, or messages"),
+            "messages" => {
+                interop::interop_message_search_impl(
+                    iris_opt,
+                    interop::MessageSearchParams {
+                        source: p
+                            .get("source")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
+                        target: p
+                            .get("target")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
+                        class_name: p
+                            .get("message_class")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
+                        limit: p.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as u32,
+                    },
+                )
+                .await
+            }
+            _ => err_json(
+                "INVALID_ACTION",
+                "iris_interop_query: what must be logs, queues, or messages",
+            ),
         };
         self.record_call("iris_interop_query", result.is_ok());
         result
@@ -2131,11 +2264,16 @@ Methods:
         Parameters(p): Parameters<serde_json::Value>,
     ) -> Result<CallToolResult, McpError> {
         let action = p.get("action").and_then(|v| v.as_str()).unwrap_or("list");
-        let name = p.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let name = p
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         let workspace = std::env::var("OBJECTSCRIPT_WORKSPACE").ok();
         let result = match action {
             "list" => {
-                let params = ListContainersParams { workspace_root: workspace };
+                let params = ListContainersParams {
+                    workspace_root: workspace,
+                };
                 self.iris_list_containers(Parameters(params)).await
             }
             "select" => {
@@ -2154,8 +2292,10 @@ Methods:
                 };
                 self.iris_start_sandbox(Parameters(params)).await
             }
-            _ => err_json("INVALID_ACTION",
-                "iris_containers: action must be list, select, or start"),
+            _ => err_json(
+                "INVALID_ACTION",
+                "iris_containers: action must be list, select, or start",
+            ),
         };
         self.record_call("iris_containers", result.is_ok());
         result
