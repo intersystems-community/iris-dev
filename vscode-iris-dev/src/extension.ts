@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import which from 'which';
+import * as serverManager from '@intersystems-community/intersystems-servermanager';
 
 function findIrisDev(): string | null {
   const cfg = vscode.workspace.getConfiguration('iris-dev');
@@ -157,6 +158,7 @@ export class IrisDevMcpProvider
       IRIS_PASSWORD: named?.password ?? conn.password ?? undefined,
       IRIS_NAMESPACE: named?.ns ?? namespace,
       IRIS_ISFS: isIsfs ? 'true' : undefined,
+      IRIS_SERVER_NAME: conn.server ?? undefined,
       OBJECTSCRIPT_LEARNING: 'true',
     };
     const env: Record<string, string | number> = Object.fromEntries(
@@ -184,8 +186,59 @@ export class IrisDevMcpProvider
     }
     const env: Record<string, string | number> = { ...(server.env ?? {}) } as Record<string, string | number>;
     if (!env.IRIS_PASSWORD) {
-      const pw = await vscode.window.showInputBox({ prompt: 'IRIS password', password: true });
-      if (pw !== undefined) { env.IRIS_PASSWORD = pw; server.env = env; }
+      const namedServer = env.IRIS_SERVER_NAME as string | undefined;
+      let resolvedByServerManager = false;
+
+      // Try InterSystems Server Manager authentication provider when a named server is configured
+      if (namedServer) {
+        const smExt = vscode.extensions.getExtension<serverManager.ServerManagerAPI>(serverManager.EXTENSION_ID);
+        if (smExt) {
+          try {
+            if (!smExt.isActive) {
+              await smExt.activate();
+            }
+            const api = smExt.exports;
+            if (api?.getServerSpec) {
+              const spec = await api.getServerSpec(namedServer);
+              if (spec) {
+                if (typeof spec.password !== 'undefined') {
+                  // Password stored in settings (deprecated) — use it directly
+                  env.IRIS_PASSWORD = spec.password;
+                  server.env = env;
+                  resolvedByServerManager = true;
+                } else {
+                  const scopes = [spec.name, spec.username || ''];
+                  const account = api.getAccount?.(spec);
+                  const sessionOptions = account ? { account } : {};
+                  let session = await vscode.authentication.getSession(
+                    serverManager.AUTHENTICATION_PROVIDER, scopes, { silent: true, ...sessionOptions }
+                  );
+                  if (!session) {
+                    session = await vscode.authentication.getSession(
+                      serverManager.AUTHENTICATION_PROVIDER, scopes, { createIfNone: true, ...sessionOptions }
+                    );
+                  }
+                  if (session) {
+                    const username = session.scopes[1]?.toLowerCase() === 'unknownuser' ? '' : session.scopes[1];
+                    if (username) { env.IRIS_USERNAME = username; }
+                    env.IRIS_PASSWORD = session.accessToken;
+                    server.env = env;
+                    resolvedByServerManager = true;
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            this.log.warn(`iris-dev: Server Manager credential lookup failed: ${err}`);
+          }
+        }
+      }
+
+      // Fall back to a password prompt if Server Manager did not provide credentials
+      if (!resolvedByServerManager) {
+        const pw = await vscode.window.showInputBox({ prompt: 'IRIS password', password: true });
+        if (pw !== undefined) { env.IRIS_PASSWORD = pw; server.env = env; }
+      }
     }
     return server;
   }
