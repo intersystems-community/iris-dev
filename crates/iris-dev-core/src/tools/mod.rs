@@ -14,6 +14,7 @@ pub mod interop;
 pub mod scm;
 pub mod search;
 pub mod skills_tools;
+pub mod symbols_local;
 
 pub use doc::{DocMode, IrisDocParams};
 pub use scm::ScmParams;
@@ -31,6 +32,7 @@ pub enum Toolset {
 }
 
 impl Toolset {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s.trim().to_lowercase().as_str() {
             "nostub" => Toolset::Nostub,
@@ -138,7 +140,13 @@ pub struct AgentHistoryParams {
 }
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SymbolsLocalParams {
+    pub query: String,
     pub workspace_path: Option<String>,
+    #[serde(default = "default_symbols_local_limit")]
+    pub limit: usize,
+}
+fn default_symbols_local_limit() -> usize {
+    50
 }
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CapturePacketParams {
@@ -442,7 +450,8 @@ impl IrisTools {
     pub fn registered_tool_names(&self) -> std::collections::HashSet<String> {
         // Authoritative baseline list — 34 tools matching v0.4.x (audit 2026-04-28).
         // REST(14) + Docker(16) + Local(4) = 34
-        // 34 - stubs(5) = nostub(29); 29 - merged_removed(10) + merged_added(4) = merged(23)
+        // 34 - stubs(4) = nostub(30); 30 - merged_removed(10) + merged_added(4) = merged(24)
+        // Note: iris_symbols_local is no longer a stub (025-symbols-local-ts)
         let all_tools: &[&str] = &[
             // REST — 14
             "iris_compile",
@@ -483,9 +492,9 @@ impl IrisTools {
             "kb",
         ];
 
-        // Tools removed in nostub — 5 stubs returning NOT_IMPLEMENTED
+        // Tools removed in nostub — 4 stubs returning NOT_IMPLEMENTED
+        // iris_symbols_local is NO LONGER a stub (025-symbols-local-ts)
         let stub_tools: &[&str] = &[
-            "iris_symbols_local",
             "skill_propose",
             "skill_optimize",
             "skill_share",
@@ -557,8 +566,8 @@ impl IrisTools {
         // The `#[tool_router]` macro registers all tools; we prune at construction time.
         let stubs_to_remove: &[&str] = match toolset {
             Toolset::Baseline => &[],
+            // iris_symbols_local is NO LONGER a stub (025-symbols-local-ts)
             Toolset::Nostub | Toolset::Merged => &[
-                "iris_symbols_local",      // FR-004
                 "skill_propose",           // FR-005
                 "skill_optimize",          // FR-005
                 "skill_share",             // FR-005
@@ -1277,13 +1286,54 @@ impl IrisTools {
     }
 
     #[tool(
-        description = "Search for ObjectScript symbols in local .cls files without IRIS connection."
+        description = "Search for ObjectScript symbols in local .cls/.mac/.inc files on disk — no IRIS connection required. query: glob pattern (MyApp.*, *Service, MyApp.Foo). workspace_path: optional path (defaults to OBJECTSCRIPT_WORKSPACE or cwd). limit: max symbols to return (default 50)."
     )]
     async fn iris_symbols_local(
         &self,
-        Parameters(_p): Parameters<SymbolsLocalParams>,
+        Parameters(p): Parameters<SymbolsLocalParams>,
     ) -> Result<CallToolResult, McpError> {
-        err_json("NOT_IMPLEMENTED", "iris_symbols_local requires tree-sitter integration (pending). Use iris_symbols for IRIS-connected symbol search.")
+        if p.query.trim().is_empty() {
+            return err_json("INVALID_PARAMS", "query must not be empty");
+        }
+        let limit = p.limit.clamp(1, 500);
+
+        // Resolve workspace path: param → OBJECTSCRIPT_WORKSPACE env → cwd
+        let workspace = if let Some(ref ws) = p.workspace_path {
+            std::path::PathBuf::from(ws)
+        } else if let Ok(ws) = std::env::var("OBJECTSCRIPT_WORKSPACE") {
+            std::path::PathBuf::from(ws)
+        } else {
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+        };
+
+        if !workspace.exists() {
+            return err_json(
+                "WORKSPACE_NOT_FOUND",
+                &format!("{} does not exist", workspace.display()),
+            );
+        }
+
+        let result = symbols_local::scan_workspace(&workspace, &p.query, limit);
+
+        let symbols_json: Vec<serde_json::Value> = result
+            .symbols
+            .iter()
+            .map(|s| serde_json::to_value(s).unwrap_or_default())
+            .collect();
+        let warnings_json: Vec<serde_json::Value> = result
+            .parse_warnings
+            .iter()
+            .map(|w| serde_json::to_value(w).unwrap_or_default())
+            .collect();
+        let count = symbols_json.len();
+
+        ok_json(serde_json::json!({
+            "source": "local_filesystem",
+            "symbols": symbols_json,
+            "count": count,
+            "query_hint": "Supports: plain text (exact), 'Pkg.*' (package prefix), '*Suffix' (suffix), 'Pkg.*.Name' (glob)",
+            "parse_warnings": warnings_json,
+        }))
     }
 
     #[tool(

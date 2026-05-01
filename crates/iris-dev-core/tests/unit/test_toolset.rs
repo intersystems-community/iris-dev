@@ -27,14 +27,14 @@ fn test_toolset_from_str_merged() {
 
 // ── T015: Nostub — stub tools absent ────────────────────────────────────────
 
-/// iris_symbols_local must NOT be in the nostub tool list (FR-004).
+/// iris_symbols_local is now a real tool (025-symbols-local-ts) — must be present in nostub.
 #[test]
 fn test_nostub_excludes_iris_symbols_local() {
     let tools = IrisTools::new_with_toolset(None, Toolset::Nostub).expect("IrisTools::new");
     let names = tools.registered_tool_names();
     assert!(
-        !names.contains("iris_symbols_local"),
-        "iris_symbols_local must not be registered in nostub toolset. Found: {:?}",
+        names.contains("iris_symbols_local"),
+        "iris_symbols_local must be registered in nostub toolset (no longer a stub). Found symbols tools: {:?}",
         names
             .iter()
             .filter(|n| n.contains("symbol"))
@@ -90,8 +90,9 @@ fn test_nostub_preserves_core_tools() {
     }
 }
 
-/// Nostub should have exactly 5 fewer tools than baseline (iris_symbols_local +
-/// skill_propose + skill_optimize + skill_share + skill_community_install = 5 stubs removed).
+/// Nostub should have exactly 4 fewer tools than baseline
+/// (skill_propose + skill_optimize + skill_share + skill_community_install = 4 stubs removed).
+/// iris_symbols_local is no longer a stub (025-symbols-local-ts).
 #[test]
 fn test_nostub_tool_count() {
     let baseline = IrisTools::new_with_toolset(None, Toolset::Baseline)
@@ -104,8 +105,8 @@ fn test_nostub_tool_count() {
         .len();
     assert_eq!(
         nostub,
-        baseline - 5,
-        "Nostub should have exactly 5 fewer tools than baseline (got baseline={}, nostub={})",
+        baseline - 4,
+        "Nostub should have exactly 4 fewer tools than baseline (got baseline={}, nostub={})",
         baseline,
         nostub
     );
@@ -212,14 +213,14 @@ fn test_merged_excludes_original_interop_production_tools() {
     }
 }
 
-/// Merged must have exactly 23 tools.
+/// Merged must have exactly 24 tools (023 baseline: 23, +1 iris_symbols_local from 025).
 #[test]
 fn test_merged_tool_count_is_23() {
     let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
     let count = tools.registered_tool_names().len();
     assert_eq!(
-        count, 23,
-        "Merged toolset must have exactly 23 tools, got {}",
+        count, 24,
+        "Merged toolset must have exactly 24 tools, got {}",
         count
     );
 }

@@ -23,6 +23,9 @@ urlencoding = "2"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 dirs = "5"
+tree-sitter = "0.26"
+tree-sitter-objectscript = "1.7"
+tree-sitter-objectscript-routine = "1.7"
 
 # Test dependencies
 [dev-dependencies]
@@ -143,3 +146,7 @@ path = "tests/unit/test_discovery_unit.rs"
 [[test]]
 name = "test_toolset"
 path = "tests/unit/test_toolset.rs"
+
+[[test]]
+name = "symbols_local_tests"
+path = "tests/symbols_local_tests.rs"
