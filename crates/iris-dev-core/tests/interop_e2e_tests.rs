@@ -173,3 +173,228 @@ fn interop_queues_returns_array() {
     let result = parse_tool_text(&resp);
     assert!(result.get("success").is_some() || result.get("error_code").is_some());
 }
+
+// ─── 024-interop-depth E2E stubs ───
+// These tests run against a live IRIS instance with Interoperability enabled.
+// They are #[ignore] by default; run with `cargo test -- --ignored` to execute.
+
+#[test]
+#[ignore = "requires live IRIS with Interoperability and a running production"]
+fn test_production_item_enable_disable() {
+    use std::time::Instant;
+    let iris_host = std::env::var("IRIS_HOST").unwrap_or_default();
+    assert!(!iris_host.is_empty(), "IRIS_HOST must be set");
+    let item = std::env::var("TEST_PROD_ITEM").unwrap_or_else(|_| "TestService".to_string());
+    let ns = std::env::var("IRIS_NAMESPACE").unwrap_or_else(|_| "USER".to_string());
+
+    // disable
+    let start = Instant::now();
+    let responses = mcp_exchange(&[
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0.1"}}}),
+        serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
+        serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"iris_production_item","arguments":{"action":"disable","item":item,"namespace":ns}}}),
+    ]);
+    assert!(
+        start.elapsed().as_secs() < 3,
+        "SC-003: tool call exceeded 3s"
+    );
+    let resp = find_response(&responses, 2).expect("no response");
+    let result = parse_tool_text(&resp);
+    assert!(
+        result.get("success").is_some() || result.get("error_code").is_some(),
+        "must return success or error_code"
+    );
+
+    // re-enable
+    let responses2 = mcp_exchange(&[
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0.1"}}}),
+        serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
+        serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"iris_production_item","arguments":{"action":"enable","item":item,"namespace":ns}}}),
+    ]);
+    let resp2 = find_response(&responses2, 2).expect("no response");
+    let result2 = parse_tool_text(&resp2);
+    assert!(result2.get("success").is_some() || result2.get("error_code").is_some());
+}
+
+#[test]
+#[ignore = "requires live IRIS with Interoperability"]
+fn test_credential_crud() {
+    use std::time::Instant;
+    let iris_host = std::env::var("IRIS_HOST").unwrap_or_default();
+    assert!(!iris_host.is_empty(), "IRIS_HOST must be set");
+    let ns = std::env::var("IRIS_NAMESPACE").unwrap_or_else(|_| "USER".to_string());
+    let cred_id = "IrisDevTestCred";
+
+    // list — assert no password in response
+    let start = Instant::now();
+    let responses = mcp_exchange(&[
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0.1"}}}),
+        serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
+        serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"iris_credential_list","arguments":{"namespace":ns}}}),
+    ]);
+    assert!(start.elapsed().as_secs() < 3, "SC-003: list exceeded 3s");
+    let resp = find_response(&responses, 2).expect("no response");
+    let raw_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    assert!(
+        !raw_text.contains("\"password\""),
+        "password must not appear in credential list"
+    );
+    assert!(
+        !raw_text.contains("\"Password\""),
+        "Password must not appear in credential list"
+    );
+
+    // create
+    let responses2 = mcp_exchange(&[
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0.1"}}}),
+        serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
+        serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"iris_credential_manage","arguments":{"action":"create","id":cred_id,"username":"testuser","password":"testpass","namespace":ns}}}),
+    ]);
+    let r2 = parse_tool_text(&find_response(&responses2, 2).expect("no response"));
+    assert!(r2["success"] == true || r2.get("error_code").is_some());
+
+    // delete (cleanup)
+    let responses3 = mcp_exchange(&[
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0.1"}}}),
+        serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
+        serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"iris_credential_manage","arguments":{"action":"delete","id":cred_id,"namespace":ns}}}),
+    ]);
+    let r3 = parse_tool_text(&find_response(&responses3, 2).expect("no response"));
+    assert!(r3["success"] == true || r3.get("error_code").is_some());
+}
+
+#[test]
+#[ignore = "requires live IRIS with Interoperability"]
+fn test_lookup_crud() {
+    use std::time::Instant;
+    let iris_host = std::env::var("IRIS_HOST").unwrap_or_default();
+    assert!(!iris_host.is_empty(), "IRIS_HOST must be set");
+    let ns = std::env::var("IRIS_NAMESPACE").unwrap_or_else(|_| "USER".to_string());
+    let table = "IrisDevTestTable";
+
+    // set 3 keys
+    for (key, val) in &[("Key1", "Val1"), ("Key2", "Val2"), ("Key3", "Val3")] {
+        let start = Instant::now();
+        let responses = mcp_exchange(&[
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0.1"}}}),
+            serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
+            serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"iris_lookup_manage","arguments":{"action":"set","table":table,"key":key,"value":val,"namespace":ns}}}),
+        ]);
+        assert!(start.elapsed().as_secs() < 3, "SC-003: set exceeded 3s");
+        let r = parse_tool_text(&find_response(&responses, 2).expect("no response"));
+        assert!(r["success"] == true || r.get("error_code").is_some());
+    }
+
+    // list_tables — assert table present
+    let resp_lt = mcp_exchange(&[
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0.1"}}}),
+        serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
+        serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"iris_lookup_manage","arguments":{"action":"list_tables","namespace":ns}}}),
+    ]);
+    let lt = parse_tool_text(&find_response(&resp_lt, 2).expect("no response"));
+    if lt["success"] == true {
+        let empty = vec![];
+        let tables = lt["tables"].as_array().unwrap_or(&empty);
+        assert!(
+            tables.iter().any(|t| t.as_str() == Some(table)),
+            "table must appear in list_tables"
+        );
+    }
+
+    // export
+    let resp_ex = mcp_exchange(&[
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0.1"}}}),
+        serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
+        serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"iris_lookup_transfer","arguments":{"action":"export","table":table,"namespace":ns}}}),
+    ]);
+    let ex = parse_tool_text(&find_response(&resp_ex, 2).expect("no response"));
+    let xml = ex["xml"].as_str().unwrap_or("");
+
+    // delete keys
+    for key in &["Key1", "Key2", "Key3"] {
+        let responses = mcp_exchange(&[
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0.1"}}}),
+            serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
+            serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"iris_lookup_manage","arguments":{"action":"delete","table":table,"key":key,"namespace":ns}}}),
+        ]);
+        let _ = find_response(&responses, 2);
+    }
+
+    // import and verify round-trip
+    if !xml.is_empty() {
+        let resp_im = mcp_exchange(&[
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0.1"}}}),
+            serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
+            serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"iris_lookup_transfer","arguments":{"action":"import","table":table,"xml":xml,"namespace":ns}}}),
+        ]);
+        let im = parse_tool_text(&find_response(&resp_im, 2).expect("no response"));
+        assert!(
+            im["success"] == true || im.get("error_code").is_some(),
+            "import must return success or error_code"
+        );
+
+        // verify Key1 restored
+        let resp_get = mcp_exchange(&[
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0.1"}}}),
+            serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
+            serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"iris_lookup_manage","arguments":{"action":"get","table":table,"key":"Key1","namespace":ns}}}),
+        ]);
+        let g = parse_tool_text(&find_response(&resp_get, 2).expect("no response"));
+        if g["success"] == true {
+            assert_eq!(
+                g["value"].as_str(),
+                Some("Val1"),
+                "SC-005: round-trip value must match"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires live IRIS with Interoperability"]
+fn test_production_autostart() {
+    use std::time::Instant;
+    let iris_host = std::env::var("IRIS_HOST").unwrap_or_default();
+    assert!(!iris_host.is_empty(), "IRIS_HOST must be set");
+    let ns = std::env::var("IRIS_NAMESPACE").unwrap_or_else(|_| "USER".to_string());
+
+    // get current state
+    let start = Instant::now();
+    let responses = mcp_exchange(&[
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0.1"}}}),
+        serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
+        serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"iris_production","arguments":{"action":"get_autostart","namespace":ns}}}),
+    ]);
+    assert!(
+        start.elapsed().as_secs() < 3,
+        "SC-003: get_autostart exceeded 3s"
+    );
+    let r = parse_tool_text(&find_response(&responses, 2).expect("no response"));
+    assert!(
+        r["success"] == true || r.get("error_code").is_some(),
+        "must return success or error_code"
+    );
+
+    // set disabled
+    let r2_resp = mcp_exchange(&[
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0.1"}}}),
+        serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
+        serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"iris_production","arguments":{"action":"set_autostart","namespace":ns,"enabled":false}}}),
+    ]);
+    let r2 = parse_tool_text(&find_response(&r2_resp, 2).expect("no response"));
+    assert!(r2["success"] == true || r2.get("error_code").is_some());
+
+    // confirm disabled
+    let r3_resp = mcp_exchange(&[
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"0.1"}}}),
+        serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
+        serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"iris_production","arguments":{"action":"get_autostart","namespace":ns}}}),
+    ]);
+    let r3 = parse_tool_text(&find_response(&r3_resp, 2).expect("no response"));
+    if r3["success"] == true {
+        assert_eq!(
+            r3["autostart_enabled"], false,
+            "autostart must be disabled after set_autostart false"
+        );
+    }
+}
