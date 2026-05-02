@@ -36,6 +36,10 @@ pub struct IrisDocParams {
     pub elicitation_id: Option<String>,
     /// User's answer to the elicitation question ("yes" or "no")
     pub elicitation_answer: Option<String>,
+    /// If true and mode=put, compile the document after writing (default false).
+    /// Saves a round-trip vs calling iris_doc(put) then iris_compile separately.
+    #[serde(default)]
+    pub compile: bool,
 }
 
 fn default_namespace() -> String {
@@ -175,6 +179,7 @@ async fn handle_put(
                 &pending.document,
                 resume_content,
                 &pending.namespace,
+                p.compile,
             )
             .await;
         }
@@ -242,7 +247,7 @@ async fn handle_put(
         }
     }
 
-    do_write(iris, client, name, content, ns).await
+    do_write(iris, client, name, content, ns, p.compile).await
 }
 
 async fn do_write(
@@ -251,6 +256,7 @@ async fn do_write(
     name: &str,
     content: &str,
     namespace: &str,
+    compile_after: bool,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     // I-3: strip Storage blocks — IRIS 2025.1 UDL parser (#5559) fails on Storage XML.
     // IRIS will auto-generate correct storage on first compile.
@@ -280,6 +286,59 @@ async fn do_write(
     crate::tools::write_open_hint(namespace, name);
 
     let open_uri = format!("isfs://{}/{}", namespace, name);
+
+    if compile_after {
+        let compile_url = iris.versioned_ns_url(namespace, &format!("/action/compile?flags=cuk"));
+        let compile_resp = client
+            .post(&compile_url)
+            .basic_auth(&iris.username, Some(&iris.password))
+            .json(&serde_json::json!([name]))
+            .send()
+            .await;
+
+        let (compile_ok, compile_errors, compile_console) = match compile_resp {
+            Err(e) => (false, vec![e.to_string()], vec![]),
+            Ok(r) => {
+                let body: serde_json::Value = r.json().await.unwrap_or_default();
+                let console: Vec<String> = body["console"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let mut errs: Vec<String> = vec![];
+                if let Some(se) = body["status"]["errors"].as_array() {
+                    for e in se {
+                        if let Some(msg) = e["error"].as_str() {
+                            errs.push(msg.to_string());
+                        }
+                    }
+                }
+                for line in &console {
+                    if line.trim().starts_with("ERROR ") {
+                        let msg = line.trim().to_string();
+                        if errs.iter().all(|e| !e.contains(line.trim())) {
+                            errs.push(msg);
+                        }
+                    }
+                }
+                (errs.is_empty(), errs, console)
+            }
+        };
+
+        return ok_json(serde_json::json!({
+            "success": compile_ok,
+            "name": name,
+            "open_uri": open_uri,
+            "storage_stripped": storage_stripped,
+            "compiled": compile_ok,
+            "compile_errors": compile_errors,
+            "compile_console": compile_console,
+        }));
+    }
+
     ok_json(
         serde_json::json!({"success": true, "name": name, "open_uri": open_uri, "storage_stripped": storage_stripped}),
     )
