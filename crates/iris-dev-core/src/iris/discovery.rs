@@ -10,11 +10,47 @@
 //! Each step fails silently and falls through to the next.
 
 use crate::iris::connection::{DiscoverySource, IrisConnection};
-use anyhow::Result;
 use std::time::Duration;
 
 /// The ports we scan on localhost for IRIS web servers.
 const IRIS_WEB_PORTS: &[u16] = &[52773, 41773, 51773, 8080];
+
+// ── Discovery result types ────────────────────────────────────────────────────
+
+/// Why a named-container probe failed.
+#[derive(Debug)]
+pub enum FailureMode {
+    /// Port 52773 is not mapped to a host port.
+    PortNotMapped,
+    /// Container + port found; HTTP probe got no response (refused, timeout, empty).
+    AtelierNotResponding { port: u16 },
+    /// Container + port found; HTTP probe returned a non-200, non-401 status.
+    AtelierHttpError { port: u16, status: u16 },
+    /// Container + port found; HTTP probe returned 401 (message already emitted).
+    AtelierAuth401 { port: u16 },
+}
+
+/// Return type of `discover_via_docker_named()`.
+#[derive(Debug)]
+pub enum DiscoveryResult {
+    /// Probe succeeded — connection ready.
+    Connected(IrisConnection),
+    /// No container matched the name — cascade may continue.
+    NotFound,
+    /// Container found but probe failed — caller must stop cascade.
+    FoundUnhealthy(FailureMode),
+}
+
+/// Return type of `discover_iris()`. Replaces `Result<Option<IrisConnection>>`.
+#[derive(Debug)]
+pub enum IrisDiscovery {
+    /// Connection established.
+    Found(IrisConnection),
+    /// No IRIS found anywhere in the cascade.
+    NotFound,
+    /// A specific actionable message was already emitted — callers must not add noise.
+    Explained,
+}
 
 /// Inner probe using a pre-built HTTP client. Avoids creating a new client per probe (Bug 24).
 async fn probe_atelier_with_client(
@@ -91,12 +127,12 @@ pub async fn probe_atelier(
     probe_atelier_with_client(&client, host, port, username, password, namespace).await
 }
 
-/// Full discovery cascade. Returns Ok(Some(conn)) if IRIS found, Ok(None) if not.
-pub async fn discover_iris(explicit: Option<IrisConnection>) -> Result<Option<IrisConnection>> {
+/// Full discovery cascade. Returns `IrisDiscovery` — infallible.
+pub async fn discover_iris(explicit: Option<IrisConnection>) -> IrisDiscovery {
     // 1. Explicit wins immediately — but probe for version + Atelier API level first
     if let Some(mut conn) = explicit {
         conn.probe().await;
-        return Ok(Some(conn));
+        return IrisDiscovery::Found(conn);
     }
 
     // 2. Env vars
@@ -133,14 +169,14 @@ pub async fn discover_iris(explicit: Option<IrisConnection>) -> Result<Option<Ir
                 DiscoverySource::EnvVar,
             );
             conn.probe().await;
-            return Ok(Some(conn));
+            return IrisDiscovery::Found(conn);
         }
 
         if let Some(mut conn) =
             probe_atelier(&host, port, &username, &password, &namespace, 5000).await
         {
             conn.source = DiscoverySource::EnvVar;
-            return Ok(Some(conn));
+            return IrisDiscovery::Found(conn);
         }
     }
 
@@ -149,53 +185,103 @@ pub async fn discover_iris(explicit: Option<IrisConnection>) -> Result<Option<Ir
     // Must run before the generic localhost scan or another container on port 52773 wins.
     if let Ok(container_name) = std::env::var("IRIS_CONTAINER") {
         if !container_name.is_empty() {
-            if let Some(conn) = discover_via_docker_named(&container_name).await {
-                return Ok(Some(conn));
+            match discover_via_docker_named(&container_name).await {
+                DiscoveryResult::Connected(conn) => return IrisDiscovery::Found(conn),
+                DiscoveryResult::NotFound => {
+                    tracing::warn!(
+                        "Container '{}' not found in Docker — is it running? ('docker ps' to check)",
+                        container_name
+                    );
+                    // Container not found — cascade continues to localhost scan
+                }
+                DiscoveryResult::FoundUnhealthy(mode) => {
+                    // Container was found but probe failed — emit specific message, stop cascade.
+                    emit_unhealthy_message(&container_name, mode);
+                    return IrisDiscovery::Explained;
+                }
             }
-            tracing::warn!(
-                "IRIS_CONTAINER={} not found or not reachable via Docker",
-                container_name
-            );
         }
     }
 
-    // 4. Localhost scan (parallel, 100ms each).
-    // Bug 24: share a single client across all port probes.
-    let scan_client = reqwest::Client::builder()
+    // 4. Localhost scan (parallel, 100ms each). Uses env var credentials.
+    let username = std::env::var("IRIS_USERNAME").unwrap_or_else(|_| "_SYSTEM".to_string());
+    let password = std::env::var("IRIS_PASSWORD").unwrap_or_else(|_| "SYS".to_string());
+    let namespace = std::env::var("IRIS_NAMESPACE").unwrap_or_else(|_| "USER".to_string());
+
+    let scan_client = match reqwest::Client::builder()
         .timeout(Duration::from_millis(100))
         .danger_accept_invalid_certs(true)
         .build()
-        .unwrap_or_default();
-    let scan_client = std::sync::Arc::new(scan_client);
+    {
+        Ok(c) => std::sync::Arc::new(c),
+        Err(_) => return IrisDiscovery::NotFound,
+    };
 
     let scan_tasks: Vec<_> = IRIS_WEB_PORTS
         .iter()
         .map(|&port| {
             let client = scan_client.clone();
+            let u = username.clone();
+            let p = password.clone();
+            let ns = namespace.clone();
             tokio::spawn(async move {
-                probe_atelier_with_client(&client, "localhost", port, "_SYSTEM", "SYS", "USER")
-                    .await
+                probe_atelier_with_client(&client, "localhost", port, &u, &p, &ns).await
             })
         })
         .collect();
 
     for task in scan_tasks {
         if let Ok(Some(conn)) = task.await {
-            return Ok(Some(conn));
+            return IrisDiscovery::Found(conn);
         }
     }
 
     // 5. Docker scan via bollard
     if let Some(conn) = discover_via_docker().await {
-        return Ok(Some(conn));
+        return IrisDiscovery::Found(conn);
     }
 
     // 6. VS Code settings.json
     if let Some(conn) = discover_via_vscode_settings().await {
-        return Ok(Some(conn));
+        return IrisDiscovery::Found(conn);
     }
 
-    Ok(None)
+    IrisDiscovery::NotFound
+}
+
+/// Emit a mode-specific, actionable warning for a found-but-unhealthy container.
+fn emit_unhealthy_message(container_name: &str, mode: FailureMode) {
+    match mode {
+        FailureMode::PortNotMapped => {
+            tracing::warn!(
+                "Container '{}' found but port 52773 is not mapped to a host port. \
+                 Restart with: docker run -p <host_port>:52773 ... \
+                 Note: iris_execute and iris_test still work via docker exec.",
+                container_name
+            );
+        }
+        FailureMode::AtelierNotResponding { port } => {
+            tracing::warn!(
+                "Container '{}' found at localhost:{} but Atelier REST API is not responding. \
+                 Enterprise IRIS images (iris:, irishealth:) do not include the private web server \
+                 — use iris-community or irishealth-community for local dev, or connect via \
+                 IRIS_HOST+IRIS_WEB_PORT to an external Web Gateway. \
+                 Note: iris_execute and iris_test still work via docker exec.",
+                container_name, port
+            );
+        }
+        FailureMode::AtelierHttpError { port, status } => {
+            tracing::warn!(
+                "Container '{}' found at localhost:{} but Atelier REST returned HTTP {}. \
+                 Check IRIS logs: docker logs {}",
+                container_name, port, status, container_name
+            );
+        }
+        FailureMode::AtelierAuth401 { port: _ } => {
+            // 401 warn was already emitted by probe_atelier_for_container with container name.
+            // No second message needed.
+        }
+    }
 }
 
 /// Score a container name against a workspace basename (spec-025 scoring rules).
@@ -236,18 +322,26 @@ pub fn score_container_name(container_name: &str, workspace_basename: &str) -> u
 
 /// Resolve a specific named container to its web port and probe it.
 /// Used when IRIS_CONTAINER env var is set (e.g. from .iris-dev.toml).
-async fn discover_via_docker_named(target: &str) -> Option<IrisConnection> {
+/// Resolve a specific named container to its web port and probe it.
+/// Returns a structured `DiscoveryResult` — never emits log messages itself.
+async fn discover_via_docker_named(target: &str) -> DiscoveryResult {
     use bollard::container::ListContainersOptions;
     use bollard::Docker;
 
-    let docker = Docker::connect_with_defaults().ok()?;
-    let containers = docker
+    let docker = match Docker::connect_with_defaults() {
+        Ok(d) => d,
+        Err(_) => return DiscoveryResult::NotFound, // daemon unreachable; caller emits message
+    };
+    let containers = match docker
         .list_containers(Some(ListContainersOptions::<String> {
             all: false,
             ..Default::default()
         }))
         .await
-        .ok()?;
+    {
+        Ok(c) => c,
+        Err(_) => return DiscoveryResult::NotFound,
+    };
 
     let username = std::env::var("IRIS_USERNAME").unwrap_or_else(|_| "_SYSTEM".to_string());
     let password = std::env::var("IRIS_PASSWORD").unwrap_or_else(|_| "SYS".to_string());
@@ -265,6 +359,7 @@ async fn discover_via_docker_named(target: &str) -> Option<IrisConnection> {
             continue;
         }
 
+        // Container found — now check port mapping.
         let mut port_web: Option<u16> = None;
         let mut port_ss: Option<u16> = None;
         for port in container.ports.unwrap_or_default() {
@@ -276,26 +371,98 @@ async fn discover_via_docker_named(target: &str) -> Option<IrisConnection> {
             }
         }
 
-        if let Some(web_port) = port_web {
-            if let Some(mut conn) = probe_atelier(
-                "localhost",
-                web_port,
-                &username,
-                &password,
-                &namespace,
-                2000,
-            )
-            .await
-            {
-                conn.source = DiscoverySource::Docker {
-                    container_name: name,
-                };
-                conn.port_superserver = port_ss;
-                return Some(conn);
-            }
-        }
+        let web_port = match port_web {
+            Some(p) => p,
+            None => return DiscoveryResult::FoundUnhealthy(FailureMode::PortNotMapped),
+        };
+
+        // Port is mapped — probe Atelier REST.
+        return probe_atelier_for_container(&name, web_port, &username, &password, &namespace, port_ss).await;
     }
-    None
+
+    // No container matched the name.
+    DiscoveryResult::NotFound
+}
+
+/// Probe Atelier REST for a named container. Returns a structured `DiscoveryResult`.
+/// Emits the 401 WARN here (with container name) so the generic warn is never needed.
+async fn probe_atelier_for_container(
+    container_name: &str,
+    port: u16,
+    username: &str,
+    password: &str,
+    namespace: &str,
+    port_ss: Option<u16>,
+) -> DiscoveryResult {
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_millis(2000))
+        .danger_accept_invalid_certs(true)
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return DiscoveryResult::FoundUnhealthy(FailureMode::AtelierNotResponding { port }),
+    };
+
+    let url = format!("http://localhost:{}/api/atelier/", port);
+    let resp = match client
+        .get(&url)
+        .basic_auth(username, Some(password))
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(_) => return DiscoveryResult::FoundUnhealthy(FailureMode::AtelierNotResponding { port }),
+    };
+
+    let status = resp.status().as_u16();
+
+    if status == 401 {
+        tracing::warn!(
+            "IRIS at localhost:{} returned 401 — container '{}' may need IRIS_PASSWORD. \
+             Restart with: docker run -e IRIS_PASSWORD=SYS ...",
+            port,
+            container_name
+        );
+        return DiscoveryResult::FoundUnhealthy(FailureMode::AtelierAuth401 { port });
+    }
+
+    if !resp.status().is_success() {
+        return DiscoveryResult::FoundUnhealthy(FailureMode::AtelierHttpError { port, status });
+    }
+
+    let body: serde_json::Value = match resp.json().await {
+        Ok(b) => b,
+        Err(_) => return DiscoveryResult::FoundUnhealthy(FailureMode::AtelierNotResponding { port }),
+    };
+
+    let content = &body["result"]["content"];
+    let version = match content["version"]
+        .as_str()
+        .filter(|v| v.to_uppercase().contains("IRIS"))
+        .map(|v| v.to_string())
+    {
+        Some(v) => v,
+        None => return DiscoveryResult::FoundUnhealthy(FailureMode::AtelierNotResponding { port }),
+    };
+
+    let base_url = format!("http://localhost:{}", port);
+    let mut conn = IrisConnection::new(
+        base_url,
+        namespace,
+        username,
+        password,
+        DiscoverySource::Docker {
+            container_name: container_name.to_string(),
+        },
+    );
+    conn.version = Some(version);
+    conn.atelier_version = match content["api"].as_u64() {
+        Some(v) if v >= 8 => crate::iris::connection::AtelierVersion::V8,
+        Some(v) if v >= 2 => crate::iris::connection::AtelierVersion::V2,
+        _ => crate::iris::connection::AtelierVersion::V1,
+    };
+    conn.port_superserver = port_ss;
+    DiscoveryResult::Connected(conn)
 }
 
 async fn discover_via_docker() -> Option<IrisConnection> {

@@ -4,7 +4,7 @@
 //! These tests exercise: probe_atelier fingerprinting, cascade ordering,
 //! graceful fallthrough when localhost probe fails, env var resolution.
 
-use iris_dev_core::iris::discovery::{discover_iris, probe_atelier};
+use iris_dev_core::iris::discovery::{discover_iris, probe_atelier, IrisDiscovery};
 
 // ── probe_atelier ────────────────────────────────────────────────────────────
 
@@ -45,10 +45,10 @@ async fn discover_iris_reads_env_vars() {
     std::env::set_var("IRIS_PASSWORD", "testpass");
 
     let result = discover_iris(None).await;
-    // Env vars found but host unreachable — should still return Ok (not Err)
+    // Env vars found but host unreachable — should return NotFound, not panic
     assert!(
-        result.is_ok(),
-        "discover_iris should not error on unreachable host"
+        !matches!(result, IrisDiscovery::Found(_)),
+        "unreachable host should not return Found"
     );
 
     // Clean up
@@ -65,12 +65,11 @@ async fn discover_iris_returns_none_when_nothing_found() {
     std::env::remove_var("IRIS_HOST");
     std::env::remove_var("IRIS_WEB_PORT");
 
-    // With no IRIS running and no config, should return Ok(None)
-    // (localhost scan will fail quickly, Docker scan returns nothing in unit context)
+    // With no IRIS running and no config, should return NotFound (not panic)
     let result = discover_iris(None).await;
     assert!(
-        result.is_ok(),
-        "discover_iris should return Ok even when nothing found"
+        matches!(result, IrisDiscovery::NotFound | IrisDiscovery::Explained),
+        "discover_iris should return NotFound or Explained when nothing found"
     );
 }
 
@@ -87,8 +86,11 @@ async fn discover_iris_explicit_wins_immediately() {
         DiscoverySource::ExplicitFlag,
     );
 
-    let result = discover_iris(Some(explicit)).await.unwrap();
-    let conn = result.expect("explicit connection should be returned");
+    let result = discover_iris(Some(explicit)).await;
+    let conn = match result {
+        IrisDiscovery::Found(c) => c,
+        other => panic!("expected Found, got {:?}", other),
+    };
     assert_eq!(conn.base_url, "http://explicit.example.com:52773");
     assert_eq!(conn.namespace, "MYNS");
     assert!(matches!(conn.source, DiscoverySource::ExplicitFlag));
