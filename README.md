@@ -201,6 +201,8 @@ If you use the InterSystems VS Code extensions, iris-dev reads your server defin
 
 If iris-dev can't find your server: `View > Output > iris-dev` shows which servers were found and where.
 
+**Secure credential storage**: If the [InterSystems Server Manager](https://marketplace.visualstudio.com/items?itemName=intersystems-community.servermanager) extension is installed, iris-dev uses it to retrieve credentials from the OS keychain. On first use you'll be prompted for username and password. When the password prompt appears, **click the 🔑 key icon** before pressing Enter to store it in the keychain — subsequent VS Code restarts will then be fully silent. Pressing Enter without clicking 🔑 uses the password for the current session only. Server Manager is optional; without it iris-dev falls back to credentials in your server definition or MCP env vars.
+
 ---
 
 ## Commands
