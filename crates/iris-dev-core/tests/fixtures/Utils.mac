@@ -1,0 +1,9 @@
+ROUTINE Utils
+
+Start
+    Write "Starting...",!
+    Quit
+
+Helper(arg)
+    Write "Helper: "_arg,!
+    Quit
