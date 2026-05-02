@@ -108,7 +108,7 @@ should mention the web server.
    tool is called, **Then** stderr contains all of:
    - Container name and the host:port that was probed
    - "Atelier REST API not responding" or equivalent
-   - Hint: "Is the IRIS private web server running? Check: `WebServer=1` in `iris.cpf`, `httpd` binary present"
+   - Hint: enterprise images do not ship the private web server — use `iris-community`/`irishealth-community` for local dev, or connect via `IRIS_HOST`+`IRIS_WEB_PORT` to an external Web Gateway (NOT a suggestion to set `WebServer=1` in CPF — that crashes enterprise containers)
 2. **Given** the above, **Then** the discovery cascade does NOT continue to localhost scan.
 3. **Given** the above, **Then** the error notes that docker exec tools (`iris_execute`,
    `iris_test`) are still available when `IRIS_CONTAINER` is set.
@@ -191,7 +191,7 @@ message is emitted for each.
   - Mode (d): Container found, port mapped, probe fails (web server absent/down) → `"Container '{name}' found at localhost:{port} but Atelier REST API is not responding. Enterprise IRIS images (iris:, irishealth:) do not include the private web server — use iris-community or irishealth-community for local dev, or connect via IRIS_HOST+IRIS_WEB_PORT pointing to an external Web Gateway. Community images: restart with -e IRIS_PASSWORD=SYS."`
   - Mode (e): Container found, port mapped, probe returns 401 → existing helpful message (already correct); suppress the second generic WARN
 
-- **FR-002**: When `IRIS_CONTAINER` is set and the named container is **found** (modes c, d, e), the discovery cascade MUST NOT continue to Steps 4-6 (localhost scan, generic Docker scan, VS Code settings). Return `Ok(None)` after emitting the mode-specific message.
+- **FR-002**: When `IRIS_CONTAINER` is set and the named container is **found** (modes c, d, e), the discovery cascade MUST NOT continue to Steps 4-6 (localhost scan, generic Docker scan, VS Code settings). Return `IrisDiscovery::Explained` after emitting the mode-specific message.
 
 - **FR-003**: When `IRIS_CONTAINER` is set and the container is **not found** (mode b), the cascade MAY continue (the name may be a typo, or the container may not be running yet — falling through to localhost may be a reasonable recovery).
 
