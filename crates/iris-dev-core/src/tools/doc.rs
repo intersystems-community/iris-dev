@@ -288,7 +288,7 @@ async fn do_write(
     let open_uri = format!("isfs://{}/{}", namespace, name);
 
     if compile_after {
-        let compile_url = iris.versioned_ns_url(namespace, &format!("/action/compile?flags=cuk"));
+        let compile_url = iris.versioned_ns_url(namespace, "/action/compile?flags=cuk");
         let compile_resp = client
             .post(&compile_url)
             .basic_auth(&iris.username, Some(&iris.password))

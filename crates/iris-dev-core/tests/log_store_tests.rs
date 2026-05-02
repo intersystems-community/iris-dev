@@ -28,6 +28,7 @@ fn make_entry(tool: &str, count: usize) -> LogEntry {
     }
 }
 
+#[allow(dead_code)]
 fn make_entry_aged(tool: &str, count: usize, age: Duration) -> LogEntry {
     LogEntry {
         id: new_log_id(),

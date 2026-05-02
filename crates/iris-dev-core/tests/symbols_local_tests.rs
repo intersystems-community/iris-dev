@@ -1,3 +1,4 @@
+#![allow(clippy::all)]
 use iris_dev_core::tools::symbols_local::*;
 use std::path::PathBuf;
 

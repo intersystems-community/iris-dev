@@ -84,6 +84,7 @@ fn mcp_exchange(
     }
 
     let _ = child.kill();
+    let _ = child.wait();
     results
 }
 
