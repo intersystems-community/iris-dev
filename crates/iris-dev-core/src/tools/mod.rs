@@ -8,6 +8,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use std::collections::VecDeque;
 use std::sync::Arc;
+pub mod admin;
 pub mod doc;
 pub mod info;
 pub mod interop;
@@ -501,6 +502,8 @@ impl IrisTools {
             "iris_credential_manage",
             "iris_lookup_manage",
             "iris_lookup_transfer",
+            // 026-admin-tools
+            "iris_admin",
         ];
 
         // Tools removed in nostub — 4 stubs returning NOT_IMPLEMENTED
@@ -537,6 +540,8 @@ impl IrisTools {
             "iris_credential_manage",
             "iris_lookup_manage",
             "iris_lookup_transfer",
+            // 026-admin-tools
+            "iris_admin",
         ];
 
         let mut names: std::collections::HashSet<String> =
@@ -651,6 +656,8 @@ impl IrisTools {
                 "iris_credential_manage",
                 "iris_lookup_manage",
                 "iris_lookup_transfer",
+                // 026-admin-tools
+                "iris_admin",
             ];
             for name in merged_tools {
                 router.remove_route(name);
@@ -2603,6 +2610,123 @@ Methods:
         )
         .await;
         self.record_call("iris_lookup_transfer", result.is_ok());
+        result
+    }
+
+    // ── 026-admin-tools: iris_admin dispatcher ───────────────────────────────
+
+    #[tool(
+        description = "IRIS administration dispatcher. action: list_namespaces, list_databases, list_users, list_roles, list_user_roles, check_permission, list_webapps, get_webapp (read — always available); create_user, update_user, delete_user, create_namespace, delete_namespace, create_webapp, delete_webapp (write — requires IRIS_ADMIN_TOOLS=1). All operations run in %SYS namespace. check_permission checks the currently connected user (IRIS_USERNAME), not an arbitrary user."
+    )]
+    async fn iris_admin(
+        &self,
+        Parameters(p): Parameters<serde_json::Value>,
+    ) -> Result<CallToolResult, McpError> {
+        let action = p.get("action").and_then(|v| v.as_str()).unwrap_or("");
+        let iris_opt = self.iris.as_deref();
+        let result = match action {
+            "list_namespaces" => admin::admin_list_namespaces_impl(iris_opt).await,
+            "list_databases" => admin::admin_list_databases_impl(iris_opt).await,
+            "list_users" => admin::admin_list_users_impl(iris_opt).await,
+            "list_roles" => admin::admin_list_roles_impl(iris_opt).await,
+            "list_webapps" => {
+                let type_filter = p.get("type").and_then(|v| v.as_str());
+                admin::admin_list_webapps_impl(iris_opt, type_filter).await
+            }
+            "list_user_roles" => {
+                let username = p.get("username").and_then(|v| v.as_str()).unwrap_or("");
+                if username.is_empty() {
+                    return err_json("INVALID_PARAMS", "username is required for list_user_roles");
+                }
+                admin::admin_list_user_roles_impl(iris_opt, username).await
+            }
+            "get_webapp" => {
+                let path = p.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                if path.is_empty() {
+                    return err_json("INVALID_PARAMS", "path is required for get_webapp");
+                }
+                admin::admin_get_webapp_impl(iris_opt, path).await
+            }
+            "check_permission" => {
+                let resource = p.get("resource").and_then(|v| v.as_str()).unwrap_or("");
+                let permission = p.get("permission").and_then(|v| v.as_str()).unwrap_or("USE");
+                if resource.is_empty() {
+                    return err_json("INVALID_PARAMS", "resource is required for check_permission");
+                }
+                admin::admin_check_permission_impl(iris_opt, resource, permission).await
+            }
+            "create_user" => {
+                let username = p.get("username").and_then(|v| v.as_str()).unwrap_or("");
+                let password = p.get("password").and_then(|v| v.as_str()).unwrap_or("");
+                if username.is_empty() || password.is_empty() {
+                    return err_json("INVALID_PARAMS", "username and password are required for create_user");
+                }
+                admin::admin_create_user_impl(
+                    iris_opt, username, password,
+                    p.get("full_name").and_then(|v| v.as_str()),
+                    p.get("roles").and_then(|v| v.as_str()),
+                ).await
+            }
+            "update_user" => {
+                let username = p.get("username").and_then(|v| v.as_str()).unwrap_or("");
+                if username.is_empty() {
+                    return err_json("INVALID_PARAMS", "username is required for update_user");
+                }
+                admin::admin_update_user_impl(
+                    iris_opt, username,
+                    p.get("password").and_then(|v| v.as_str()),
+                    p.get("enabled").and_then(|v| v.as_bool()),
+                    p.get("roles").and_then(|v| v.as_str()),
+                ).await
+            }
+            "delete_user" => {
+                let username = p.get("username").and_then(|v| v.as_str()).unwrap_or("");
+                if username.is_empty() {
+                    return err_json("INVALID_PARAMS", "username is required for delete_user");
+                }
+                admin::admin_delete_user_impl(iris_opt, username).await
+            }
+            "create_namespace" => {
+                let name = p.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let code_db = p.get("code_database").and_then(|v| v.as_str()).unwrap_or("");
+                let data_db = p.get("data_database").and_then(|v| v.as_str()).unwrap_or("");
+                if name.is_empty() || code_db.is_empty() || data_db.is_empty() {
+                    return err_json("INVALID_PARAMS", "name, code_database, and data_database are required");
+                }
+                admin::admin_create_namespace_impl(iris_opt, name, code_db, data_db).await
+            }
+            "delete_namespace" => {
+                let name = p.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                if name.is_empty() {
+                    return err_json("INVALID_PARAMS", "name is required for delete_namespace");
+                }
+                admin::admin_delete_namespace_impl(iris_opt, name).await
+            }
+            "create_webapp" => {
+                let path = p.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                let ns = p.get("namespace").and_then(|v| v.as_str()).unwrap_or("");
+                if path.is_empty() || ns.is_empty() {
+                    return err_json("INVALID_PARAMS", "path and namespace are required for create_webapp");
+                }
+                admin::admin_create_webapp_impl(
+                    iris_opt, path, ns,
+                    p.get("dispatch_class").and_then(|v| v.as_str()),
+                    p.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true),
+                ).await
+            }
+            "delete_webapp" => {
+                let path = p.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                if path.is_empty() {
+                    return err_json("INVALID_PARAMS", "path is required for delete_webapp");
+                }
+                admin::admin_delete_webapp_impl(iris_opt, path).await
+            }
+            _ => err_json(
+                "INVALID_ACTION",
+                "iris_admin: action must be one of: list_namespaces, list_databases, list_users, list_roles, list_user_roles, check_permission, list_webapps, get_webapp, create_user, update_user, delete_user, create_namespace, delete_namespace, create_webapp, delete_webapp",
+            ),
+        };
+        self.record_call("iris_admin", result.is_ok());
         result
     }
 }

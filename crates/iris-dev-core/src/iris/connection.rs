@@ -128,7 +128,9 @@ impl IrisConnection {
     /// Build a versioned Atelier URL for an explicit namespace.
     pub fn versioned_ns_url(&self, namespace: &str, path: &str) -> String {
         let v = self.atelier_version.version_str();
-        self.atelier_url(&format!("/{}/{}{}", v, namespace, path))
+        // URL-encode namespace so %SYS becomes %25SYS in the path component
+        let ns_encoded = urlencoding::encode(namespace);
+        self.atelier_url(&format!("/{}/{}{}", v, ns_encoded, path))
     }
 
     /// Probe this connection: fetch IRIS version, Atelier API level, and SystemMode.

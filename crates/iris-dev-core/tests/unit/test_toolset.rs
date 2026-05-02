@@ -213,14 +213,14 @@ fn test_merged_excludes_original_interop_production_tools() {
     }
 }
 
-/// Merged must have exactly 29 tools (023 baseline: 23, +5 from 024, +1 from 025).
+/// Merged must have exactly 30 tools (023: 23, +5 from 024, +1 from 025, +1 from 026).
 #[test]
 fn test_merged_tool_count_is_23() {
     let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
     let count = tools.registered_tool_names().len();
     assert_eq!(
-        count, 29,
-        "Merged toolset must have exactly 29 tools, got {}",
+        count, 30,
+        "Merged toolset must have exactly 30 tools, got {}",
         count
     );
 }
