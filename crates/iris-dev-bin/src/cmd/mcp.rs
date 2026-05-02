@@ -75,6 +75,15 @@ impl McpCommand {
             watch::channel::<Option<iris_dev_core::iris::connection::IrisConnection>>(None);
 
         // Load .iris-dev.toml — takes precedence over env vars but not CLI flags (FR-006).
+        // If --workspace was explicitly passed (not the default "."), warn when no config found.
+        let ws_root = iris_dev_core::iris::workspace_config::workspace_root(Some(&self.workspace));
+        if self.workspace != "." && !ws_root.join(".iris-dev.toml").exists() {
+            tracing::warn!(
+                "No .iris-dev.toml found at {} — falling back to auto-discovery. \
+                 Set IRIS_HOST or IRIS_CONTAINER to connect directly.",
+                ws_root.display()
+            );
+        }
         let explicit = iris_dev_core::iris::workspace_config::apply_workspace_config(
             explicit,
             Some(&self.workspace),

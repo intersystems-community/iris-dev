@@ -336,15 +336,17 @@ async fn discover_via_docker_named(target: &str) -> DiscoveryResult {
         Ok(d) => d,
         Err(_) => return DiscoveryResult::NotFound, // daemon unreachable; caller emits message
     };
-    let containers = match docker
-        .list_containers(Some(ListContainersOptions::<String> {
+    let containers = match tokio::time::timeout(
+        Duration::from_secs(3),
+        docker.list_containers(Some(ListContainersOptions::<String> {
             all: false,
             ..Default::default()
-        }))
-        .await
+        })),
+    )
+    .await
     {
-        Ok(c) => c,
-        Err(_) => return DiscoveryResult::NotFound,
+        Ok(Ok(c)) => c,
+        _ => return DiscoveryResult::NotFound, // timeout or Docker error
     };
 
     let username = std::env::var("IRIS_USERNAME").unwrap_or_else(|_| "_SYSTEM".to_string());
@@ -488,13 +490,16 @@ async fn discover_via_docker() -> Option<IrisConnection> {
         .unwrap_or_default();
 
     let docker = Docker::connect_with_defaults().ok()?;
-    let containers = docker
-        .list_containers(Some(ListContainersOptions::<String> {
+    let containers = tokio::time::timeout(
+        Duration::from_secs(3),
+        docker.list_containers(Some(ListContainersOptions::<String> {
             all: false,
             ..Default::default()
-        }))
-        .await
-        .ok()?;
+        })),
+    )
+    .await
+    .ok()?
+    .ok()?;
 
     let mut candidates: Vec<(u32, String, u16, Option<u16>)> = Vec::new();
 
