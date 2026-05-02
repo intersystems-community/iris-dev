@@ -774,6 +774,104 @@ impl IrisTools {
         tracing::info!(namespace = %p.namespace, target = %p.target, "iris_compile");
         let client = self.http_client();
 
+        // Local file path support: if target looks like a file path (contains / or \,
+        // or ends with .cls/.mac/.inc and exists on disk), upload via Atelier PUT first.
+        let is_local_path = p.target.contains('/')
+            || p.target.contains('\\')
+            || (p.target.ends_with(".cls") && std::path::Path::new(&p.target).exists());
+        if is_local_path {
+            let path = std::path::Path::new(&p.target);
+            if path.exists() {
+                let content = match std::fs::read_to_string(path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        return err_json(
+                            "READ_ERROR",
+                            &format!("Could not read {}: {}", p.target, e),
+                        )
+                    }
+                };
+                // Derive document name from Class declaration or from file name
+                let doc_name = content
+                    .lines()
+                    .find(|l| l.trim_start().to_lowercase().starts_with("class "))
+                    .and_then(|l| l.split_whitespace().nth(1))
+                    .map(|cls| format!("{}.cls", cls))
+                    .unwrap_or_else(|| {
+                        path.file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("Unknown.cls")
+                            .to_string()
+                    });
+                // Upload via Atelier PUT
+                let put_url = iris.versioned_ns_url(
+                    &p.namespace,
+                    &format!("/doc/{}?ignoreConflict=1", urlencoding::encode(&doc_name)),
+                );
+                let lines: Vec<&str> = content.lines().collect();
+                let put_resp = client
+                    .put(&put_url)
+                    .basic_auth(&iris.username, Some(&iris.password))
+                    .json(&serde_json::json!({"enc": false, "content": lines}))
+                    .send()
+                    .await
+                    .map_err(|e| McpError::internal_error(format!("Upload failed: {e}"), None))?;
+                if !put_resp.status().is_success() {
+                    return err_json(
+                        "UPLOAD_FAILED",
+                        &format!("PUT {} returned HTTP {}", doc_name, put_resp.status()),
+                    );
+                }
+                // Compile the uploaded document
+                let local_src = p.target.clone();
+                let compile_url = iris.versioned_ns_url(
+                    &p.namespace,
+                    &format!("/action/compile?flags={}", urlencoding::encode(&p.flags)),
+                );
+                let resp = client
+                    .post(&compile_url)
+                    .basic_auth(&iris.username, Some(&iris.password))
+                    .json(&serde_json::json!([doc_name]))
+                    .send()
+                    .await
+                    .map_err(|e| McpError::internal_error(format!("HTTP error: {e}"), None))?;
+                let body: serde_json::Value = resp.json().await.unwrap_or_default();
+                let console = body["console"].as_array().cloned().unwrap_or_default();
+                let mut errors = vec![];
+                if let Some(se) = body["status"]["errors"].as_array() {
+                    for e in se {
+                        let msg = e["error"].as_str().unwrap_or("Compile error");
+                        errors.push(serde_json::json!({"severity":"error","code":"","line":0,"column":0,"text":msg}));
+                    }
+                }
+                for line in &console {
+                    let text = line.as_str().unwrap_or("");
+                    if let Some(rest) = text.trim().strip_prefix("ERROR ") {
+                        if errors.iter().all(|e| {
+                            e["text"]
+                                .as_str()
+                                .map(|t| !t.contains(rest))
+                                .unwrap_or(true)
+                        }) {
+                            errors.push(serde_json::json!({"severity":"error","code":"","line":0,"column":0,"text":rest}));
+                        }
+                    }
+                }
+                let success = errors.is_empty();
+                self.record_call("iris_compile", success);
+                return ok_json(serde_json::json!({
+                    "success": success,
+                    "target": doc_name,
+                    "uploaded_from": local_src,
+                    "targets_compiled": 1,
+                    "namespace": p.namespace,
+                    "errors": errors,
+                    "warnings": [],
+                    "console": console,
+                }));
+            }
+        }
+
         // Expand wildcards: resolve "MyApp.*.cls" to a list of matching class names.
         // Bug 8: use p.namespace (not iris.namespace) and the correct /docnames/CLS endpoint.
         let targets: Vec<String> = if p.target.contains('*') {
@@ -873,21 +971,32 @@ impl IrisTools {
             .cloned()
             .unwrap_or_default();
 
-        // Also check status.errors for any compile errors
-        if let Some(status_errors) = body["status"]["errors"].as_array() {
-            if !status_errors.is_empty() {
-                let msg = status_errors[0]["error"]
-                    .as_str()
-                    .unwrap_or("Compile error");
-                return err_json("COMPILE_ERROR", msg);
-            }
-        }
         let mut errors = vec![];
         let mut warnings = vec![];
+
+        // Check status.errors first — populated for parse errors (e.g. ERROR #5559) where
+        // result.content/console may be empty even though the compile failed.
+        if let Some(status_errors) = body["status"]["errors"].as_array() {
+            for se in status_errors {
+                let msg = se["error"].as_str().unwrap_or("Compile error");
+                errors.push(
+                    serde_json::json!({"severity":"error","code":"","line":0,"column":0,"text":msg}),
+                );
+            }
+        }
+        // Also check status.summary as a fallback — some IRIS versions put the error only there.
+        if errors.is_empty() {
+            let summary = body["status"]["summary"].as_str().unwrap_or("");
+            if summary.contains("ERROR") {
+                errors.push(serde_json::json!({"severity":"error","code":"","line":0,"column":0,"text":summary}));
+            }
+        }
+
+        // Parse console output for per-line errors and warnings.
+        // Atelier compile errors: "  1 ERROR #<code>:<line>: <message>"
+        // Warnings: "  2 WARNING #<code>:<line>: <message>"
         for line in &console {
             let text = line.as_str().unwrap_or("");
-            // Atelier compile errors: "  1 ERROR #<code>:<line>: <message>"
-            // Warnings: "  2 WARNING #<code>:<line>: <message>"
             if let Some(rest) = text.trim().strip_prefix("ERROR ") {
                 let parts: Vec<&str> = rest.splitn(3, ':').collect();
                 let (code, line_num, msg) = if parts.len() >= 3 {
@@ -899,7 +1008,13 @@ impl IrisTools {
                 } else {
                     ("", 0, rest)
                 };
-                errors.push(serde_json::json!({"severity":"error","code":code,"line":line_num,"column":0,"text":msg}));
+                // Deduplicate: skip if status.errors already has an identical message
+                let already_have = errors
+                    .iter()
+                    .any(|e| e["text"].as_str().map(|t| t.contains(msg)).unwrap_or(false));
+                if !already_have {
+                    errors.push(serde_json::json!({"severity":"error","code":code,"line":line_num,"column":0,"text":msg}));
+                }
             } else if let Some(rest) = text.trim().strip_prefix("WARNING ") {
                 let parts: Vec<&str> = rest.splitn(3, ':').collect();
                 let (code, line_num, msg) = if parts.len() >= 3 {
