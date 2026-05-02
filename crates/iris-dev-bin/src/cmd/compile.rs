@@ -141,7 +141,11 @@ impl CompileCommand {
         match exec_result {
             Ok(out) => {
                 let out = out.trim().to_string();
-                if out == "OK" {
+                // execute_via_generator returns the ObjectScript Write output, which may
+                // be prefixed by Atelier compile console lines (e.g. "Compilation started...
+                // Compilation finished successfully in 0.000s.\nOK"). Check for "OK" at
+                // the end, not exact equality.
+                if out.ends_with("OK") || out == "OK" {
                     let result = serde_json::json!({"success": true, "target": target, "namespace": self.namespace, "stdout": "Compiled successfully"});
                     output_result(&result, &self.format);
                     Ok(())

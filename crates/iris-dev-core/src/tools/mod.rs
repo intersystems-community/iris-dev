@@ -1245,12 +1245,68 @@ impl IrisTools {
                 }
             }
         };
+        // Add active_connection info so agents can detect workspace_config mismatches
+        // without a separate iris_info call.
+        let active_connection_json = match &self.iris {
+            None => serde_json::Value::Null,
+            Some(conn) => {
+                // Extract container name from DiscoverySource if available.
+                let container = match &conn.source {
+                    crate::iris::connection::DiscoverySource::Docker { container_name } => {
+                        serde_json::Value::String(container_name.clone())
+                    }
+                    _ => serde_json::Value::Null,
+                };
+                serde_json::json!({
+                    "base_url": conn.base_url,
+                    "namespace": conn.namespace,
+                    "version": conn.version,
+                    "container": container,
+                })
+            }
+        };
+
+        // Detect mismatch: workspace_config specifies a container but we're connected
+        // to something different (or no container at all).
+        let mismatch = if let (Some(cfg_container), Some(conn)) =
+            (workspace_config_json["container"].as_str(), &self.iris)
+        {
+            match &conn.source {
+                crate::iris::connection::DiscoverySource::Docker { container_name } => {
+                    container_name != cfg_container
+                }
+                _ => true, // connected via non-Docker path but .iris-dev.toml specifies a container
+            }
+        } else {
+            false
+        };
+
+        let mismatch_hint = if mismatch {
+            let cfg_container = workspace_config_json["container"]
+                .as_str()
+                .unwrap_or("(unknown)");
+            let active_container = active_connection_json["container"].as_str();
+            let active_url = active_connection_json["base_url"]
+                .as_str()
+                .unwrap_or("(unknown)");
+            let active = active_container.unwrap_or(active_url);
+            serde_json::Value::String(format!(
+                "Active connection: {}. .iris-dev.toml specifies: {}. Restart the MCP session from the workspace directory to apply.",
+                active, cfg_container
+            ))
+        } else {
+            serde_json::Value::Null
+        };
+
         ok_json(serde_json::json!({
             "status": "ok",
             "containers": containers,
             "workspace_basename": workspace_basename,
             "suggestion": suggestion,
             "workspace_config": workspace_config_json,
+            "active_connection": active_connection_json,
+            "mismatch": mismatch,
+            "mismatch_hint": mismatch_hint,
         }))
     }
 
