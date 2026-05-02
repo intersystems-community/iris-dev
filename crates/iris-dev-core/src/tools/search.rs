@@ -75,7 +75,16 @@ pub async fn handle_iris_search(
                 return parse_search_results(body, &p.query, p.inline, &log_store);
             }
             let work_id = body["result"]["workId"].as_str().unwrap_or("").to_string();
-            poll_async_search(iris, client, &work_id, &p.namespace, &p.query, p.inline, &log_store).await
+            poll_async_search(
+                iris,
+                client,
+                &work_id,
+                &p.namespace,
+                &p.query,
+                p.inline,
+                &log_store,
+            )
+            .await
         }
         _ => {
             // Timeout or error — fall back to async POST
@@ -98,7 +107,16 @@ pub async fn handle_iris_search(
 
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             if let Some(work_id) = body["result"]["workId"].as_str() {
-                poll_async_search(iris, client, work_id, &p.namespace, &p.query, p.inline, &log_store).await
+                poll_async_search(
+                    iris,
+                    client,
+                    work_id,
+                    &p.namespace,
+                    &p.query,
+                    p.inline,
+                    &log_store,
+                )
+                .await
             } else {
                 parse_search_results(body, &p.query, p.inline, &log_store)
             }
@@ -184,7 +202,14 @@ fn parse_search_results(
 
     // Progressive disclosure (027): truncate results when count exceeds threshold.
     let threshold = log_store::read_inline_threshold("IRIS_INLINE_SEARCH", 30);
-    log_store::apply_truncation(&mut resp, "results", threshold, inline, log_store, "iris_search");
+    log_store::apply_truncation(
+        &mut resp,
+        "results",
+        threshold,
+        inline,
+        log_store,
+        "iris_search",
+    );
 
     ok_json(resp)
 }

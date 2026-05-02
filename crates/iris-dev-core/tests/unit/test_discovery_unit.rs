@@ -1,7 +1,9 @@
 // Unit tests for iris/discovery.rs — score_container_name + IrisDiscovery types.
 // No Docker, no network required.
 
-use iris_dev_core::iris::discovery::{score_container_name, DiscoveryResult, FailureMode, IrisDiscovery};
+use iris_dev_core::iris::discovery::{
+    score_container_name, DiscoveryResult, FailureMode, IrisDiscovery,
+};
 
 // ── IrisDiscovery enum smoke test ─────────────────────────────────────────────
 
@@ -15,7 +17,10 @@ fn test_iris_discovery_variants_exist() {
 fn test_failure_mode_variants_exist() {
     let _ = std::mem::discriminant(&FailureMode::PortNotMapped);
     let _ = std::mem::discriminant(&FailureMode::AtelierNotResponding { port: 52773 });
-    let _ = std::mem::discriminant(&FailureMode::AtelierHttpError { port: 52773, status: 503 });
+    let _ = std::mem::discriminant(&FailureMode::AtelierHttpError {
+        port: 52773,
+        status: 503,
+    });
     let _ = std::mem::discriminant(&FailureMode::AtelierAuth401 { port: 52773 });
 }
 
@@ -72,9 +77,15 @@ fn test_failure_mode_atelier_not_responding() {
 /// T030: AtelierHttpError carries port + status
 #[test]
 fn test_failure_mode_atelier_http_error() {
-    let mode = FailureMode::AtelierHttpError { port: 52791, status: 503 };
+    let mode = FailureMode::AtelierHttpError {
+        port: 52791,
+        status: 503,
+    };
     match mode {
-        FailureMode::AtelierHttpError { port: 52791, status: 503 } => {}
+        FailureMode::AtelierHttpError {
+            port: 52791,
+            status: 503,
+        } => {}
         _ => panic!("wrong variant"),
     }
 }

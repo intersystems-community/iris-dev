@@ -99,9 +99,7 @@ fn start_fresh_container(
     license_key: Option<&str>,
 ) -> ContainerHandle {
     // Remove any existing container with this name
-    let _ = Command::new("docker")
-        .args(["rm", "-f", name])
-        .output();
+    let _ = Command::new("docker").args(["rm", "-f", name]).output();
 
     let mut cmd = Command::new("docker");
     cmd.arg("run").arg("-d").arg("--name").arg(name);
@@ -132,11 +130,21 @@ fn start_fresh_container(
 
     // Create a test user via docker exec (bypass OS-auth-only default)
     let _ = Command::new("docker")
-        .args(["exec", name, "iris", "session", "iris", "-U", "%SYS",
-               "##class(Security.Users).Create(\"test\",\"%ALL\",\"test\")"])
+        .args([
+            "exec",
+            name,
+            "iris",
+            "session",
+            "iris",
+            "-U",
+            "%SYS",
+            "##class(Security.Users).Create(\"test\",\"%ALL\",\"test\")",
+        ])
         .output();
 
-    ContainerHandle { name: name.to_string() }
+    ContainerHandle {
+        name: name.to_string(),
+    }
 }
 
 // ── Phase 3/US1: Container not found ─────────────────────────────────────────
@@ -195,17 +203,26 @@ fn test_port_not_mapped_message() {
 #[test]
 fn test_auth_401_single_warn() {
     // Start community container without IRIS_PASSWORD so _SYSTEM gets OS auth only
-    let _ = Command::new("docker").args(["rm", "-f", "e2e-nopassword"]).output();
+    let _ = Command::new("docker")
+        .args(["rm", "-f", "e2e-nopassword"])
+        .output();
     let mut cmd = Command::new("docker");
     cmd.args([
-        "run", "-d", "--name", "e2e-nopassword",
-        "-p", "52796:52773",
+        "run",
+        "-d",
+        "--name",
+        "e2e-nopassword",
+        "-p",
+        "52796:52773",
         "containers.intersystems.com/intersystems/iris-community:2026.1",
-        "--check-caps", "false",
+        "--check-caps",
+        "false",
     ]);
     let _ = cmd.output();
     std::thread::sleep(std::time::Duration::from_secs(25));
-    let _cleanup = ContainerHandle { name: "e2e-nopassword".to_string() };
+    let _cleanup = ContainerHandle {
+        name: "e2e-nopassword".to_string(),
+    };
 
     let stderr = run_iris_dev_mcp_capture_stderr("e2e-nopassword", &[]);
     println!("stderr: {}", stderr);
@@ -251,7 +268,9 @@ fn test_enterprise_web_server_absent_message() {
         stderr
     );
     assert!(
-        stderr.contains("iris-community") || stderr.contains("Web Gateway") || stderr.contains("irishealth-community"),
+        stderr.contains("iris-community")
+            || stderr.contains("Web Gateway")
+            || stderr.contains("irishealth-community"),
         "expected enterprise hint text in stderr, got:\n{}",
         stderr
     );

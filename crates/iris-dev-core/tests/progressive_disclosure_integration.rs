@@ -24,7 +24,10 @@ fn iris_available() -> bool {
 
 /// Send a sequence of MCP JSON-RPC messages to an iris-dev mcp subprocess.
 /// Returns parsed responses for messages that have an `id`.
-fn mcp_exchange(messages: &[serde_json::Value], extra_env: &[(&str, &str)]) -> Vec<serde_json::Value> {
+fn mcp_exchange(
+    messages: &[serde_json::Value],
+    extra_env: &[(&str, &str)],
+) -> Vec<serde_json::Value> {
     let bin = iris_dev_bin();
     let iris_host = std::env::var("IRIS_HOST").unwrap_or_else(|_| "localhost".to_string());
     let iris_port = std::env::var("IRIS_WEB_PORT").unwrap_or_else(|_| "52780".to_string());
@@ -33,8 +36,14 @@ fn mcp_exchange(messages: &[serde_json::Value], extra_env: &[(&str, &str)]) -> V
     cmd.args(["mcp"])
         .env("IRIS_HOST", &iris_host)
         .env("IRIS_WEB_PORT", &iris_port)
-        .env("IRIS_USERNAME", std::env::var("IRIS_USERNAME").unwrap_or_else(|_| "_SYSTEM".into()))
-        .env("IRIS_PASSWORD", std::env::var("IRIS_PASSWORD").unwrap_or_else(|_| "SYS".into()))
+        .env(
+            "IRIS_USERNAME",
+            std::env::var("IRIS_USERNAME").unwrap_or_else(|_| "_SYSTEM".into()),
+        )
+        .env(
+            "IRIS_PASSWORD",
+            std::env::var("IRIS_PASSWORD").unwrap_or_else(|_| "SYS".into()),
+        )
         .env("IRIS_NAMESPACE", "USER")
         .env("IRIS_TOOLSET", "merged")
         .stdin(Stdio::piped())
@@ -52,7 +61,9 @@ fn mcp_exchange(messages: &[serde_json::Value], extra_env: &[(&str, &str)]) -> V
     let mut results = vec![];
 
     for msg in messages {
-        stdin.write_all((serde_json::to_string(msg).unwrap() + "\n").as_bytes()).unwrap();
+        stdin
+            .write_all((serde_json::to_string(msg).unwrap() + "\n").as_bytes())
+            .unwrap();
         stdin.flush().unwrap();
         if msg.get("id").is_some() {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
@@ -85,7 +96,9 @@ fn find_response(responses: &[serde_json::Value], id: u64) -> serde_json::Value 
 }
 
 fn parse_tool_text(response: &serde_json::Value) -> serde_json::Value {
-    let text = response["result"]["content"][0]["text"].as_str().unwrap_or("{}");
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or("{}");
     serde_json::from_str(text).unwrap_or_default()
 }
 
@@ -108,8 +121,10 @@ fn tool_call(name: &str, args: serde_json::Value, extra_env: &[(&str, &str)]) ->
 
 /// Call two tools in a single MCP session (needed for log_store chain tests).
 fn two_tool_calls(
-    name1: &str, args1: serde_json::Value,
-    name2: &str, args2: serde_json::Value,
+    name1: &str,
+    args1: serde_json::Value,
+    name2: &str,
+    args2: serde_json::Value,
     extra_env: &[(&str, &str)],
 ) -> (serde_json::Value, serde_json::Value) {
     let responses = mcp_exchange(
@@ -153,13 +168,21 @@ fn test_e2e_compile_truncation() {
         &[("IRIS_INLINE_COMPILE", "2")],
     );
 
-    println!("compile result keys: {:?}", result.as_object().map(|o| o.keys().collect::<Vec<_>>()));
-    println!("success={} truncated={}", result["success"], result["truncated"]);
+    println!(
+        "compile result keys: {:?}",
+        result.as_object().map(|o| o.keys().collect::<Vec<_>>())
+    );
+    println!(
+        "success={} truncated={}",
+        result["success"], result["truncated"]
+    );
 
     // If compile returned an error (e.g. NOT_FOUND), skip gracefully
     if result["success"] == serde_json::json!(false) && result.get("error_code").is_some() {
-        println!("SKIP: compile returned error ({}), cannot test truncation path",
-            result["error_code"].as_str().unwrap_or("unknown"));
+        println!(
+            "SKIP: compile returned error ({}), cannot test truncation path",
+            result["error_code"].as_str().unwrap_or("unknown")
+        );
         return;
     }
 
@@ -168,30 +191,46 @@ fn test_e2e_compile_truncation() {
 
     if error_count == 0 {
         // Clean compile — truncated must be false, no log_id
-        assert_eq!(result["truncated"], serde_json::json!(false),
-            "clean compile should have truncated:false");
-        assert!(result.get("log_id").is_none() || result["log_id"].is_null(),
-            "clean compile should have no log_id");
+        assert_eq!(
+            result["truncated"],
+            serde_json::json!(false),
+            "clean compile should have truncated:false"
+        );
+        assert!(
+            result.get("log_id").is_none() || result["log_id"].is_null(),
+            "clean compile should have no log_id"
+        );
         println!("SKIP: all classes compiled cleanly — cannot test truncation without errors");
         return;
     }
 
     // We have errors — if above threshold (IRIS_INLINE_COMPILE=2), expect truncation
     if error_count > 2 {
-        assert_eq!(result["truncated"], serde_json::json!(true),
-            "compile with {} errors should truncate with threshold=2", error_count);
-        let log_id = result["log_id"].as_str().expect("log_id must be present when truncated");
+        assert_eq!(
+            result["truncated"],
+            serde_json::json!(true),
+            "compile with {} errors should truncate with threshold=2",
+            error_count
+        );
+        let log_id = result["log_id"]
+            .as_str()
+            .expect("log_id must be present when truncated");
         assert!(!log_id.is_empty());
         assert_eq!(result["inline_count"], serde_json::json!(2));
         assert!(result["total_count"].as_u64().unwrap_or(0) > 2);
         let inline = result["errors"].as_array().unwrap();
         assert!(inline.len() <= 2, "inline errors must be <= threshold");
-        println!("truncation verified: inline={}, total={}, log_id={}",
-            result["inline_count"], result["total_count"], log_id);
+        println!(
+            "truncation verified: inline={}, total={}, log_id={}",
+            result["inline_count"], result["total_count"], log_id
+        );
     } else {
         // 1-2 errors — below or equal to threshold, no truncation
         assert_eq!(result["truncated"], serde_json::json!(false));
-        println!("error_count={} <= threshold=2, no truncation expected", error_count);
+        println!(
+            "error_count={} <= threshold=2, no truncation expected",
+            error_count
+        );
     }
 }
 
@@ -208,11 +247,19 @@ fn test_e2e_compile_then_get_log() {
         &[("IRIS_INLINE_COMPILE", "2")],
     );
 
-    println!("compile: {}", serde_json::to_string_pretty(&compile_result).unwrap());
+    println!(
+        "compile: {}",
+        serde_json::to_string_pretty(&compile_result).unwrap()
+    );
 
     // If compile errored entirely (NOT_FOUND etc.) or produced no log_id, skip
-    if compile_result["success"] == serde_json::json!(false) && compile_result.get("error_code").is_some() {
-        println!("SKIP: compile returned error ({})", compile_result["error_code"].as_str().unwrap_or("?"));
+    if compile_result["success"] == serde_json::json!(false)
+        && compile_result.get("error_code").is_some()
+    {
+        println!(
+            "SKIP: compile returned error ({})",
+            compile_result["error_code"].as_str().unwrap_or("?")
+        );
         return;
     }
     let log_id = match compile_result["log_id"].as_str() {
@@ -227,18 +274,32 @@ fn test_e2e_compile_then_get_log() {
         "iris_compile",
         serde_json::json!({"target": "%Library.*.cls", "namespace": "USER"}),
         "iris_get_log",
-        serde_json::json!({}),  // list all logs
+        serde_json::json!({}), // list all logs
         &[("IRIS_INLINE_COMPILE", "2")],
     );
 
-    println!("compile2: {}", serde_json::to_string_pretty(&compile2).unwrap());
-    println!("get_log list: {}", serde_json::to_string_pretty(&get_log).unwrap());
+    println!(
+        "compile2: {}",
+        serde_json::to_string_pretty(&compile2).unwrap()
+    );
+    println!(
+        "get_log list: {}",
+        serde_json::to_string_pretty(&get_log).unwrap()
+    );
 
-    assert_eq!(get_log["success"], serde_json::json!(true), "iris_get_log list failed: {:?}", get_log);
+    assert_eq!(
+        get_log["success"],
+        serde_json::json!(true),
+        "iris_get_log list failed: {:?}",
+        get_log
+    );
     let logs = get_log["logs"].as_array().expect("logs must be array");
 
     if compile2["truncated"].as_bool().unwrap_or(false) {
-        assert!(!logs.is_empty(), "log store must have at least one entry after truncated compile");
+        assert!(
+            !logs.is_empty(),
+            "log store must have at least one entry after truncated compile"
+        );
         let entry = &logs[0];
         assert!(entry["id"].is_string());
         assert_eq!(entry["tool"].as_str().unwrap_or(""), "iris_compile");
@@ -254,11 +315,19 @@ fn test_e2e_compile_then_get_log() {
             serde_json::json!({"id": log_id2}),
             &[("IRIS_INLINE_COMPILE", "2")],
         );
-        println!("get_by_id: {}", serde_json::to_string_pretty(&get_by_id).unwrap());
+        println!(
+            "get_by_id: {}",
+            serde_json::to_string_pretty(&get_by_id).unwrap()
+        );
         assert_eq!(get_by_id["success"], serde_json::json!(true));
-        assert!(get_by_id["result"].is_array() || !get_by_id["result"].is_null(),
-            "retrieved result must be present");
-        println!("iris_get_log by id verified: total_count={}", get_by_id["total_count"]);
+        assert!(
+            get_by_id["result"].is_array() || !get_by_id["result"].is_null(),
+            "retrieved result must be present"
+        );
+        println!(
+            "iris_get_log by id verified: total_count={}",
+            get_by_id["total_count"]
+        );
     } else {
         println!("SKIP: compile did not truncate (too few errors for threshold=2)");
     }
@@ -280,7 +349,10 @@ fn test_e2e_search_truncation() {
         &[("IRIS_INLINE_SEARCH", "3")],
     );
 
-    println!("search result keys: {:?}", result.as_object().map(|o| o.keys().collect::<Vec<_>>()));
+    println!(
+        "search result keys: {:?}",
+        result.as_object().map(|o| o.keys().collect::<Vec<_>>())
+    );
     println!("total_found: {}", result["total_found"]);
     println!("truncated: {}", result["truncated"]);
 
@@ -291,14 +363,21 @@ fn test_e2e_search_truncation() {
     }
 
     if total > 3 {
-        assert_eq!(result["truncated"], serde_json::json!(true),
-            "search with {} results should truncate at threshold=3", total);
+        assert_eq!(
+            result["truncated"],
+            serde_json::json!(true),
+            "search with {} results should truncate at threshold=3",
+            total
+        );
         let log_id = result["log_id"].as_str().expect("log_id must be present");
         assert!(!log_id.is_empty());
         assert_eq!(result["inline_count"], serde_json::json!(3));
         let inline = result["results"].as_array().expect("results must be array");
         assert_eq!(inline.len(), 3, "inline results must equal threshold");
-        println!("search truncation verified: {} total, 3 inline, log_id={}", total, log_id);
+        println!(
+            "search truncation verified: {} total, 3 inline, log_id={}",
+            total, log_id
+        );
     } else {
         assert_eq!(result["truncated"], serde_json::json!(false));
         println!("total={} is <= threshold=3, no truncation expected", total);
@@ -319,11 +398,16 @@ fn test_e2e_info_truncation() {
         &[("IRIS_INLINE_INFO", "3")],
     );
 
-    println!("info result: {}", serde_json::to_string_pretty(&result).unwrap());
+    println!(
+        "info result: {}",
+        serde_json::to_string_pretty(&result).unwrap()
+    );
 
     // The response has a "documents" key (added by our truncation wiring) and optionally
     // also preserves the original "result" key.
-    let doc_count = result["documents"].as_array().map(|a| a.len())
+    let doc_count = result["documents"]
+        .as_array()
+        .map(|a| a.len())
         .or_else(|| result["result"]["content"].as_array().map(|a| a.len()))
         .unwrap_or(0);
 
@@ -331,15 +415,24 @@ fn test_e2e_info_truncation() {
 
     if let Some(total) = result["total_count"].as_u64() {
         // Truncation fired
-        assert_eq!(result["truncated"], serde_json::json!(true),
-            "iris_info with total_count present should have truncated:true");
+        assert_eq!(
+            result["truncated"],
+            serde_json::json!(true),
+            "iris_info with total_count present should have truncated:true"
+        );
         assert!(total > 3, "total_count must be > threshold");
-        let docs = result["documents"].as_array().expect("documents must be array when truncated");
+        let docs = result["documents"]
+            .as_array()
+            .expect("documents must be array when truncated");
         assert!(docs.len() <= 3, "inline documents must be <= threshold=3");
         let log_id = result["log_id"].as_str().expect("log_id must be present");
         assert!(!log_id.is_empty());
-        println!("iris_info truncation verified: {} total, {} inline, log_id={}",
-            total, docs.len(), log_id);
+        println!(
+            "iris_info truncation verified: {} total, {} inline, log_id={}",
+            total,
+            docs.len(),
+            log_id
+        );
     } else {
         // Below threshold or 0 docs
         assert_eq!(result["truncated"], serde_json::json!(false));
@@ -369,32 +462,52 @@ fn test_e2e_get_log_full_chain() {
     );
 
     let info_result = find_response(&responses, 2)
-        .get("result").and_then(|r| r["content"][0]["text"].as_str())
+        .get("result")
+        .and_then(|r| r["content"][0]["text"].as_str())
         .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
         .unwrap_or_default();
     let list_result = find_response(&responses, 3)
-        .get("result").and_then(|r| r["content"][0]["text"].as_str())
+        .get("result")
+        .and_then(|r| r["content"][0]["text"].as_str())
         .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
         .unwrap_or_default();
 
-    println!("info: truncated={}, total_count={}", info_result["truncated"], info_result["total_count"]);
-    println!("list: {}", serde_json::to_string_pretty(&list_result).unwrap());
+    println!(
+        "info: truncated={}, total_count={}",
+        info_result["truncated"], info_result["total_count"]
+    );
+    println!(
+        "list: {}",
+        serde_json::to_string_pretty(&list_result).unwrap()
+    );
 
-    assert_eq!(list_result["success"], serde_json::json!(true), "iris_get_log list failed");
+    assert_eq!(
+        list_result["success"],
+        serde_json::json!(true),
+        "iris_get_log list failed"
+    );
 
     if !info_result["truncated"].as_bool().unwrap_or(false) {
         println!("SKIP: iris_info did not truncate (USER namespace has <=3 CLS documents)");
         // Still assert list returns empty correctly
         let logs = list_result["logs"].as_array().expect("logs must be array");
-        assert!(logs.is_empty(), "no entries should be in store if nothing was truncated");
+        assert!(
+            logs.is_empty(),
+            "no entries should be in store if nothing was truncated"
+        );
         return;
     }
 
-    let log_id = info_result["log_id"].as_str().expect("log_id must be present after truncation");
+    let log_id = info_result["log_id"]
+        .as_str()
+        .expect("log_id must be present after truncation");
     let logs = list_result["logs"].as_array().expect("logs must be array");
     assert!(!logs.is_empty(), "store must have at least one entry");
-    assert!(logs.iter().any(|e| e["id"].as_str() == Some(log_id)),
-        "listed entries must include our log_id={}", log_id);
+    assert!(
+        logs.iter().any(|e| e["id"].as_str() == Some(log_id)),
+        "listed entries must include our log_id={}",
+        log_id
+    );
 
     // Now retrieve by id — use a new session since log store is per-process
     let get_by_id_responses = mcp_exchange(
@@ -416,8 +529,12 @@ fn test_e2e_get_log_full_chain() {
     // We pass __IRIS_LOG_ID__ as sentinel and substitute after the first call.
     // Simpler: just do both in sequence and verify the list has our entry.
     let total = info_result["total_count"].as_u64().unwrap_or(0);
-    println!("full chain verified: log_id={}, total_count={}, logs_in_store={}",
-        log_id, total, logs.len());
+    println!(
+        "full chain verified: log_id={}, total_count={}, logs_in_store={}",
+        log_id,
+        total,
+        logs.len()
+    );
 
     // Test pagination: iris_get_log(id, limit=2, offset=0) in a new session
     // We need to produce a log entry first in that session.
@@ -434,11 +551,13 @@ fn test_e2e_get_log_full_chain() {
     );
 
     let p_info = find_response(&paginated_responses, 2)
-        .get("result").and_then(|r| r["content"][0]["text"].as_str())
+        .get("result")
+        .and_then(|r| r["content"][0]["text"].as_str())
         .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
         .unwrap_or_default();
     let p_list = find_response(&paginated_responses, 3)
-        .get("result").and_then(|r| r["content"][0]["text"].as_str())
+        .get("result")
+        .and_then(|r| r["content"][0]["text"].as_str())
         .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
         .unwrap_or_default();
 
@@ -465,15 +584,19 @@ fn test_e2e_iris_get_log_absent_from_baseline() {
             serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
             serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}),
         ],
-        &[("IRIS_TOOLSET", "baseline")],  // override the merged default
+        &[("IRIS_TOOLSET", "baseline")], // override the merged default
     );
 
     let list_resp = find_response(&responses, 2);
-    let tools = list_resp["result"]["tools"].as_array().expect("tools must be array");
+    let tools = list_resp["result"]["tools"]
+        .as_array()
+        .expect("tools must be array");
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     println!("baseline tools: {:?}", names);
-    assert!(!names.contains(&"iris_get_log"),
-        "iris_get_log must NOT appear in baseline tool list");
+    assert!(
+        !names.contains(&"iris_get_log"),
+        "iris_get_log must NOT appear in baseline tool list"
+    );
     println!("baseline toolset verified: iris_get_log absent ✓");
 }
 
@@ -489,14 +612,19 @@ fn test_e2e_iris_get_log_present_in_merged() {
             serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized","params":{}}),
             serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}),
         ],
-        &[],  // default: merged
+        &[], // default: merged
     );
 
     let list_resp = find_response(&responses, 2);
-    let tools = list_resp["result"]["tools"].as_array().expect("tools must be array");
+    let tools = list_resp["result"]["tools"]
+        .as_array()
+        .expect("tools must be array");
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
-    assert!(names.contains(&"iris_get_log"),
-        "iris_get_log must appear in merged tool list, got: {:?}", names);
+    assert!(
+        names.contains(&"iris_get_log"),
+        "iris_get_log must appear in merged tool list, got: {:?}",
+        names
+    );
     println!("merged toolset verified: iris_get_log present ✓");
 }
 
@@ -507,7 +635,10 @@ fn test_e2e_get_log_empty_store() {
     assert!(iris_available(), "set IRIS_HOST to run e2e tests");
 
     let result = tool_call("iris_get_log", serde_json::json!({}), &[]);
-    println!("empty store: {}", serde_json::to_string_pretty(&result).unwrap());
+    println!(
+        "empty store: {}",
+        serde_json::to_string_pretty(&result).unwrap()
+    );
     assert_eq!(result["success"], serde_json::json!(true));
     let logs = result["logs"].as_array().expect("logs must be array");
     assert!(logs.is_empty(), "fresh session must have empty log store");
@@ -525,7 +656,10 @@ fn test_e2e_get_log_not_found() {
         serde_json::json!({"id": "iris-0000000000000-ffffffff"}),
         &[],
     );
-    println!("not_found: {}", serde_json::to_string_pretty(&result).unwrap());
+    println!(
+        "not_found: {}",
+        serde_json::to_string_pretty(&result).unwrap()
+    );
     assert_eq!(result["success"], serde_json::json!(false));
     assert_eq!(result["error_code"].as_str().unwrap_or(""), "LOG_NOT_FOUND");
     println!("LOG_NOT_FOUND verified ✓");

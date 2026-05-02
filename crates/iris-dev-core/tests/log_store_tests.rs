@@ -99,7 +99,10 @@ fn test_get_found() {
 #[test]
 fn test_get_not_found() {
     let s = LogStore::new(10, 60);
-    assert!(matches!(s.get("iris-9999999999999-unknown1"), GetResult::NotFound));
+    assert!(matches!(
+        s.get("iris-9999999999999-unknown1"),
+        GetResult::NotFound
+    ));
 }
 
 #[test]
@@ -110,7 +113,11 @@ fn test_get_expired_returns_expired_not_evicted() {
     let entry = make_entry("iris_compile", 5);
     let id = s.store(entry);
     // Entry is still in the store
-    assert_eq!(s.entries.len(), 1, "entry should still be in store before get()");
+    assert_eq!(
+        s.entries.len(),
+        1,
+        "entry should still be in store before get()"
+    );
     assert!(
         matches!(s.get(&id), GetResult::Expired),
         "get() should return Expired, not NotFound"
@@ -164,7 +171,10 @@ fn test_evict_all_with_zero_ttl() {
     s.store(make_entry("t2", 2));
     s.store(make_entry("t3", 3));
     s.evict_expired();
-    assert!(s.entries.is_empty(), "all entries should be evicted with ttl=0");
+    assert!(
+        s.entries.is_empty(),
+        "all entries should be evicted with ttl=0"
+    );
 }
 
 #[test]
@@ -174,7 +184,11 @@ fn test_evict_none_with_large_ttl() {
     s.store(make_entry("t2", 2));
     s.store(make_entry("t3", 3));
     s.evict_expired();
-    assert_eq!(s.entries.len(), 3, "no entries should be evicted with ttl=999");
+    assert_eq!(
+        s.entries.len(),
+        3,
+        "no entries should be evicted with ttl=999"
+    );
 }
 
 // ── T018: iris_compile truncation — 25 errors → truncated ────────────────────
@@ -196,7 +210,11 @@ fn test_apply_truncation_above_threshold() {
     assert_eq!(result["inline_count"], json!(20));
     assert_eq!(result["total_count"], json!(25));
     let inline_errors = result["errors"].as_array().unwrap();
-    assert_eq!(inline_errors.len(), 20, "errors array should be trimmed to 20");
+    assert_eq!(
+        inline_errors.len(),
+        20,
+        "errors array should be trimmed to 20"
+    );
     // Store should have one entry
     assert_eq!(store.lock().unwrap().entries.len(), 1);
 }
@@ -250,7 +268,11 @@ fn test_apply_truncation_inline_bypass() {
         "log_id must not be present when inline=true"
     );
     let inline_errors = result["errors"].as_array().unwrap();
-    assert_eq!(inline_errors.len(), 25, "all 25 errors must be present with inline=true");
+    assert_eq!(
+        inline_errors.len(),
+        25,
+        "all 25 errors must be present with inline=true"
+    );
     assert_eq!(
         store.lock().unwrap().entries.len(),
         0,
@@ -341,7 +363,14 @@ fn test_error_logs_truncation_above_threshold() {
         .map(|i| json!({"ErrorCode": format!("E{}", i), "ErrorText": "text"}))
         .collect();
     let mut result = json!({"success": true, "logs": logs});
-    apply_truncation(&mut result, "logs", 20, false, &store, "debug_get_error_logs");
+    apply_truncation(
+        &mut result,
+        "logs",
+        20,
+        false,
+        &store,
+        "debug_get_error_logs",
+    );
     assert_eq!(result["truncated"], json!(true));
     assert_eq!(result["logs"].as_array().unwrap().len(), 20);
     assert_eq!(result["total_count"], json!(25));
@@ -381,7 +410,10 @@ fn test_get_by_id_found() {
 #[test]
 fn test_get_by_id_not_found() {
     let s = LogStore::new(50, 60);
-    assert!(matches!(s.get("iris-0000000000000-badid123"), GetResult::NotFound));
+    assert!(matches!(
+        s.get("iris-0000000000000-badid123"),
+        GetResult::NotFound
+    ));
 }
 
 #[test]

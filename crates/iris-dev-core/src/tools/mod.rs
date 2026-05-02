@@ -467,7 +467,9 @@ impl IrisTools {
             client,
             history: Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(50))),
             elicitation_store: Arc::new(ElicitationStore::new()),
-            log_store: Arc::new(std::sync::Mutex::new(log_store::LogStore::new(log_max, log_ttl))),
+            log_store: Arc::new(std::sync::Mutex::new(log_store::LogStore::new(
+                log_max, log_ttl,
+            ))),
             toolset: Toolset::Baseline,
             write_tools_enabled,
             tool_router: Self::tool_router(),
@@ -734,7 +736,9 @@ impl IrisTools {
             client,
             history: Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(50))),
             elicitation_store: Arc::new(ElicitationStore::new()),
-            log_store: Arc::new(std::sync::Mutex::new(log_store::LogStore::new(log_max, log_ttl))),
+            log_store: Arc::new(std::sync::Mutex::new(log_store::LogStore::new(
+                log_max, log_ttl,
+            ))),
             toolset,
             write_tools_enabled,
             tool_router: router,
@@ -1553,8 +1557,7 @@ impl IrisTools {
                 let mut result =
                     serde_json::json!({"success": true, "logs": resp["result"]["content"]});
                 // Progressive disclosure (027): truncate logs when count exceeds threshold.
-                let threshold =
-                    log_store::read_inline_threshold("IRIS_INLINE_ERROR_LOGS", 20);
+                let threshold = log_store::read_inline_threshold("IRIS_INLINE_ERROR_LOGS", 20);
                 log_store::apply_truncation(
                     &mut result,
                     "logs",
@@ -2142,7 +2145,9 @@ Methods:
         Parameters(p): Parameters<search::SearchParams>,
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
-        let result = search::handle_iris_search(iris, self.http_client(), p, Arc::clone(&self.log_store)).await;
+        let result =
+            search::handle_iris_search(iris, self.http_client(), p, Arc::clone(&self.log_store))
+                .await;
         self.record_call("iris_search", result.is_ok());
         result
     }
@@ -2155,7 +2160,8 @@ Methods:
         Parameters(p): Parameters<info::InfoParams>,
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
-        let result = info::handle_iris_info(iris, self.http_client(), p, Arc::clone(&self.log_store)).await;
+        let result =
+            info::handle_iris_info(iris, self.http_client(), p, Arc::clone(&self.log_store)).await;
         self.record_call("iris_info", result.is_ok());
         result
     }
@@ -2846,12 +2852,14 @@ Methods:
                     .unwrap_or(log_store::GetResult::NotFound);
 
                 match get_result {
-                    log_store::GetResult::NotFound => {
-                        err_json("LOG_NOT_FOUND", &format!("No log entry found with id '{}'", id))
-                    }
-                    log_store::GetResult::Expired => {
-                        err_json("LOG_EXPIRED", &format!("Log entry '{}' has expired (TTL exceeded)", id))
-                    }
+                    log_store::GetResult::NotFound => err_json(
+                        "LOG_NOT_FOUND",
+                        &format!("No log entry found with id '{}'", id),
+                    ),
+                    log_store::GetResult::Expired => err_json(
+                        "LOG_EXPIRED",
+                        &format!("Log entry '{}' has expired (TTL exceeded)", id),
+                    ),
                     log_store::GetResult::Found(_) => {
                         // Now handle pagination
                         let paginated = self
@@ -2861,7 +2869,10 @@ Methods:
                             .and_then(|s| s.get_paginated(id, p.limit, p.offset));
 
                         match paginated {
-                            None => err_json("LOG_EXPIRED", &format!("Log entry '{}' expired during retrieval", id)),
+                            None => err_json(
+                                "LOG_EXPIRED",
+                                &format!("Log entry '{}' expired during retrieval", id),
+                            ),
                             Some((result, has_more, total_count)) => {
                                 if p.limit.is_some() {
                                     ok_json(serde_json::json!({

@@ -85,8 +85,7 @@ pub async fn handle_iris_info(
     }
 
     let body: serde_json::Value = resp.json().await.unwrap_or_default();
-    let mut result_json =
-        serde_json::json!({"success": true, "what": p.what, "namespace": p.namespace, "result": body["result"]});
+    let mut result_json = serde_json::json!({"success": true, "what": p.what, "namespace": p.namespace, "result": body["result"]});
 
     // Progressive disclosure (027): for what=documents, truncate the document list.
     // The document names are in result["content"] — flatten to a top-level "documents" key.

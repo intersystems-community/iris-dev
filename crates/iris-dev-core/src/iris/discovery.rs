@@ -267,14 +267,18 @@ fn emit_unhealthy_message(container_name: &str, mode: FailureMode) {
                  — use iris-community or irishealth-community for local dev, or connect via \
                  IRIS_HOST+IRIS_WEB_PORT to an external Web Gateway. \
                  Note: iris_execute and iris_test still work via docker exec.",
-                container_name, port
+                container_name,
+                port
             );
         }
         FailureMode::AtelierHttpError { port, status } => {
             tracing::warn!(
                 "Container '{}' found at localhost:{} but Atelier REST returned HTTP {}. \
                  Check IRIS logs: docker logs {}",
-                container_name, port, status, container_name
+                container_name,
+                port,
+                status,
+                container_name
             );
         }
         FailureMode::AtelierAuth401 { port: _ } => {
@@ -377,7 +381,10 @@ async fn discover_via_docker_named(target: &str) -> DiscoveryResult {
         };
 
         // Port is mapped — probe Atelier REST.
-        return probe_atelier_for_container(&name, web_port, &username, &password, &namespace, port_ss).await;
+        return probe_atelier_for_container(
+            &name, web_port, &username, &password, &namespace, port_ss,
+        )
+        .await;
     }
 
     // No container matched the name.
@@ -400,7 +407,9 @@ async fn probe_atelier_for_container(
         .build()
     {
         Ok(c) => c,
-        Err(_) => return DiscoveryResult::FoundUnhealthy(FailureMode::AtelierNotResponding { port }),
+        Err(_) => {
+            return DiscoveryResult::FoundUnhealthy(FailureMode::AtelierNotResponding { port })
+        }
     };
 
     let url = format!("http://localhost:{}/api/atelier/", port);
@@ -411,7 +420,9 @@ async fn probe_atelier_for_container(
         .await
     {
         Ok(r) => r,
-        Err(_) => return DiscoveryResult::FoundUnhealthy(FailureMode::AtelierNotResponding { port }),
+        Err(_) => {
+            return DiscoveryResult::FoundUnhealthy(FailureMode::AtelierNotResponding { port })
+        }
     };
 
     let status = resp.status().as_u16();
@@ -432,7 +443,9 @@ async fn probe_atelier_for_container(
 
     let body: serde_json::Value = match resp.json().await {
         Ok(b) => b,
-        Err(_) => return DiscoveryResult::FoundUnhealthy(FailureMode::AtelierNotResponding { port }),
+        Err(_) => {
+            return DiscoveryResult::FoundUnhealthy(FailureMode::AtelierNotResponding { port })
+        }
     };
 
     let content = &body["result"]["content"];
