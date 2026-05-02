@@ -107,8 +107,10 @@ should mention the web server.
 1. **Given** a container with port 52773 mapped but web server not running, **When** any
    tool is called, **Then** stderr contains all of:
    - Container name and the host:port that was probed
-   - "Atelier REST API not responding" or equivalent
-   - Hint: enterprise images do not ship the private web server — use `iris-community`/`irishealth-community` for local dev, or connect via `IRIS_HOST`+`IRIS_WEB_PORT` to an external Web Gateway (NOT a suggestion to set `WebServer=1` in CPF — that crashes enterprise containers)
+   - "Atelier REST API is not responding"
+   - Hint: "Enterprise IRIS images (iris:, irishealth:) do not include the private web server — use iris-community or irishealth-community for local dev, or connect via IRIS_HOST+IRIS_WEB_PORT to an external Web Gateway"
+   - Note that `iris_execute` and `iris_test` still work via docker exec
+   - **Must NOT** suggest setting `WebServer=1` in CPF (verified: crashes enterprise containers with `<NOTOPEN>WebServer+38^STU1`)
 2. **Given** the above, **Then** the discovery cascade does NOT continue to localhost scan.
 3. **Given** the above, **Then** the error notes that docker exec tools (`iris_execute`,
    `iris_test`) are still available when `IRIS_CONTAINER` is set.

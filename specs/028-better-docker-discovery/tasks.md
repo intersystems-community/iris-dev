@@ -2,7 +2,8 @@
 
 **Input**: Design documents from `/specs/028-better-docker-discovery/`
 **Repo**: `~/ws/iris-dev` (Rust — `crates/iris-dev-core` + `crates/iris-dev-bin`)
-**Constitution**: Principle IV — unit tests (no Docker needed) before implementation; E2E tests `#[ignore]` for enterprise (need `IRIS_LICENSE_KEY_PATH`), no `#[ignore]` for community
+**Constitution**: Principle IV — unit tests (no Docker needed) before implementation; E2E tests `#[ignore]` for enterprise (need `IRIS_LICENSE_KEY_PATH`), no `#[ignore]` for community.
+**NOTE**: `#[ignore]` enterprise E2E tests are MANDATORY phase gates — they cannot be skipped, only run manually. A phase is not complete until its E2E gate passes, even if that requires a human with a license key to run it.
 
 ---
 
@@ -26,12 +27,12 @@
 
 ### Tests for Phase 2 (write first — must FAIL before implementation)
 
-- [ ] T006 [P] Write unit test: `discover_iris()` with no env vars and no Docker containers returns `IrisDiscovery::NotFound` in `crates/iris-dev-core/tests/unit/test_discovery_unit.rs` — mock or skip Docker; assert type variant (WRITE FIRST, must FAIL)
-- [ ] T007 [P] Write unit test: existing `discovery_tests.rs` tests still compile and type-check against new `IrisDiscovery` return type — add a `use IrisDiscovery` import and assert `matches!(result, IrisDiscovery::Found(_))` pattern in `crates/iris-dev-core/tests/discovery_tests.rs`
+- [ ] T006 [P] Write unit test: `discover_iris()` with no env vars and no Docker containers returns `IrisDiscovery::NotFound` in `crates/iris-dev-core/tests/unit/test_discovery_unit.rs` — the `IrisDiscovery` enum exists (from T002) but `discover_iris()` still returns `Result<Option<IrisConnection>>`; the test will FAIL TO COMPILE due to type mismatch — that compile failure IS the valid RED state (WRITE FIRST)
+- [ ] T007 [P] Update `crates/iris-dev-core/tests/discovery_tests.rs` — add `use iris_dev_core::iris::discovery::IrisDiscovery` import and change the 3 existing test assertions to use `matches!(result, IrisDiscovery::Found(_))` pattern; this will FAIL TO COMPILE until T010 changes the function signature — that compile failure IS the valid RED state (WRITE FIRST)
 
 ### TDD Gate
 
-- [ ] T008 **GATE**: Confirm T006–T007 fail to compile (return type mismatch) before changing signatures
+- [ ] T008 **GATE**: Run `cargo test -p iris-dev-core 2>&1 | grep "error\[E"` — confirm T006 and T007 produce type-mismatch compile errors (not runtime failures). The enum variants exist but `discover_iris()` signature has not changed yet. Do not proceed to T009 until both files fail to compile.
 
 ### Implementation for Phase 2
 
@@ -117,10 +118,10 @@
 
 ### Implementation for US2
 
-- [ ] T034 [US2] Introduce `probe_atelier_for_container()` helper in `discovery.rs` — wraps `probe_atelier_with_client()`, returns `DiscoveryResult` directly (not `Option<IrisConnection>`); handles connection-refused/timeout → `FoundUnhealthy(AtelierNotResponding)`, HTTP error → `FoundUnhealthy(AtelierHttpError)`, 401 → `FoundUnhealthy(AtelierAuth401)` (the 401 warn is emitted here with container name included), success → `Connected`
+- [ ] T034 [US2] Introduce `probe_atelier_for_container()` helper in `discovery.rs` — wraps `probe_atelier_with_client()`, returns `DiscoveryResult` directly (not `Option<IrisConnection>`); handles connection-refused/timeout → `FoundUnhealthy(AtelierNotResponding)`, HTTP error → `FoundUnhealthy(AtelierHttpError)`, 401 → `FoundUnhealthy(AtelierAuth401)` (the 401 warn is emitted here with container name included), success → `Connected`. **Preservation note**: T026 already changed `discover_via_docker_named()` to return `FoundUnhealthy(PortNotMapped)` for the no-port case — T035 replaces the probe call only, do not touch the port-mapping branch added by T026
 - [ ] T035 [US2] Replace `probe_atelier()` call inside `discover_via_docker_named()` with `probe_atelier_for_container()` — thread container name + port through
 - [ ] T036 [US2] In `discover_iris()`: handle `FoundUnhealthy(AtelierNotResponding { port })` and `FoundUnhealthy(AtelierHttpError { port, status })` — emit respective warn messages from `data-model.md` templates, return `IrisDiscovery::Explained`
-- [ ] T037 [US2] **GATE-GREEN**: Run `IRIS_LICENSE_KEY_PATH=~/license/iris.key cargo test --test docker_discovery_e2e -- --ignored us2` — T032 must pass
+- [ ] T037 [US2] **GATE-GREEN (MANDATORY — cannot skip)**: Run `IRIS_LICENSE_KEY_PATH=~/license/iris.key cargo test --test docker_discovery_e2e -- --ignored us2` — T032 must pass. This is a required manual step before Phase 6 can begin; record the test output in the PR description.
 
 **Phase gate**: T032 E2E passes (enterprise). Web-server-absent message confirmed; cascade stops.
 
@@ -158,17 +159,20 @@
 
 **Independent Test**: `cargo test --test docker_discovery_e2e` (community) + `IRIS_LICENSE_KEY_PATH=~/license/iris.key cargo test --test docker_discovery_e2e -- --ignored` (enterprise).
 
-### Tests for US5
+### Scaffolding for US5 (helpers needed before tests compile)
 
-- [ ] T045 [P] [US5] Write community regression test: `test_all_community_images` — spins up `iris-community:2026.1` and `irishealth-community:2026.1` fresh; runs iris-dev against each; asserts correct failure mode message for each in `docker_discovery_e2e.rs`
-- [ ] T046 [P] [US5] Write enterprise regression test (`#[ignore]`): `test_all_enterprise_images` — spins up `iris:2026.1` and `irishealth:2026.1` with key; asserts "Atelier REST API not responding" + enterprise hint for each in `docker_discovery_e2e.rs`
+- [ ] T045 [P] [US5] Implement test helper `run_iris_dev_mcp_capture_stderr(container_name: &str, extra_env: &[(&str, &str)]) -> String` in `docker_discovery_e2e.rs` — spawns iris-dev mcp subprocess, sends initialize+notifications/initialized, captures stderr for 3 seconds, kills process. See `interop_e2e_tests.rs::mcp_exchange` for subprocess spawn pattern.
+- [ ] T046 [P] [US5] Implement `start_fresh_container(image: &str, name: &str, port_map: Option<(u16, u16)>, license_key: Option<&str>) -> String` helper in `docker_discovery_e2e.rs` — wraps `docker run`, returns container name, registered for cleanup via `docker rm -f` on drop
+
+### Tests for US5 (write after helpers — must FAIL before T049/T050)
+
+- [ ] T047 [P] [US5] Write community regression test: `test_all_community_images` — spins up `iris-community:2026.1` and `irishealth-community:2026.1` fresh using T046 helper; runs iris-dev using T045 helper; asserts correct failure mode message for each in `docker_discovery_e2e.rs` (WRITE FIRST, must FAIL)
+- [ ] T048 [P] [US5] Write enterprise regression test (`#[ignore]`): `test_all_enterprise_images` — spins up `iris:2026.1` and `irishealth:2026.1` with key using T046 helper; asserts "Atelier REST API not responding" + enterprise hint for each in `docker_discovery_e2e.rs` (WRITE FIRST, must FAIL)
 
 ### Implementation for US5
 
-- [ ] T047 [US5] Implement test helper `run_iris_dev_mcp_capture_stderr(container_name: &str, extra_env: &[(&str, &str)]) -> String` in `docker_discovery_e2e.rs` — spawns iris-dev mcp subprocess, sends initialize+notifications/initialized, captures stderr for 3 seconds, kills process
-- [ ] T048 [US5] Implement `start_fresh_container(image: &str, name: &str, port_map: Option<(u16, u16)>, license_key: Option<&str>) -> String` helper in `docker_discovery_e2e.rs` — wraps `docker run`, returns container name, registered for cleanup via `docker rm -f` on drop
-- [ ] T049 [US5] **GATE-GREEN (community)**: Run `cargo test --test docker_discovery_e2e` — T045 must pass without license key
-- [ ] T050 [US5] **GATE-GREEN (enterprise)**: Run `IRIS_LICENSE_KEY_PATH=~/license/iris.key cargo test --test docker_discovery_e2e -- --ignored` — T046 must pass
+- [ ] T049 [US5] **GATE-GREEN (community)**: Run `cargo test --test docker_discovery_e2e` — T047 must pass without license key
+- [ ] T050 [US5] **GATE-GREEN (enterprise — MANDATORY — cannot skip)**: Run `IRIS_LICENSE_KEY_PATH=~/license/iris.key cargo test --test docker_discovery_e2e -- --ignored` — T046 must pass. Record output in PR description before merging.
 
 **Phase gate**: Both T049 and T050 pass. Full 4-image harness green.
 
@@ -209,7 +213,7 @@
 - **Phase 2 (Foundational)**: Depends on Phase 1 — blocks all user story phases
 - **Phase 3 (US1 — not found)**: Depends on Phase 2
 - **Phase 4 (US3 — port not mapped)**: Depends on Phase 2; can run concurrently with Phase 3
-- **Phase 5 (US2 — web server down)**: Depends on Phase 4 (`probe_atelier_for_container` from T034 used by US2)
+- **Phase 5 (US2 — web server down)**: Depends on Phase 4 completing first — T034 modifies the same `discover_via_docker_named()` function as T026; T026 must be done before T034 or the `PortNotMapped` return path will be overwritten
 - **Phase 6 (US4 — 401 dedup)**: Depends on Phase 5 (shares `probe_atelier_for_container`)
 - **Phase 7 (US5 — regression harness)**: Depends on Phases 3–6 all complete
 - **Phase 8 (FR-007 — localhost credentials)**: Independent of Phases 3–7; can run after Phase 2
