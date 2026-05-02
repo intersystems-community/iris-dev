@@ -25,7 +25,11 @@ pub struct WorkspaceConfig {
 }
 
 /// Resolve the workspace root path.
-/// Priority: OBJECTSCRIPT_WORKSPACE env var > workspace_path arg > current directory.
+/// Priority: OBJECTSCRIPT_WORKSPACE env var > workspace_path arg > walk up from cwd.
+///
+/// When no explicit path is given, walks up from current_dir() looking for .iris-dev.toml
+/// (git-style discovery). This ensures the config is found even when the MCP server is
+/// launched from a parent directory (e.g. by an IDE that sets cwd to the home directory).
 pub fn workspace_root(workspace_path: Option<&str>) -> PathBuf {
     if let Ok(ws) = std::env::var("OBJECTSCRIPT_WORKSPACE") {
         if !ws.is_empty() {
@@ -37,7 +41,19 @@ pub fn workspace_root(workspace_path: Option<&str>) -> PathBuf {
             return PathBuf::from(p);
         }
     }
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    // Walk up from current directory looking for .iris-dev.toml
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut dir = cwd.as_path();
+    loop {
+        if dir.join(".iris-dev.toml").exists() {
+            return dir.to_path_buf();
+        }
+        match dir.parent() {
+            Some(parent) => dir = parent,
+            None => break,
+        }
+    }
+    cwd
 }
 
 /// Load `.iris-dev.toml` from the resolved workspace root.
