@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Args;
 use iris_dev_core::{
-    iris::discovery::discover_iris,
+    iris::discovery::{discover_iris, IrisDiscovery},
     skills::SkillRegistry,
     tools::{IrisTools, Toolset},
 };
@@ -83,22 +83,24 @@ impl McpCommand {
 
         tokio::spawn(async move {
             let conn = match discover_iris(explicit).await {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::warn!("IRIS discovery error: {}", e);
+                IrisDiscovery::Found(c) => {
+                    tracing::info!(
+                        "IRIS connected: {}/api/atelier/{} {}",
+                        c.base_url,
+                        c.atelier_version.version_str(),
+                        c.version.as_deref().unwrap_or("?")
+                    );
+                    Some(c)
+                }
+                IrisDiscovery::NotFound => {
+                    tracing::warn!("No IRIS connection — tools return IRIS_UNREACHABLE");
+                    None
+                }
+                IrisDiscovery::Explained => {
+                    // Specific actionable message already emitted — add no noise.
                     None
                 }
             };
-            if let Some(ref c) = conn {
-                tracing::info!(
-                    "IRIS connected: {}/api/atelier/{} {}",
-                    c.base_url,
-                    c.atelier_version.version_str(),
-                    c.version.as_deref().unwrap_or("?")
-                );
-            } else {
-                tracing::warn!("No IRIS connection — tools return IRIS_UNREACHABLE");
-            }
             let _ = iris_tx.send(conn);
         });
 

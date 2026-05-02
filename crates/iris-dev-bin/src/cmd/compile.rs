@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::Args;
 use iris_dev_core::iris::{
     connection::{DiscoverySource, IrisConnection},
-    discovery::discover_iris,
+    discovery::{discover_iris, IrisDiscovery},
 };
 
 #[derive(Args)]
@@ -49,9 +49,18 @@ impl CompileCommand {
             &self.namespace,
         );
 
-        let iris = discover_iris(explicit).await?.context(
-            "No IRIS connection found — set IRIS_HOST or run iris-dev mcp for auto-discovery",
-        )?;
+        let iris = match discover_iris(explicit).await {
+            IrisDiscovery::Found(c) => c,
+            IrisDiscovery::NotFound => {
+                anyhow::bail!(
+                    "No IRIS connection found — set IRIS_HOST or run iris-dev mcp for auto-discovery"
+                );
+            }
+            IrisDiscovery::Explained => {
+                // Specific actionable message already emitted to stderr — exit cleanly.
+                std::process::exit(1);
+            }
+        };
 
         let client = IrisConnection::http_client()?;
         let target = self.target.as_deref().unwrap_or(".");

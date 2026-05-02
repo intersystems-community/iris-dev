@@ -166,3 +166,7 @@ path = "tests/log_store_tests.rs"
 [[test]]
 name = "progressive_disclosure_integration"
 path = "tests/progressive_disclosure_integration.rs"
+
+[[test]]
+name = "docker_discovery_e2e"
+path = "tests/docker_discovery_e2e.rs"
