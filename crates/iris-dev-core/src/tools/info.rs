@@ -4,8 +4,10 @@
 //! iris_generate — LLM-based class/test generation.
 
 use crate::iris::connection::IrisConnection;
+use crate::tools::log_store;
 use schemars::JsonSchema;
 use serde::Deserialize;
+use std::sync::{Arc, Mutex};
 
 fn ok_json(v: serde_json::Value) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     Ok(rmcp::model::CallToolResult::success(vec![
@@ -34,12 +36,16 @@ pub struct InfoParams {
     pub name: Option<String>,
     #[serde(default = "default_namespace")]
     pub namespace: String,
+    /// If true, bypass the log store and return all results inline regardless of count.
+    #[serde(default)]
+    pub inline: bool,
 }
 
 pub async fn handle_iris_info(
     iris: &IrisConnection,
     client: &reqwest::Client,
     p: InfoParams,
+    log_store: Arc<Mutex<log_store::LogStore>>,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     let ns = &p.namespace;
     let url = match p.what.as_str() {
@@ -79,9 +85,27 @@ pub async fn handle_iris_info(
     }
 
     let body: serde_json::Value = resp.json().await.unwrap_or_default();
-    ok_json(
-        serde_json::json!({"success": true, "what": p.what, "namespace": p.namespace, "result": body["result"]}),
-    )
+    let mut result_json =
+        serde_json::json!({"success": true, "what": p.what, "namespace": p.namespace, "result": body["result"]});
+
+    // Progressive disclosure (027): for what=documents, truncate the document list.
+    // The document names are in result["content"] — flatten to a top-level "documents" key.
+    if p.what == "documents" {
+        if let Some(content) = result_json["result"]["content"].as_array().cloned() {
+            result_json["documents"] = serde_json::Value::Array(content);
+            let threshold = log_store::read_inline_threshold("IRIS_INLINE_INFO", 30);
+            log_store::apply_truncation(
+                &mut result_json,
+                "documents",
+                threshold,
+                p.inline,
+                &log_store,
+                "iris_info",
+            );
+        }
+    }
+
+    ok_json(result_json)
 }
 
 // ── iris_macro ───────────────────────────────────────────────────────────────

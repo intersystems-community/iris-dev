@@ -12,6 +12,7 @@ pub mod admin;
 pub mod doc;
 pub mod info;
 pub mod interop;
+pub mod log_store;
 pub mod scm;
 pub mod search;
 pub mod skills_tools;
@@ -68,6 +69,9 @@ pub struct CompileParams {
     pub namespace: String,
     #[serde(default)]
     pub force_writable: bool,
+    /// If true, bypass the log store and return all errors/warnings inline regardless of count.
+    #[serde(default)]
+    pub inline: bool,
 }
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct TestParams {
@@ -160,6 +164,9 @@ pub struct ErrorLogsParams {
     pub namespace: String,
     #[serde(default = "default_max_entries")]
     pub max_entries: usize,
+    /// If true, bypass the log store and return all entries inline regardless of count.
+    #[serde(default)]
+    pub inline: bool,
 }
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CommunityPkgParams {
@@ -167,6 +174,18 @@ pub struct CommunityPkgParams {
 }
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct NoParams {}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetLogParams {
+    /// UUID of a stored log entry. If omitted, lists all stored entries.
+    pub id: Option<String>,
+    /// Max entries to return from the stored result. Must be > 0 if provided.
+    pub limit: Option<usize>,
+    /// Start index into the stored result. Default 0.
+    #[serde(default)]
+    pub offset: usize,
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SourceMapParams {
     pub cls_text: String,
@@ -419,6 +438,8 @@ pub struct IrisTools {
     pub history: Arc<std::sync::Mutex<VecDeque<ToolCallEntry>>>,
     /// Pending elicitation state for SCM dialogs.
     pub elicitation_store: Arc<ElicitationStore>,
+    /// UUID-keyed in-memory log store for progressive disclosure (027).
+    pub log_store: Arc<std::sync::Mutex<log_store::LogStore>>,
     /// Active toolset — controls which tools are registered.
     pub toolset: Toolset,
     /// Whether write-capable interop/credential/lookup tools are available.
@@ -432,12 +453,21 @@ impl IrisTools {
     pub fn new(iris: Option<IrisConnection>) -> anyhow::Result<Self> {
         let client = Arc::new(IrisConnection::http_client()?);
         let write_tools_enabled = iris.as_ref().map(|c| c.is_write_allowed()).unwrap_or(true);
+        let log_max = std::env::var("IRIS_LOG_STORE_MAX")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(50usize);
+        let log_ttl = std::env::var("IRIS_LOG_TTL_MINUTES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60u64);
         Ok(Self {
             iris: iris.map(Arc::new),
             registry: Arc::new(crate::skills::SkillRegistry::new()),
             client,
             history: Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(50))),
             elicitation_store: Arc::new(ElicitationStore::new()),
+            log_store: Arc::new(std::sync::Mutex::new(log_store::LogStore::new(log_max, log_ttl))),
             toolset: Toolset::Baseline,
             write_tools_enabled,
             tool_router: Self::tool_router(),
@@ -542,6 +572,8 @@ impl IrisTools {
             "iris_lookup_transfer",
             // 026-admin-tools
             "iris_admin",
+            // 027-progressive-disclosure
+            "iris_get_log",
         ];
 
         let mut names: std::collections::HashSet<String> =
@@ -658,6 +690,8 @@ impl IrisTools {
                 "iris_lookup_transfer",
                 // 026-admin-tools
                 "iris_admin",
+                // 027-progressive-disclosure
+                "iris_get_log",
             ];
             for name in merged_tools {
                 router.remove_route(name);
@@ -685,12 +719,22 @@ impl IrisTools {
             );
         }
 
+        let log_max = std::env::var("IRIS_LOG_STORE_MAX")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(50usize);
+        let log_ttl = std::env::var("IRIS_LOG_TTL_MINUTES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60u64);
+
         Ok(Self {
             iris: iris.map(Arc::new),
             registry: Arc::new(registry),
             client,
             history: Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(50))),
             elicitation_store: Arc::new(ElicitationStore::new()),
+            log_store: Arc::new(std::sync::Mutex::new(log_store::LogStore::new(log_max, log_ttl))),
             toolset,
             write_tools_enabled,
             tool_router: router,
@@ -890,6 +934,27 @@ impl IrisTools {
         if let Some(uri) = open_uri {
             resp["open_uri"] = serde_json::Value::String(uri);
         }
+
+        // Progressive disclosure (027): truncate errors array when count exceeds threshold.
+        // Threshold counts distinct error+warning entries (not raw console lines).
+        let threshold = log_store::read_inline_threshold("IRIS_INLINE_COMPILE", 20);
+        let error_count = resp["errors"].as_array().map(|a| a.len()).unwrap_or(0)
+            + resp["warnings"].as_array().map(|a| a.len()).unwrap_or(0);
+        if error_count > threshold {
+            // Combine errors+warnings into a single array for storage, truncate inline.
+            // errors and warnings are truncated separately to preserve their structure.
+            log_store::apply_truncation(
+                &mut resp,
+                "errors",
+                threshold,
+                p.inline,
+                &self.log_store,
+                "iris_compile",
+            );
+        } else {
+            resp["truncated"] = serde_json::Value::Bool(false);
+        }
+
         ok_json(resp)
     }
 
@@ -1485,7 +1550,20 @@ impl IrisTools {
         let sql = format!("SELECT TOP {} ErrorCode,ErrorText,TimeStamp FROM %SYSTEM.Error ORDER BY TimeStamp DESC", max_entries);
         match iris.query(&sql, vec![], &p.namespace, client).await {
             Ok(resp) => {
-                ok_json(serde_json::json!({"success": true, "logs": resp["result"]["content"]}))
+                let mut result =
+                    serde_json::json!({"success": true, "logs": resp["result"]["content"]});
+                // Progressive disclosure (027): truncate logs when count exceeds threshold.
+                let threshold =
+                    log_store::read_inline_threshold("IRIS_INLINE_ERROR_LOGS", 20);
+                log_store::apply_truncation(
+                    &mut result,
+                    "logs",
+                    threshold,
+                    p.inline,
+                    &self.log_store,
+                    "debug_get_error_logs",
+                );
+                ok_json(result)
             }
             Err(e) => err_json("IRIS_UNREACHABLE", &e.to_string()),
         }
@@ -2064,7 +2142,7 @@ Methods:
         Parameters(p): Parameters<search::SearchParams>,
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
-        let result = search::handle_iris_search(iris, self.http_client(), p).await;
+        let result = search::handle_iris_search(iris, self.http_client(), p, Arc::clone(&self.log_store)).await;
         self.record_call("iris_search", result.is_ok());
         result
     }
@@ -2077,7 +2155,7 @@ Methods:
         Parameters(p): Parameters<info::InfoParams>,
     ) -> Result<CallToolResult, McpError> {
         let iris = self.get_iris()?;
-        let result = info::handle_iris_info(iris, self.http_client(), p).await;
+        let result = info::handle_iris_info(iris, self.http_client(), p, Arc::clone(&self.log_store)).await;
         self.record_call("iris_info", result.is_ok());
         result
     }
@@ -2728,6 +2806,87 @@ Methods:
         };
         self.record_call("iris_admin", result.is_ok());
         result
+    }
+
+    // ── iris_get_log (027 — progressive disclosure, Merged tier only) ──────────
+
+    #[tool(
+        description = "Retrieve a stored result by log_id from the progressive disclosure store. With id: returns the full result (optionally paginated with limit/offset). Without id: lists all stored log entries with their IDs, tools, timestamps, and total counts. Use after any tool returns truncated:true."
+    )]
+    async fn iris_get_log(
+        &self,
+        Parameters(p): Parameters<GetLogParams>,
+    ) -> Result<CallToolResult, McpError> {
+        match p.id {
+            None => {
+                // List all non-expired entries
+                let summaries = self
+                    .log_store
+                    .lock()
+                    .map(|mut s| s.list())
+                    .unwrap_or_default();
+                ok_json(serde_json::json!({
+                    "success": true,
+                    "logs": summaries,
+                }))
+            }
+            Some(ref id) => {
+                // Validate limit
+                if let Some(lim) = p.limit {
+                    if lim == 0 {
+                        return err_json("INVALID_PARAMS", "limit must be > 0");
+                    }
+                }
+
+                // Check TTL / existence first
+                let get_result = self
+                    .log_store
+                    .lock()
+                    .map(|s| s.get(id))
+                    .unwrap_or(log_store::GetResult::NotFound);
+
+                match get_result {
+                    log_store::GetResult::NotFound => {
+                        err_json("LOG_NOT_FOUND", &format!("No log entry found with id '{}'", id))
+                    }
+                    log_store::GetResult::Expired => {
+                        err_json("LOG_EXPIRED", &format!("Log entry '{}' has expired (TTL exceeded)", id))
+                    }
+                    log_store::GetResult::Found(_) => {
+                        // Now handle pagination
+                        let paginated = self
+                            .log_store
+                            .lock()
+                            .ok()
+                            .and_then(|s| s.get_paginated(id, p.limit, p.offset));
+
+                        match paginated {
+                            None => err_json("LOG_EXPIRED", &format!("Log entry '{}' expired during retrieval", id)),
+                            Some((result, has_more, total_count)) => {
+                                if p.limit.is_some() {
+                                    ok_json(serde_json::json!({
+                                        "success": true,
+                                        "log_id": id,
+                                        "total_count": total_count,
+                                        "offset": p.offset,
+                                        "limit": p.limit,
+                                        "has_more": has_more,
+                                        "result": result,
+                                    }))
+                                } else {
+                                    ok_json(serde_json::json!({
+                                        "success": true,
+                                        "log_id": id,
+                                        "total_count": total_count,
+                                        "result": result,
+                                    }))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

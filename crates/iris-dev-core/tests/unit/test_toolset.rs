@@ -213,14 +213,34 @@ fn test_merged_excludes_original_interop_production_tools() {
     }
 }
 
-/// Merged must have exactly 30 tools (023: 23, +5 from 024, +1 from 025, +1 from 026).
+/// Merged must have exactly 31 tools (023: 23, +5 from 024, +1 from 025, +1 from 026, +1 from 027).
 #[test]
 fn test_merged_tool_count_is_23() {
     let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
     let count = tools.registered_tool_names().len();
     assert_eq!(
-        count, 30,
-        "Merged toolset must have exactly 30 tools, got {}",
+        count, 31,
+        "Merged toolset must have exactly 31 tools, got {}",
         count
+    );
+    // iris_get_log must be registered in Merged (027-progressive-disclosure)
+    assert!(
+        tools.registered_tool_names().contains("iris_get_log"),
+        "iris_get_log must appear in Merged toolset"
+    );
+}
+
+/// iris_get_log must NOT be registered in Baseline or Nostub (027-progressive-disclosure).
+#[test]
+fn test_iris_get_log_absent_from_baseline_and_nostub() {
+    let baseline = IrisTools::new_with_toolset(None, Toolset::Baseline).expect("IrisTools::new");
+    assert!(
+        !baseline.registered_tool_names().contains("iris_get_log"),
+        "iris_get_log must NOT appear in Baseline toolset"
+    );
+    let nostub = IrisTools::new_with_toolset(None, Toolset::Nostub).expect("IrisTools::new");
+    assert!(
+        !nostub.registered_tool_names().contains("iris_get_log"),
+        "iris_get_log must NOT appear in Nostub toolset"
     );
 }

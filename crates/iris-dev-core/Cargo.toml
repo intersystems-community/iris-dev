@@ -158,3 +158,11 @@ path = "tests/admin_unit_tests.rs"
 [[test]]
 name = "admin_e2e_tests"
 path = "tests/admin_e2e_tests.rs"
+
+[[test]]
+name = "log_store_tests"
+path = "tests/log_store_tests.rs"
+
+[[test]]
+name = "progressive_disclosure_integration"
+path = "tests/progressive_disclosure_integration.rs"
