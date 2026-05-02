@@ -139,6 +139,7 @@ iris-dev exposes 23 tools to your AI assistant:
 | `iris_interop_query` | ✓ | Query production logs, queue depths, or message archive. |
 | `iris_containers` | ✓ | List, select, or start IRIS Docker containers. |
 | `iris_admin` | — | IRIS administration: list namespaces, databases, users, roles, web apps; check permissions; create/delete users, namespaces, webapps (requires `IRIS_ADMIN_TOOLS=1`). |
+| `iris_get_log` | — | Retrieve a stored result by `log_id` from the progressive disclosure store. With `id`: returns the full result (paginated with `limit`/`offset`). Without `id`: lists all stored log entries. Use when a tool returns `truncated: true`. |
 | `skill` | ✓ | Manage the local skills registry (list, describe, search, forget). |
 | `skill_community` | ✓ | Browse community skills. |
 | `kb` | ✓ | Index markdown files into a searchable knowledge base. |
@@ -162,6 +163,12 @@ Tools marked **✓ Needs Docker** require `IRIS_CONTAINER` to be set. Tools with
 | `IRIS_NAMESPACE` | `USER` | Default namespace |
 | `IRIS_CONTAINER` | _(empty)_ | Docker container name — required for Docker-dependent tools |
 | `OBJECTSCRIPT_WORKSPACE` | `$PWD` | Workspace root for `.iris-dev.toml` lookup |
+| `IRIS_LOG_STORE_MAX` | `50` | Max entries in the progressive disclosure log store. Oldest entry evicted when full. |
+| `IRIS_LOG_TTL_MINUTES` | `60` | Minutes before a log entry expires. Expired entries return `LOG_EXPIRED`. |
+| `IRIS_INLINE_COMPILE` | `20` | `iris_compile`: max distinct error/warning entries returned inline before truncation. |
+| `IRIS_INLINE_SEARCH` | `30` | `iris_search`: max result entries returned inline before truncation. |
+| `IRIS_INLINE_INFO` | `30` | `iris_info` (what=documents): max document entries returned inline before truncation. |
+| `IRIS_INLINE_ERROR_LOGS` | `20` | `debug_get_error_logs`: max log entries returned inline before truncation. |
 
 ### `.iris-dev.toml` (per-project config)
 

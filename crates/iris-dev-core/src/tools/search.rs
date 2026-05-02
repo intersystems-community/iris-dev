@@ -1,8 +1,10 @@
 //! iris_search — full-text search via Atelier REST v2 with sync→async fallback.
 
 use crate::iris::connection::IrisConnection;
+use crate::tools::log_store;
 use schemars::JsonSchema;
 use serde::Deserialize;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SearchParams {
@@ -18,6 +20,9 @@ pub struct SearchParams {
     pub documents: Vec<String>,
     #[serde(default = "default_namespace")]
     pub namespace: String,
+    /// If true, bypass the log store and return all results inline regardless of count.
+    #[serde(default)]
+    pub inline: bool,
 }
 
 fn default_namespace() -> String {
@@ -34,6 +39,7 @@ pub async fn handle_iris_search(
     iris: &IrisConnection,
     client: &reqwest::Client,
     p: SearchParams,
+    log_store: Arc<Mutex<log_store::LogStore>>,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     let category = p.category.as_deref().unwrap_or("ALL");
     let mut query_string = format!(
@@ -66,10 +72,10 @@ pub async fn handle_iris_search(
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             // If we got a workId, it's async — fall through to polling
             if body["result"]["workId"].is_null() {
-                return parse_search_results(body, &p.query);
+                return parse_search_results(body, &p.query, p.inline, &log_store);
             }
             let work_id = body["result"]["workId"].as_str().unwrap_or("").to_string();
-            poll_async_search(iris, client, &work_id, &p.namespace, &p.query).await
+            poll_async_search(iris, client, &work_id, &p.namespace, &p.query, p.inline, &log_store).await
         }
         _ => {
             // Timeout or error — fall back to async POST
@@ -92,9 +98,9 @@ pub async fn handle_iris_search(
 
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             if let Some(work_id) = body["result"]["workId"].as_str() {
-                poll_async_search(iris, client, work_id, &p.namespace, &p.query).await
+                poll_async_search(iris, client, work_id, &p.namespace, &p.query, p.inline, &log_store).await
             } else {
-                parse_search_results(body, &p.query)
+                parse_search_results(body, &p.query, p.inline, &log_store)
             }
         }
     }
@@ -106,6 +112,8 @@ async fn poll_async_search(
     work_id: &str,
     namespace: &str,
     query: &str,
+    inline: bool,
+    log_store: &Arc<Mutex<log_store::LogStore>>,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     let poll_url = iris.versioned_ns_url(
         namespace,
@@ -135,7 +143,7 @@ async fn poll_async_search(
             Ok(r) if r.status().is_success() => {
                 let body: serde_json::Value = r.json().await.unwrap_or_default();
                 if body["result"]["workId"].is_null() {
-                    return parse_search_results(body, query);
+                    return parse_search_results(body, query, inline, log_store);
                 }
                 // Still pending — keep polling
             }
@@ -147,16 +155,16 @@ async fn poll_async_search(
 fn parse_search_results(
     body: serde_json::Value,
     query: &str,
+    inline: bool,
+    log_store: &Arc<Mutex<log_store::LogStore>>,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     let content = body["result"]["content"]
         .as_array()
         .cloned()
         .unwrap_or_default();
     let total = content.len();
-    let truncated = total > 200;
     let results: Vec<serde_json::Value> = content
         .into_iter()
-        .take(200)
         .map(|item| {
             serde_json::json!({
                 "document": item["doc"],
@@ -167,13 +175,18 @@ fn parse_search_results(
         })
         .collect();
 
-    ok_json(serde_json::json!({
+    let mut resp = serde_json::json!({
         "success": true,
         "query": query,
         "results": results,
         "total_found": total,
-        "truncated": truncated,
-    }))
+    });
+
+    // Progressive disclosure (027): truncate results when count exceeds threshold.
+    let threshold = log_store::read_inline_threshold("IRIS_INLINE_SEARCH", 30);
+    log_store::apply_truncation(&mut resp, "results", threshold, inline, log_store, "iris_search");
+
+    ok_json(resp)
 }
 
 #[cfg(test)]
