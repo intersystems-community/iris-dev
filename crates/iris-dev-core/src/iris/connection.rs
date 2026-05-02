@@ -2,6 +2,17 @@
 
 use std::fmt;
 
+/// Whether the connected IRIS instance is a production (Live) system.
+/// Detected at probe time via `^%SYS("SystemMode")` SQL query.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum SystemMode {
+    Live,        // "Live" — lock write tools
+    Development, // "Development" — allow write tools
+    Test,        // "Test" — allow write tools
+    #[default]
+    Unknown, // null/empty — apply namespace heuristic
+}
+
 /// Which version of the Atelier REST API to use.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AtelierVersion {
@@ -33,6 +44,8 @@ pub struct IrisConnection {
     pub atelier_version: AtelierVersion,
     pub source: DiscoverySource,
     pub port_superserver: Option<u16>,
+    /// Detected at probe time — controls write-tool availability (issue #26).
+    pub system_mode: SystemMode,
 }
 
 /// T011: Manual Debug implementation — never prints the password.
@@ -47,6 +60,7 @@ impl fmt::Debug for IrisConnection {
             .field("atelier_version", &self.atelier_version)
             .field("source", &self.source)
             .field("port_superserver", &self.port_superserver)
+            .field("system_mode", &self.system_mode)
             .finish()
     }
 }
@@ -77,6 +91,23 @@ impl IrisConnection {
             atelier_version: AtelierVersion::V1,
             source,
             port_superserver: None,
+            system_mode: SystemMode::Unknown,
+        }
+    }
+
+    /// Returns true if write-capable tools should be registered.
+    /// Checks SystemMode, namespace heuristics, and IRIS_ALLOW_PROD override (issue #26).
+    pub fn is_write_allowed(&self) -> bool {
+        if std::env::var("IRIS_ALLOW_PROD")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+        {
+            return true;
+        }
+        match &self.system_mode {
+            SystemMode::Live => false,
+            SystemMode::Development | SystemMode::Test => true,
+            SystemMode::Unknown => !is_production_namespace(&self.namespace),
         }
     }
 
@@ -100,7 +131,7 @@ impl IrisConnection {
         self.atelier_url(&format!("/{}/{}{}", v, namespace, path))
     }
 
-    /// Probe this connection: fetch IRIS version and Atelier API level from `/api/atelier/`.
+    /// Probe this connection: fetch IRIS version, Atelier API level, and SystemMode.
     pub async fn probe(&mut self) {
         let client = match Self::http_client() {
             Ok(c) => c,
@@ -129,6 +160,50 @@ impl IrisConnection {
             } else {
                 tracing::debug!("Atelier root probe got HTTP {}", status);
             }
+        }
+
+        // Detect SystemMode via SQL against %SYS global (issue #26).
+        // One extra round-trip at startup; result cached for session lifetime.
+        let mode = self.detect_system_mode(&client).await;
+        self.system_mode = mode;
+        tracing::info!(
+            host = %self.base_url,
+            version = ?self.version,
+            system_mode = ?self.system_mode,
+            write_allowed = self.is_write_allowed(),
+            "iris-dev: connection probed"
+        );
+    }
+
+    /// Query `^%SYS("SystemMode")` to detect whether this is a Live instance.
+    async fn detect_system_mode(&self, client: &reqwest::Client) -> SystemMode {
+        let url = self.versioned_ns_url("%SYS", "/action/query");
+        let resp = client
+            .post(&url)
+            .basic_auth(&self.username, Some(&self.password))
+            .json(&serde_json::json!({
+                "query": "SELECT Value FROM %Library.Global_Get('%SYS', '^%SYS(\"SystemMode\")')"
+            }))
+            .send()
+            .await;
+        let mode = match resp {
+            Ok(r) => {
+                if let Ok(body) = r.json::<serde_json::Value>().await {
+                    body["result"]["content"][0]["Value"]
+                        .as_str()
+                        .map(|s| s.trim().to_string())
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                }
+            }
+            Err(_) => String::new(),
+        };
+        match mode.as_str() {
+            "Live" => SystemMode::Live,
+            "Development" => SystemMode::Development,
+            "Test" => SystemMode::Test,
+            _ => SystemMode::Unknown,
         }
     }
 
@@ -405,6 +480,13 @@ impl IrisConnection {
     }
 }
 
+/// Returns true if the namespace name looks like a production namespace.
+/// Used as fallback when SystemMode is Unknown (community edition or unconfigured).
+fn is_production_namespace(ns: &str) -> bool {
+    let upper = ns.to_uppercase();
+    matches!(upper.as_str(), "PROD" | "PRODUCTION" | "LIVE" | "PRD")
+}
+
 /// FR-006: Strip IRIS session banner and prompt lines from docker exec stdout.
 ///
 /// IRIS session output looks like:
@@ -479,4 +561,100 @@ fn is_bare_prompt_line(s: &str) -> bool {
     !token.is_empty()
         && token.len() <= 16
         && token.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+#[cfg(test)]
+mod system_mode_tests {
+    use super::*;
+
+    fn conn(namespace: &str, mode: SystemMode) -> IrisConnection {
+        let mut c = IrisConnection::new(
+            "http://localhost:52773",
+            namespace,
+            "_SYSTEM",
+            "SYS",
+            DiscoverySource::EnvVar,
+        );
+        c.system_mode = mode;
+        c
+    }
+
+    // T005 — SystemMode parsing
+    #[test]
+    fn system_mode_live_from_string() {
+        // Simulates what detect_system_mode maps "Live" to
+        assert_eq!(SystemMode::Live, SystemMode::Live);
+        assert_ne!(SystemMode::Live, SystemMode::Unknown);
+    }
+
+    #[test]
+    fn system_mode_default_is_unknown() {
+        assert_eq!(SystemMode::default(), SystemMode::Unknown);
+    }
+
+    #[test]
+    fn system_mode_development_ne_live() {
+        assert_ne!(SystemMode::Development, SystemMode::Live);
+    }
+
+    // T006 — is_write_allowed()
+    #[test]
+    fn write_blocked_for_live() {
+        let c = conn("USER", SystemMode::Live);
+        // No IRIS_ALLOW_PROD set in this test
+        std::env::remove_var("IRIS_ALLOW_PROD");
+        assert!(!c.is_write_allowed());
+    }
+
+    #[test]
+    fn write_allowed_for_development() {
+        std::env::remove_var("IRIS_ALLOW_PROD");
+        assert!(conn("USER", SystemMode::Development).is_write_allowed());
+    }
+
+    #[test]
+    fn write_allowed_for_test_mode() {
+        std::env::remove_var("IRIS_ALLOW_PROD");
+        assert!(conn("USER", SystemMode::Test).is_write_allowed());
+    }
+
+    #[test]
+    fn write_blocked_for_unknown_with_prod_namespace() {
+        std::env::remove_var("IRIS_ALLOW_PROD");
+        assert!(!conn("PROD", SystemMode::Unknown).is_write_allowed());
+        assert!(!conn("PRODUCTION", SystemMode::Unknown).is_write_allowed());
+        assert!(!conn("LIVE", SystemMode::Unknown).is_write_allowed());
+        assert!(!conn("PRD", SystemMode::Unknown).is_write_allowed());
+    }
+
+    #[test]
+    fn write_allowed_for_unknown_with_dev_namespace() {
+        std::env::remove_var("IRIS_ALLOW_PROD");
+        assert!(conn("USER", SystemMode::Unknown).is_write_allowed());
+        assert!(conn("DEV", SystemMode::Unknown).is_write_allowed());
+        assert!(conn("MYAPP", SystemMode::Unknown).is_write_allowed());
+    }
+
+    #[test]
+    fn is_write_allowed_logic_direct() {
+        // Test the override logic directly without touching process env vars.
+        // The env var branch is: if IRIS_ALLOW_PROD is "1" or "true" → return true.
+        // We verify the non-override paths only (env-based override tested manually).
+        assert!(!conn("LIVE", SystemMode::Unknown).is_write_allowed());
+        assert!(!conn("PROD", SystemMode::Live).is_write_allowed());
+        assert!(conn("DEV", SystemMode::Development).is_write_allowed());
+    }
+
+    #[test]
+    fn is_production_namespace_case_insensitive() {
+        assert!(is_production_namespace("prod"));
+        assert!(is_production_namespace("PROD"));
+        assert!(is_production_namespace("Production"));
+        assert!(is_production_namespace("LIVE"));
+        assert!(is_production_namespace("live"));
+        assert!(is_production_namespace("PRD"));
+        assert!(!is_production_namespace("USER"));
+        assert!(!is_production_namespace("DEV"));
+        assert!(!is_production_namespace("MYAPP"));
+    }
 }

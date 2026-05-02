@@ -413,6 +413,9 @@ pub struct IrisTools {
     pub elicitation_store: Arc<ElicitationStore>,
     /// Active toolset — controls which tools are registered.
     pub toolset: Toolset,
+    /// Whether write-capable interop/credential/lookup tools are available.
+    /// Set at construction time from IrisConnection.is_write_allowed() (issue #26).
+    pub write_tools_enabled: bool,
     tool_router: ToolRouter<IrisTools>,
 }
 
@@ -420,6 +423,7 @@ pub struct IrisTools {
 impl IrisTools {
     pub fn new(iris: Option<IrisConnection>) -> anyhow::Result<Self> {
         let client = Arc::new(IrisConnection::http_client()?);
+        let write_tools_enabled = iris.as_ref().map(|c| c.is_write_allowed()).unwrap_or(true);
         Ok(Self {
             iris: iris.map(Arc::new),
             registry: Arc::new(crate::skills::SkillRegistry::new()),
@@ -427,6 +431,7 @@ impl IrisTools {
             history: Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(50))),
             elicitation_store: Arc::new(ElicitationStore::new()),
             toolset: Toolset::Baseline,
+            write_tools_enabled,
             tool_router: Self::tool_router(),
         })
     }
@@ -482,6 +487,12 @@ impl IrisTools {
             "skill_community",
             "skill_community_install",
             "kb",
+            // 024-interop-depth (merged only)
+            "iris_production_item",
+            "iris_credential_list",
+            "iris_credential_manage",
+            "iris_lookup_manage",
+            "iris_lookup_transfer",
         ];
 
         // Tools removed in nostub — 5 stubs returning NOT_IMPLEMENTED
@@ -512,6 +523,12 @@ impl IrisTools {
             "iris_production",
             "iris_interop_query",
             "iris_containers",
+            // 024-interop-depth
+            "iris_production_item",
+            "iris_credential_list",
+            "iris_credential_manage",
+            "iris_lookup_manage",
+            "iris_lookup_transfer",
         ];
 
         let mut names: std::collections::HashSet<String> =
@@ -534,6 +551,13 @@ impl IrisTools {
                 let _ = merged_removed_2; // unused in this path
                 for s in merged_added {
                     names.insert(s.to_string());
+                }
+                // Apply write-gate: remove write-only tools if not write-allowed
+                if !self.write_tools_enabled {
+                    let write_gated: &[&str] = &["iris_production_item", "iris_credential_manage"];
+                    for s in write_gated {
+                        names.remove(*s);
+                    }
                 }
             }
         }
@@ -613,10 +637,37 @@ impl IrisTools {
                 "iris_production",
                 "iris_interop_query",
                 "iris_containers",
+                // 024-interop-depth
+                "iris_production_item",
+                "iris_credential_list",
+                "iris_credential_manage",
+                "iris_lookup_manage",
+                "iris_lookup_transfer",
             ];
             for name in merged_tools {
                 router.remove_route(name);
             }
+        }
+
+        let write_tools_enabled = iris.as_ref().map(|c| c.is_write_allowed()).unwrap_or(true);
+
+        // Remove write-capable interop tools when not write-allowed (issue #26 env guard).
+        // These tools are always registered by #[tool_router]; we prune at construction time.
+        if !write_tools_enabled && toolset == Toolset::Merged {
+            let write_gated: &[&str] = &["iris_production_item", "iris_credential_manage"];
+            for name in write_gated {
+                router.remove_route(name);
+            }
+        }
+
+        // Log connection status and write-tool availability.
+        if let Some(ref c) = iris {
+            tracing::info!(
+                system_mode = ?c.system_mode,
+                write_tools_enabled,
+                namespace = %c.namespace,
+                "iris-dev: write tool gate evaluated"
+            );
         }
 
         Ok(Self {
@@ -626,6 +677,7 @@ impl IrisTools {
             history: Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(50))),
             elicitation_store: Arc::new(ElicitationStore::new()),
             toolset,
+            write_tools_enabled,
             tool_router: router,
         })
     }
@@ -2188,9 +2240,31 @@ Methods:
                 )
                 .await
             }
+            "get_autostart" => {
+                interop::interop_autostart_get_impl(
+                    iris_opt,
+                    &interop::ProductionAutostartParams {
+                        action: "get_autostart".into(),
+                        namespace: p.get("namespace").and_then(|v| v.as_str()).unwrap_or("USER").to_string(),
+                        enabled: None,
+                        production: None,
+                    },
+                ).await
+            }
+            "set_autostart" => {
+                interop::interop_autostart_set_impl(
+                    iris_opt,
+                    &interop::ProductionAutostartParams {
+                        action: "set_autostart".into(),
+                        namespace: p.get("namespace").and_then(|v| v.as_str()).unwrap_or("USER").to_string(),
+                        enabled: p.get("enabled").and_then(|v| v.as_bool()),
+                        production: p.get("production").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    },
+                ).await
+            }
             _ => err_json(
                 "INVALID_ACTION",
-                "iris_production: action must be status, start, stop, update, check, or recover",
+                "iris_production: action must be status, start, stop, update, check, recover, get_autostart, or set_autostart",
             ),
         };
         self.record_call("iris_production", result.is_ok());
@@ -2299,6 +2373,187 @@ Methods:
             ),
         };
         self.record_call("iris_containers", result.is_ok());
+        result
+    }
+
+    // ─── 024-interop-depth: Production item control (US1) ───
+
+    #[tool(
+        description = "Enable, disable, or inspect/modify settings of an individual Interoperability production config item. action: enable|disable|get_settings|set_settings. item: exact config item name. namespace: optional. settings: key-value map (for set_settings). Works via HTTP, no Docker required."
+    )]
+    async fn iris_production_item(
+        &self,
+        Parameters(p): Parameters<serde_json::Value>,
+    ) -> Result<CallToolResult, McpError> {
+        let action = p
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let item = p
+            .get("item")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let namespace = p
+            .get("namespace")
+            .and_then(|v| v.as_str())
+            .unwrap_or("USER")
+            .to_string();
+        let settings: std::collections::HashMap<String, String> = p
+            .get("settings")
+            .and_then(|v| v.as_object())
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let result = interop::interop_production_item_impl(
+            self.iris.as_deref(),
+            interop::ProductionItemParams {
+                action,
+                item,
+                namespace,
+                settings,
+            },
+        )
+        .await;
+        self.record_call("iris_production_item", result.is_ok());
+        result
+    }
+
+    // ─── 024-interop-depth: Ensemble credentials (US2) ───
+
+    #[tool(
+        description = "List all Ensemble credentials (IDs and usernames only — passwords never returned). namespace: optional."
+    )]
+    async fn iris_credential_list(
+        &self,
+        Parameters(p): Parameters<serde_json::Value>,
+    ) -> Result<CallToolResult, McpError> {
+        let namespace = p
+            .get("namespace")
+            .and_then(|v| v.as_str())
+            .unwrap_or("USER")
+            .to_string();
+        let result = interop::interop_credential_list_impl(
+            self.iris.as_deref(),
+            interop::CredentialListParams { namespace },
+        )
+        .await;
+        self.record_call("iris_credential_list", result.is_ok());
+        result
+    }
+
+    #[tool(
+        description = "Create, update, or delete an Ensemble credential. action: create|update|delete. id: credential ID (required). username/password: required for create, optional for update. namespace: optional. Write-gated: suppressed on Live instances unless IRIS_ALLOW_PROD=1."
+    )]
+    async fn iris_credential_manage(
+        &self,
+        Parameters(p): Parameters<serde_json::Value>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = interop::interop_credential_manage_impl(
+            self.iris.as_deref(),
+            interop::CredentialManageParams {
+                action: p
+                    .get("action")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                id: p
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                username: p
+                    .get("username")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                password: p
+                    .get("password")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                namespace: p
+                    .get("namespace")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("USER")
+                    .to_string(),
+            },
+        )
+        .await;
+        self.record_call("iris_credential_manage", result.is_ok());
+        result
+    }
+
+    // ─── 024-interop-depth: Lookup tables (US3) ───
+
+    #[tool(
+        description = "Read, write, delete, or list Ensemble lookup table entries. action: get|set|delete|list_keys|list_tables. table: table name (required except list_tables). key: required for get/set/delete. value: required for set. namespace: optional. get/list_keys/list_tables always available; set/delete write-gated."
+    )]
+    async fn iris_lookup_manage(
+        &self,
+        Parameters(p): Parameters<serde_json::Value>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = interop::interop_lookup_manage_impl(
+            self.iris.as_deref(),
+            interop::LookupManageParams {
+                action: p
+                    .get("action")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                table: p
+                    .get("table")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                key: p.get("key").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                value: p
+                    .get("value")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                namespace: p
+                    .get("namespace")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("USER")
+                    .to_string(),
+            },
+        )
+        .await;
+        self.record_call("iris_lookup_manage", result.is_ok());
+        result
+    }
+
+    #[tool(
+        description = "Export or import an Ensemble lookup table as XML. action: export|import. table: table name. xml: XML string (required for import). namespace: optional. export always available; import write-gated."
+    )]
+    async fn iris_lookup_transfer(
+        &self,
+        Parameters(p): Parameters<serde_json::Value>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = interop::interop_lookup_transfer_impl(
+            self.iris.as_deref(),
+            interop::LookupTransferParams {
+                action: p
+                    .get("action")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                table: p
+                    .get("table")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                xml: p.get("xml").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                namespace: p
+                    .get("namespace")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("USER")
+                    .to_string(),
+            },
+        )
+        .await;
+        self.record_call("iris_lookup_transfer", result.is_ok());
         result
     }
 }

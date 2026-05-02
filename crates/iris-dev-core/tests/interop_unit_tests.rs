@@ -1,4 +1,6 @@
+use iris_dev_core::iris::connection::{DiscoverySource, IrisConnection, SystemMode};
 use iris_dev_core::tools::interop::*;
+use iris_dev_core::tools::{IrisTools, Toolset};
 
 fn rt() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
@@ -211,5 +213,62 @@ mod parse_status {
     fn interop_error() {
         let err = parse_status_response("ERROR:Something went wrong").unwrap_err();
         assert!(err.starts_with("INTEROP_ERROR"));
+    }
+}
+
+// T010 — env-guard: write tools absent when SystemMode=Live
+mod env_guard {
+    use super::*;
+
+    fn conn_with_mode(mode: SystemMode) -> IrisConnection {
+        let mut c = IrisConnection::new(
+            "http://localhost:52773",
+            "USER",
+            "_SYSTEM",
+            "SYS",
+            DiscoverySource::EnvVar,
+        );
+        c.system_mode = mode;
+        c
+    }
+
+    #[test]
+    fn write_tools_absent_when_live() {
+        std::env::remove_var("IRIS_ALLOW_PROD");
+        let tools =
+            IrisTools::new_with_toolset(Some(conn_with_mode(SystemMode::Live)), Toolset::Merged)
+                .unwrap();
+        let names = tools.registered_tool_names();
+        // Write-gated tools must not appear when Live
+        assert!(
+            !names.contains("iris_credential_manage"),
+            "iris_credential_manage must be absent in Live mode"
+        );
+        assert!(
+            !names.contains("iris_production_item"),
+            "iris_production_item must be absent in Live mode"
+        );
+        // Read tools must still be present
+        assert!(
+            names.contains("iris_credential_list"),
+            "iris_credential_list must be present in Live mode"
+        );
+        assert!(
+            names.contains("iris_lookup_manage"),
+            "iris_lookup_manage must be present in Live mode"
+        );
+    }
+
+    #[test]
+    fn write_tools_present_when_development() {
+        std::env::remove_var("IRIS_ALLOW_PROD");
+        let tools = IrisTools::new_with_toolset(
+            Some(conn_with_mode(SystemMode::Development)),
+            Toolset::Merged,
+        )
+        .unwrap();
+        let names = tools.registered_tool_names();
+        assert!(names.contains("iris_credential_manage"));
+        assert!(names.contains("iris_production_item"));
     }
 }
