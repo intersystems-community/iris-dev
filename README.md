@@ -138,6 +138,7 @@ iris-dev exposes 23 tools to your AI assistant:
 | `iris_production` | ✓ | Start, stop, update, check, or recover an Interoperability production. |
 | `iris_interop_query` | ✓ | Query production logs, queue depths, or message archive. |
 | `iris_containers` | ✓ | List, select, or start IRIS Docker containers. |
+| `iris_admin` | — | IRIS administration: list namespaces, databases, users, roles, web apps; check permissions; create/delete users, namespaces, webapps (requires `IRIS_ADMIN_TOOLS=1`). |
 | `skill` | ✓ | Manage the local skills registry (list, describe, search, forget). |
 | `skill_community` | ✓ | Browse community skills. |
 | `kb` | ✓ | Index markdown files into a searchable knowledge base. |

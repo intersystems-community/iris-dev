@@ -143,3 +143,11 @@ path = "tests/unit/test_discovery_unit.rs"
 [[test]]
 name = "test_toolset"
 path = "tests/unit/test_toolset.rs"
+
+[[test]]
+name = "admin_unit_tests"
+path = "tests/admin_unit_tests.rs"
+
+[[test]]
+name = "admin_e2e_tests"
+path = "tests/admin_e2e_tests.rs"
