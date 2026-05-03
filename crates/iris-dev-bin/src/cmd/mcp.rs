@@ -22,20 +22,16 @@ use tokio::sync::watch;
 ///      proxies Atelier REST. Set IRIS_WEB_PORT=<webgateway-host-port>.
 ///      iris-dev auto-detects webgateway containers in the Docker scan.
 ///
-///   3. Enterprise images standalone: NOT supported (no Atelier REST available)
+///   3. Enterprise images standalone: no private web server — requires option 2 above.
 ///
-/// TWO-CONTAINER PATTERN (enterprise + community side-by-side)
-///   Use IRIS_HOST + IRIS_WEB_PORT pointing at a community instance for Atelier REST,
-///   and IRIS_CONTAINER for the enterprise container (docker exec tools only):
-///
-///     IRIS_HOST=localhost IRIS_WEB_PORT=52773 \
-///     IRIS_CONTAINER=my-enterprise-iris \
-///     iris-dev mcp
-///
-///   Or in .iris-dev.toml:
-///     container = "my-enterprise-iris"   # docker exec target
-///     host = "localhost"                 # Atelier REST target (community instance)
-///     web_port = 52773
+/// WEBGATEWAY SETUP GOTCHAS (verified 2026-05-03)
+///   Three non-obvious bugs in fresh enterprise container + webgateway setups:
+///   a) CSP.ini race: patch CSP.ini only after "Configuration_Initialized" appears in it
+///   b) Missing credentials: add Username=_SYSTEM + Password=SYS to [LOCAL] in CSP.ini
+///      (default tries CSPSystem which doesn't exist in fresh enterprise containers)
+///   c) Wrong Apache directive: use "CSP On" in <Location />, not "SetHandler csp-handler-sa"
+///   d) Expired password: run UnExpireUserPasswords("*") in %SYS on first start
+///   See: https://github.com/intersystems-community/iris-dev/blob/master/light-skills/skills/iris-vscode-objectscript/SKILL.md
 ///
 /// CONNECTION DISCOVERY (in priority order)
 ///   1. --host / IRIS_HOST env var

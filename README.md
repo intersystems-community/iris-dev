@@ -188,6 +188,25 @@ namespace = "MYAPP"
 
 Generate from your running containers: `iris-dev init`
 
+### Enterprise containers (intersystems/iris, intersystems/irishealth)
+
+Enterprise images ship with `WebServer=0` — no private web server. The standard solution is the ISC Web Gateway container alongside IRIS. iris-dev auto-detects it.
+
+```yaml
+# docker-compose snippet
+services:
+  iris:
+    image: containers.intersystems.com/intersystems/iris:2026.1
+    ports: ["4972:1972"]
+  webgateway:
+    image: containers.intersystems.com/intersystems/webgateway:2026.1
+    ports: ["52773:80"]            # iris-dev scans port 52773
+    entrypoint: ["/bin/sh", "/init.sh"]
+    volumes: ["./webgateway-init.sh:/init.sh:ro"]
+```
+
+Three non-obvious setup gotchas in fresh containers — see [`iris-vscode-objectscript` skill](./light-skills/skills/iris-vscode-objectscript/SKILL.md) for the complete working `webgateway-init.sh`.
+
 ### Connection discovery order
 
 iris-dev resolves the connection in this order — first match wins:
