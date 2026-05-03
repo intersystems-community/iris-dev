@@ -13,7 +13,9 @@ use crate::iris::connection::{DiscoverySource, IrisConnection};
 use std::time::Duration;
 
 /// The ports we scan on localhost for IRIS web servers.
-const IRIS_WEB_PORTS: &[u16] = &[52773, 41773, 51773, 8080];
+/// Includes 52773 (IRIS private web server), 80/8080/8443/443 (ISC Web Gateway container),
+/// and legacy ports 41773/51773.
+const IRIS_WEB_PORTS: &[u16] = &[52773, 80, 8080, 41773, 51773, 8443, 443];
 
 // ── Discovery result types ────────────────────────────────────────────────────
 
@@ -505,7 +507,11 @@ async fn discover_via_docker() -> Option<IrisConnection> {
 
     for container in containers {
         let image = container.image.as_deref().unwrap_or("");
-        if !image.contains("intersystems") && !image.contains("iris") {
+        // Match IRIS containers and ISC Web Gateway containers (webgateway image).
+        // The webgateway container proxies Atelier REST from its port 80/443 to iris:52773.
+        let is_iris = image.contains("intersystems") || image.contains("iris");
+        let is_webgateway = image.contains("webgateway");
+        if !is_iris && !is_webgateway {
             continue;
         }
 
@@ -522,7 +528,15 @@ async fn discover_via_docker() -> Option<IrisConnection> {
 
         if let Some(ports) = container.ports {
             for port in &ports {
+                // IRIS private web server port
                 if port.private_port == 52773 {
+                    port_web = port.public_port;
+                }
+                // ISC Web Gateway container: exposes port 80 (HTTP) or 443 (HTTPS)
+                if is_webgateway
+                    && port_web.is_none()
+                    && (port.private_port == 80 || port.private_port == 443)
+                {
                     port_web = port.public_port;
                 }
                 if port.private_port == 1972 {
