@@ -196,9 +196,10 @@ pub fn generate_toml_content(container: &str, namespace: &str) -> String {
 # Commit this file to share connection settings with your team.
 
 # Docker container name (for docker exec tools: iris_execute, iris_test).
-# NOTE: iris-dev requires the IRIS Atelier REST API (private web server / CSP gateway).
-#   Community images include it: iris-community, irishealth-community
-#   Enterprise-only images do NOT: intersystems/iris, intersystems/irishealth
+# NOTE: iris-dev requires the IRIS Atelier REST API. Three supported configurations:
+#   1. Community images (iris-community, irishealth-community) — include private web server on port 52773
+#   2. Enterprise + ISC Web Gateway container (intersystems/webgateway) — iris-dev auto-detects it
+#   3. Enterprise standalone (intersystems/iris) — NOT supported, no Atelier REST available
 #
 # If you are using an enterprise-only image, see the two-container pattern below.
 container = "{container}"

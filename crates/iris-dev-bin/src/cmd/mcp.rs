@@ -11,10 +11,18 @@ use tokio::sync::watch;
 /// Start the iris-dev MCP server (stdio transport by default).
 ///
 /// REQUIREMENTS
-///   IRIS must have the Atelier REST API enabled (private web server / CSP gateway).
+///   IRIS must have the Atelier REST API enabled. Three ways to achieve this:
 ///
-///   Community images include it:   iris-community, irishealth-community
-///   Enterprise-only images do NOT: intersystems/iris, intersystems/irishealth
+///   1. Community images (include private web server):
+///      iris-community, irishealth-community → port 52773
+///
+///   2. Enterprise images + ISC Web Gateway container (recommended for production):
+///      Use containers.intersystems.com/intersystems/webgateway alongside
+///      intersystems/iris. The webgateway container exposes port 80/443 and
+///      proxies Atelier REST. Set IRIS_WEB_PORT=<webgateway-host-port>.
+///      iris-dev auto-detects webgateway containers in the Docker scan.
+///
+///   3. Enterprise images standalone: NOT supported (no Atelier REST available)
 ///
 /// TWO-CONTAINER PATTERN (enterprise + community side-by-side)
 ///   Use IRIS_HOST + IRIS_WEB_PORT pointing at a community instance for Atelier REST,
