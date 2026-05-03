@@ -8,6 +8,33 @@ use iris_dev_core::{
 use rmcp::{transport::stdio, ServiceExt};
 use tokio::sync::watch;
 
+/// Start the iris-dev MCP server (stdio transport by default).
+///
+/// REQUIREMENTS
+///   IRIS must have the Atelier REST API enabled (private web server / CSP gateway).
+///
+///   Community images include it:   iris-community, irishealth-community
+///   Enterprise-only images do NOT: intersystems/iris, intersystems/irishealth
+///
+/// TWO-CONTAINER PATTERN (enterprise + community side-by-side)
+///   Use IRIS_HOST + IRIS_WEB_PORT pointing at a community instance for Atelier REST,
+///   and IRIS_CONTAINER for the enterprise container (docker exec tools only):
+///
+///     IRIS_HOST=localhost IRIS_WEB_PORT=52773 \
+///     IRIS_CONTAINER=my-enterprise-iris \
+///     iris-dev mcp
+///
+///   Or in .iris-dev.toml:
+///     container = "my-enterprise-iris"   # docker exec target
+///     host = "localhost"                 # Atelier REST target (community instance)
+///     web_port = 52773
+///
+/// CONNECTION DISCOVERY (in priority order)
+///   1. --host / IRIS_HOST env var
+///   2. .iris-dev.toml in workspace (walks up from cwd)
+///   3. IRIS_CONTAINER env var → Docker named container lookup
+///   4. Localhost port scan (52773, 41773, 51773, 8080)
+///   5. Auto-scan running Docker containers
 #[derive(Args)]
 pub struct McpCommand {
     #[arg(long, default_value = "stdio")]

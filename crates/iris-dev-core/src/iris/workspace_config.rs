@@ -195,17 +195,31 @@ pub fn generate_toml_content(container: &str, namespace: &str) -> String {
         r#"# iris-dev workspace configuration
 # Commit this file to share connection settings with your team.
 
-# Docker container name (for local development)
+# Docker container name (for docker exec tools: iris_execute, iris_test).
+# NOTE: iris-dev requires the IRIS Atelier REST API (private web server / CSP gateway).
+#   Community images include it: iris-community, irishealth-community
+#   Enterprise-only images do NOT: intersystems/iris, intersystems/irishealth
+#
+# If you are using an enterprise-only image, see the two-container pattern below.
 container = "{container}"
 
 # Default IRIS namespace
 namespace = "{namespace}"
 
-# Alternative: direct host connection (for remote or CI IRIS)
-# host = "iris.example.com"
+# Direct host connection for Atelier REST (compile, search, info, doc, etc.)
+# Use this when your container does NOT have the private web server (enterprise images),
+# or when connecting to a remote IRIS instance.
+# host = "localhost"
 # web_port = 52773
 # web_prefix = ""  # URL path prefix, e.g. "irisaicore" when Atelier is at /irisaicore/api/atelier/
 # scheme = "http"  # Use "https" for TLS-protected IRIS web gateways
+
+# TWO-CONTAINER PATTERN (enterprise + community side-by-side):
+# If your enterprise container lacks the private web server, run a community
+# container alongside it and point iris-dev at the community one for Atelier REST.
+# Set container = "my-enterprise-iris" above for docker exec tools,
+# and uncomment host + web_port below pointing at the community instance.
+# The MCP env var IRIS_CONTAINER will override container for docker exec.
 
 # Credentials (optional)
 # Use IRIS_USERNAME / IRIS_PASSWORD env vars instead of committing credentials.
