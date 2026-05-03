@@ -316,7 +316,8 @@ CALLEE
 
 - **Always ask which namespace**
 - **`%SYS` is privileged** — system-level operations (user management, license info) require `%SYS`. Don't put application code there.
-- **IRIS web port ≠ superserver port** — The Atelier/REST web server listens on `52773` by default (or a Docker-mapped port). The superserver (JDBC/DBAPI) is on `1972`. These are different.
+- **IRIS web port ≠ superserver port** — The Atelier/REST web server listens on `52773` by default (or a Docker-mapped port). The superserver (JDBC/DBAPI) is on `1972`. These are different. **VSCode ObjectScript extension requires port 52773.**
+- **Enterprise images have no web server** — `containers.intersystems.com/intersystems/iris:*` (enterprise) and `irishealth:2026.2.0AI.*` ship with `WebServer=0`. Port 52773 does not exist. A webgateway cannot substitute. For VSCode/Atelier, use `intersystemsdc/iris-community:*` (same ObjectScript/SQL/globals, same version). Load `iris-vscode-objectscript` skill for setup.
 - **Check namespace before class search** — `Do $System.Status.DisplayError(##class(%Dictionary.ClassDefinition).%OpenId("My.Class"))` returning an error likely means you're in the wrong namespace, not that the class doesn't exist.
 
 ---
