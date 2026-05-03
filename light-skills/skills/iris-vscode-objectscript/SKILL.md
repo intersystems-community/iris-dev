@@ -3,97 +3,185 @@ name: iris-vscode-objectscript
 description: >
   Use when configuring VSCode for ObjectScript development against an IRIS
   container. Covers the intersystems.servers settings.json config, the
-  critical port 52773 vs 1972 distinction, why enterprise images don't work
-  directly, webgateway limitations, and how to verify the connection.
+  critical port 52773 vs 1972 distinction, the working webgateway pattern
+  for enterprise images, three hard-won bugs from the 2026-05-03 session,
+  and how to verify the connection.
   Load when: setting up iris-dev VSCode extension, getting 404 on /api/atelier/,
-  or choosing between enterprise vs community for local development.
-tags: [iris, vscode, objectscript, atelier, webserver, devtester, extension]
+  connecting to enterprise IRIS, or setting up the webgateway container.
+tags: [iris, vscode, objectscript, atelier, webserver, devtester, extension, webgateway, enterprise]
 ---
 
 # VSCode ObjectScript Extension — IRIS Setup
 
-## HARD GATE — Read Before Touching docker-compose or webgateway
+## Which Images Have Atelier REST on Port 52773?
 
-The VSCode `intersystems.objectscript` extension uses **Atelier REST** (`/api/atelier/`).
-Atelier REST is served by IRIS's **internal HTTP process on port 52773**.
-It is NOT served by the superserver on port 1972.
+| Image | Has private web server | Atelier REST | Solution |
+|---|---|---|---|
+| `intersystemsdc/iris-community:*` | ✅ built-in | ✅ port 52773 | Direct |
+| `intersystemsdc/irishealth-community:*` | ✅ built-in | ✅ port 52773 | Direct |
+| `containers.intersystems.com/intersystems/iris:*` (enterprise) | ❌ WebServer=0 | ✅ via webgateway | See below |
+| `irishealth:2026.2.0AI.*` | ❌ WebServer=0 | ✅ via webgateway | See below |
 
-**There is no way to make this work with enterprise images that have `WebServer=0`.**
-A webgateway proxies CSP protocol to the superserver — it cannot route REST requests to a process that isn't running.
-
-### Which Images Have Port 52773?
-
-| Image | Has web server | VSCode works |
-|---|---|---|
-| `intersystemsdc/iris-community:*` | ✅ | ✅ |
-| `intersystemsdc/irishealth-community:*` | ✅ | ✅ |
-| `containers.intersystems.com/intersystems/iris:*` (enterprise) | ❌ | ❌ direct |
-| `irishealth:2026.2.0AI.*` (AI Hub) | ❌ | ❌ direct |
-
-**For development: use `iris-community:YYYY.N` — identical ObjectScript/SQL/globals, same version.**
+Enterprise images have `WebServer=0` and no httpd binary. **The webgateway container DOES work** — but requires correct configuration (see three bugs below).
 
 ---
 
-## settings.json Configuration
+## Enterprise + Webgateway: The Working Pattern
+
+Verified working 2026-05-03 against `intersystems/iris:2026.1`.
+
+### docker-compose
+
+```yaml
+services:
+  iris:
+    image: containers.intersystems.com/intersystems/iris:2026.1
+    container_name: iris-enterprise
+    ports:
+      - "4972:1972"
+    volumes:
+      - ./iris.key:/usr/irissys/mgr/iris.key:ro
+    networks:
+      - iris-net
+
+  webgateway:
+    image: containers.intersystems.com/intersystems/webgateway:2026.1
+    container_name: iris-enterprise-webgateway
+    ports:
+      - "64780:80"
+    networks:
+      - iris-net
+    volumes:
+      - ./webgateway-init.sh:/webgateway-init.sh:ro
+    entrypoint: ["/bin/sh", "/webgateway-init.sh"]
+
+networks:
+  iris-net:
+    driver: bridge
+```
+
+### webgateway-init.sh (all three bugs fixed)
+
+```bash
+#!/bin/sh
+# Start the webgateway in background
+/startWebGateway &
+
+# BUG 1 FIX: Wait for CSP.ini to be fully initialized before patching
+for i in $(seq 1 60); do
+    grep -q "Configuration_Initialized" /opt/webgateway/bin/CSP.ini 2>/dev/null && break
+    sleep 1
+done
+
+# BUG 2 FIX: Add credentials to [LOCAL] server section.
+# Default tries CSPSystem which doesn't exist in fresh enterprise containers.
+# Must add Username/Password so the webgateway can authenticate to IRIS.
+sed -i '/^\[LOCAL\]/a Username=_SYSTEM\nPassword=SYS' /opt/webgateway/bin/CSP.ini
+
+# Point LOCAL at the IRIS container (use Docker service name, not localhost)
+sed -i 's/^Ip_Address=127\.0\.0\.1/Ip_Address=iris/' /opt/webgateway/bin/CSP.ini
+
+# BUG 3 FIX: Use CSP On directive (not SetHandler csp-handler-sa).
+# SetHandler in <Location> doesn't work — only CSP On routes correctly.
+# This is the ISC official pattern from webgateway-examples.
+cat > /etc/apache2/conf-enabled/CSP.conf << "EOF"
+CSPModulePath "${ISC_PACKAGE_INSTALLDIR}/bin/"
+CSPConfigPath "${ISC_PACKAGE_INSTALLDIR}/bin/"
+
+<Location />
+    CSP On
+</Location>
+
+<Directory "${ISC_PACKAGE_INSTALLDIR}/bin/">
+    AllowOverride None
+    Options None
+    Require all granted
+    <FilesMatch "\.(log|ini|pid|exe)$">
+         Require all denied
+    </FilesMatch>
+</Directory>
+EOF
+
+apachectl graceful 2>/dev/null || true
+wait
+```
+
+### After starting: unexpire passwords
+
+Fresh enterprise containers require a password change on first login. Run once:
+
+```bash
+docker exec -i iris-enterprise bash << 'EOF'
+iris session IRIS -U %SYS << 'IRISEOF'
+Do ##class(Security.Users).UnExpireUserPasswords("*")
+halt
+IRISEOF
+EOF
+```
+
+### Verify
+
+```bash
+curl -s -u "_SYSTEM:SYS" "http://localhost:64780/api/atelier/" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['content']['version'])"
+# → IRIS for UNIX ... 2026.1 ...
+```
+
+### VSCode settings.json
 
 ```jsonc
-// macOS: ~/Library/Application Support/Code/User/settings.json
-// Windows: %APPDATA%\Code\User\settings.json
-// Linux: ~/.config/Code/User/settings.json
 {
   "intersystems.servers": {
-    "my-iris": {
+    "iris-enterprise": {
       "webServer": {
         "host": "localhost",
-        "port": 52773,         // IRIS private web server — NOT 1972
+        "port": 64780,      // webgateway host port
         "pathPrefix": ""
       },
       "username": "_SYSTEM",
-      "description": "iris-community:2026.1"
+      "description": "IRIS enterprise via webgateway"
     }
-  },
-  "objectscript.conn": {
-    "server": "my-iris",
-    "ns": "USER",             // namespace to edit in
-    "active": true
   }
 }
 ```
 
-**If docker maps 52773 to a different host port** (e.g. `"64773:52773"`):
-```jsonc
-"port": 64773     // use the HOST port, not the container port
-```
-
 ---
 
-## Verify Before Opening VSCode
+## The Three Bugs (Hard-Won 2026-05-03)
+
+### Bug 1: CSP.ini race condition
+
+`/startWebGateway` writes CSP.ini asynchronously. If you `sed` it immediately, the file gets regenerated and your changes are lost. **Fix: poll for `Configuration_Initialized` in CSP.ini before patching.**
+
+### Bug 2: Missing credentials in `[LOCAL]`
+
+The webgateway's default `[LOCAL]` server section has no `Username`/`Password`. It tries to connect as `CSPSystem`, which doesn't exist in a fresh enterprise container. Result: `"Connection Validation Failed: 403 Access Denied"` in CSP.log. **Fix: add `Username=_SYSTEM` and `Password=SYS` to the `[LOCAL]` section.**
+
+### Bug 3: Wrong Apache directive
+
+`SetHandler csp-handler-sa` inside `<Location>` blocks does NOT route requests through the CSP module correctly — Apache's filesystem handler intercepts first and returns 404. The correct directive is `CSP On` inside `<Location />`. **This is the official ISC pattern from `intersystems-community/webgateway-examples`.** Using `SetHandler` is a dead end.
+
+### Diagnosis via CSP.log
 
 ```bash
-# Confirm Atelier REST is responding
-curl -s -u "_SYSTEM:SYS" "http://localhost:52773/api/atelier/" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['content']['version'])"
-# → IRIS for UNIX (Apple M3 Ultra) 2026.1 (Build 123U) ...
-
-# If 404: IRIS web server isn't running (enterprise image, or IRIS not fully started)
-# If 401: wrong credentials
-# If connection refused: wrong port or container not running
+docker exec iris-enterprise-webgateway tail -20 /opt/webgateway/logs/CSP.log
 ```
+
+- `"Connection Validation Failed: 403 Forbidden... Access Denied"` → Bug 2 (missing credentials)
+- `"Connection Validation Failed: 403... Password change required"` → need `UnExpireUserPasswords`
+- No request entries at all → Bug 3 (wrong Apache directive, CSP module never fires)
 
 ---
 
-## Common docker-compose Patterns
-
-### Community (recommended for VSCode dev)
+## Community (Direct, No Webgateway)
 
 ```yaml
 services:
   iris:
     image: intersystemsdc/iris-community:2026.1
-    container_name: iris-dev
     ports:
-      - "1972:1972"    # superserver (DBAPI/JDBC)
-      - "52773:52773"  # web server (VSCode/Atelier REST)
+      - "1972:1972"
+      - "52773:52773"
     environment:
       - ISC_CPF_MERGE_FILE=/tmp/merge.cpf
     volumes:
@@ -101,72 +189,23 @@ services:
 ```
 
 ```
-# merge.cpf
+# merge.cpf — prevents password expiry prompt
 [Actions]
-ModifyService:Name=%Service_CallIn,Enabled=1,AutheEnabled=48
 ModifyUser:Name=_SYSTEM,ChangePassword=0,PasswordNeverExpires=1
 ModifyUser:Name=SuperUser,ChangePassword=0,PasswordNeverExpires=1
 ```
 
-### Enterprise + Community (two-container for enterprise features + VSCode)
-
-```yaml
-services:
-  iris-enterprise:
-    image: containers.intersystems.com/intersystems/iris:2026.1
-    container_name: iris-enterprise
-    ports:
-      - "4972:1972"    # superserver only — NO web server
-    volumes:
-      - ./iris.key:/usr/irissys/mgr/iris.key:ro
-
-  iris-dev:
-    image: intersystemsdc/iris-community:2026.1
-    container_name: iris-community-dev
-    ports:
-      - "1972:1972"
-      - "52773:52773"  # ← VSCode connects here
-```
-
-VSCode settings.json uses `iris-community-dev` on port 52773.
-Enterprise-specific tests connect to `iris-enterprise` on port 4972 via DBAPI.
+VSCode settings.json uses `"port": 52773` (or the mapped host port).
 
 ---
 
-## iris-devtester Integration
-
-```python
-from iris_devtester import IRISContainer
-
-# community() exposes both ports — VSCode works immediately after start()
-with IRISContainer.community() as iris:
-    web_port = iris.get_mapped_port(52773)
-    print(f"VSCode port: {web_port}")
-    # Add to settings.json: "port": web_port
-```
-
----
-
-## What the Webgateway CAN'T Do
-
-The ISC webgateway (`containers.intersystems.com/intersystems/webgateway:*`) proxies:
-- ✅ CSP applications (Management Portal, legacy CSP pages)
-- ✅ `/csp/bin/Systems/` management endpoints
-- ❌ `/api/atelier/` — Atelier REST
-- ❌ Any REST endpoint served by IRIS's internal HTTP process
-
-Even with correct Apache `<Location>` blocks and CSP.ini `/api` entries, the CSP module returns 404 because the IRIS superserver doesn't handle REST routing. This is a 30-minute rabbit hole. Don't go down it.
-
----
-
-## Namespace Switching in VSCode
-
-Change `objectscript.conn.ns` in settings.json, or use the namespace picker in the VSCode status bar (bottom left, shows current namespace).
-
-To compile into a specific namespace from the CLI:
+## Verify Before Opening VSCode
 
 ```bash
-# iris-devtester
-from iris_devtester.containers.iris_container import IRISContainer
-iris.execute_objectscript("Do $SYSTEM.OBJ.Load('/path/to/file.cls', 'ck')", namespace="MYNS")
+curl -s -u "_SYSTEM:SYS" "http://localhost:52773/api/atelier/" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['content']['version'])"
+# 404 → web server not running (enterprise without webgateway, or IRIS still starting)
+# 401 → wrong credentials or expired password
+# 500 → webgateway connecting but auth failing (check CSP.log)
+# 200 + version string → working
 ```

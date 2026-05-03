@@ -14,33 +14,25 @@ tags: [iris, irishealth, fhir, ai-hub, docker, container, devtester, vscode, ate
 
 ---
 
-## CRITICAL: Enterprise Images Have No Web Server — Atelier REST Won't Work
+## CRITICAL: Enterprise Images Have No Private Web Server — Use the Webgateway Container
 
-**This burned 30 minutes in a session. Stop here before trying to set up a webgateway.**
-
-| Image | `WebServer` in iris.cpf | Port 52773 | Atelier REST | VSCode ObjectScript |
+| Image | `WebServer` in iris.cpf | Port 52773 direct | Atelier REST | Solution |
 |---|---|---|---|---|
-| `iris:2026.1` (enterprise) | `0` — disabled | ❌ | ❌ | ❌ direct |
-| `iris-community:2026.1` | `1` — enabled | ✅ | ✅ | ✅ |
-| `irishealth-community` | `1` — enabled | ✅ | ✅ | ✅ |
-| `irishealth:2026.2.0AI.*` | `0` — disabled | ❌ | ❌ | ❌ direct |
+| `iris:2026.1` (enterprise) | `0` — disabled | ❌ | ✅ via webgateway | See below |
+| `iris-community:2026.1` | `1` — enabled | ✅ | ✅ | Direct port 52773 |
+| `irishealth-community` | `1` — enabled | ✅ | ✅ | Direct port 52773 |
+| `irishealth:2026.2.0AI.*` | `0` — disabled | ❌ | ✅ via webgateway | See below |
 
-**Why a webgateway won't help:**
-- The ISC webgateway proxies **CSP protocol** → IRIS superserver (port 1972)
-- Atelier REST (`/api/atelier/`) is served by IRIS's **internal HTTP process** (port 52773)
-- The superserver does not speak HTTP. There is no way to proxy REST through it.
-- Even with correct Apache `<Location>` + CSP.ini `/api` entries, the CSP module returns 404 because IRIS's superserver doesn't handle REST routing
+Enterprise images have `WebServer=0` — the httpd binary and CSP.ini are not installed. However, **the `intersystems/webgateway` sidecar container DOES work** for Atelier REST. The webgateway uses `CSP On` (not `SetHandler`) to route all requests through the CSP module to IRIS via the superserver, and IRIS routes `/api/atelier/` internally.
 
-**The solution: use community edition of the same IRIS version**
+**Three bugs that cause 404/403/500 during setup** (verified 2026-05-03 — see `iris-vscode-objectscript` skill for full detail):
+1. CSP.ini race condition — patch after `Configuration_Initialized` appears, not immediately
+2. Missing credentials in `[LOCAL]` — add `Username=_SYSTEM` and `Password=SYS` to CSP.ini `[LOCAL]` section; default tries CSPSystem which doesn't exist
+3. Wrong Apache directive — use `CSP On` inside `<Location />`, NOT `SetHandler csp-handler-sa`
 
-Enterprise and community editions are identical for development purposes (same ObjectScript, SQL, globals). The only differences: enterprise supports mirroring/sharding/licensing features you don't need for dev.
+**Also required after first start:** `Do ##class(Security.Users).UnExpireUserPasswords("*")` in `%SYS` — fresh enterprise containers force a password change that blocks the webgateway connection.
 
-```
-iris-community:2026.1  →  port 52773 available  →  VSCode works
-iris:2026.1            →  port 52773 unavailable →  VSCode doesn't work directly
-```
-
-**If you genuinely need enterprise features AND VSCode**: use a two-container setup — enterprise on superserver port, community on web port — and develop against community while testing enterprise-specific features separately.
+Load the `iris-vscode-objectscript` skill for the complete working `webgateway-init.sh` and docker-compose.
 
 ---
 
