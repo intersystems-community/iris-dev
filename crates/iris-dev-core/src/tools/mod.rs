@@ -1085,6 +1085,24 @@ impl IrisTools {
         Parameters(p): Parameters<TestParams>,
     ) -> Result<CallToolResult, McpError> {
         tracing::info!(namespace = %p.namespace, pattern = %p.pattern, "iris_test");
+        // Fail fast if IRIS_CONTAINER is not set — docker exec is required and there
+        // is no point attempting the call only to discover this later.
+        if std::env::var("IRIS_CONTAINER")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .is_none()
+        {
+            self.record_call("iris_test", false);
+            return ok_json(serde_json::json!({
+                "success": false,
+                "error_code": "DOCKER_REQUIRED",
+                "error": "iris_test requires IRIS_CONTAINER to be set. \
+                    Set IRIS_CONTAINER=<container_name> and restart the MCP server. \
+                    To run unit tests without docker exec, use iris_execute to call \
+                    ##class(%UnitTest.Manager).RunTest() and query results from \
+                    ^UnitTestRoot globals.",
+            }));
+        }
         let iris = self.get_iris()?;
         let code = format!(
             "do ##class(%UnitTest.Manager).RunTest(\"{}\",\"/noload/run\")",
