@@ -3076,8 +3076,13 @@ Methods:
 impl ServerHandler for IrisTools {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::from_build_env())
-            .with_instructions("iris-dev v2: 20 composable tools for ObjectScript and IRIS development. No Python required.".to_string())
+            .with_server_info(Implementation::new(
+                "iris-dev".to_string(),
+                env!("CARGO_PKG_VERSION").to_string(),
+            ))
+            .with_instructions(
+                "iris-dev: composable MCP tools for ObjectScript and IRIS development.".to_string(),
+            )
     }
 }
 
