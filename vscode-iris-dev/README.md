@@ -15,6 +15,7 @@ Wires [iris-dev](https://github.com/intersystems-community/iris-dev) MCP tools i
 | `iris-dev.serverPath` | _(auto)_ | Full path to the iris-dev binary. Leave empty to use PATH. |
 | `iris-dev.containerName` | _(empty)_ | Docker container name for tools requiring direct IRIS access. |
 | `iris-dev.tlsVerify` | `true` | Verify TLS certificates. Set `false` for self-signed certs. |
+| `iris-dev.toolset` | `baseline` | Tool set: `baseline`, `nostub`, or `merged` (includes interop/container tools). |
 
 ## Links
 

@@ -55,6 +55,7 @@ export class IrisDevMcpProvider
         e.affectsConfiguration('iris-dev.containerName') ||
         e.affectsConfiguration('iris-dev.serverPath') ||
         e.affectsConfiguration('iris-dev.tlsVerify') ||
+        e.affectsConfiguration('iris-dev.toolset') ||
         e.affectsConfiguration('http.proxyStrictSSL') ||
         e.affectsConfiguration('intersystems.servers')
       ) {
@@ -108,6 +109,9 @@ export class IrisDevMcpProvider
       .getConfiguration('iris-dev')
       .get<string>('containerName');
     this.log.info(`iris-dev: containerName = ${containerName}`);
+
+    const toolset = vscode.workspace.getConfiguration('iris-dev').get<string>('toolset', 'baseline') || 'baseline';
+    this.log.info(`iris-dev: toolset = ${toolset}`);
 
     // TLS verification: disabled if iris-dev.tlsVerify=false OR http.proxyStrictSSL=false.
     const tlsVerifySetting = vscode.workspace.getConfiguration('iris-dev').get<boolean>('tlsVerify', true);
@@ -175,6 +179,7 @@ export class IrisDevMcpProvider
       IRIS_SERVER_NAME: conn.server ?? undefined,
       IRIS_CONTAINER: containerName ?? undefined,
       IRIS_TLS_VERIFY: tlsVerify ? undefined : 'false',
+      IRIS_TOOLSET: toolset !== 'baseline' ? toolset : undefined,
       OBJECTSCRIPT_LEARNING: 'true',
     };
     const env: Record<string, string | number> = Object.fromEntries(
