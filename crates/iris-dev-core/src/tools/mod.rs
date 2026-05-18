@@ -1211,7 +1211,23 @@ async fn list_iris_containers(workspace_basename: &str) -> Vec<serde_json::Value
                     let sp = extract_port(ports, "1972")
                         .map(|p| serde_json::json!(p))
                         .unwrap_or(serde_json::Value::Null);
+                    // idt only reports 1972 — get web port from docker inspect fallback
                     let wp = extract_port(ports, "52773")
+                        .or_else(|| {
+                            // idt didn't include web port — query docker directly
+                            std::process::Command::new("docker")
+                                .args(["port", &name, "52773"])
+                                .output()
+                                .ok()
+                                .and_then(|o| {
+                                    let raw = String::from_utf8_lossy(&o.stdout).to_string();
+                                    // output: "0.0.0.0:52780" or "[::]:52780" (one per line)
+                                    raw.lines()
+                                        .filter_map(|l| l.rsplit_once(':'))
+                                        .filter_map(|(_, p)| p.trim().parse::<u16>().ok())
+                                        .next()
+                                })
+                        })
                         .map(|p| serde_json::json!(p))
                         .unwrap_or(serde_json::Value::Null);
                     let score = score_container(&name, workspace_basename);
@@ -2793,6 +2809,16 @@ impl IrisTools {
         let connection_source =
             serde_json::to_value(&conn.source).unwrap_or(serde_json::Value::Null);
 
+        // Show where the MCP server is looking for .iris-dev.toml
+        // so agents know where to write it for mid-session config changes.
+        let config_watcher_path = {
+            let w = self.config_watcher.lock().unwrap();
+            w.as_ref()
+                .map(|w| w.config_path.to_string_lossy().to_string())
+                .map(serde_json::Value::String)
+                .unwrap_or(serde_json::Value::Null)
+        };
+
         let mut response = serde_json::json!({
             "connected": conn.iris.is_some(),
             "host": host,
@@ -2804,6 +2830,7 @@ impl IrisTools {
             "iris_version": iris_version,
             "write_tools_enabled": conn.write_tools_enabled,
             "connection_source": connection_source,
+            "config_watch_path": config_watcher_path,
         });
 
         if let Some(ref err) = conn.config_parse_error {
